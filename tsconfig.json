@@ -1,0 +1,6 @@
+{
+  "extends": "./packages/tsconfig/base.json",
+  "files": [],
+  "include": [],
+  "exclude": ["node_modules", "dist", ".output", ".turbo", ".wxt"]
+}
