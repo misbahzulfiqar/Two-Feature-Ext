@@ -38,6 +38,24 @@ const IMAGE_WAIT_SELECTOR = [
   'meta[property="og:image"]',
 ].join(", ");
 
+const CATEGORY_WAIT_SELECTOR = [
+  '[data-testid="breadcrumbs"]',
+  "nav[aria-label*='breadcrumb' i]",
+  ".seo-breadcrumb",
+  ".breadcrumbs",
+  '[data-testid="x-store-information"]',
+  'script[type="application/ld+json"]',
+].join(", ");
+
+const SPECIFICS_WAIT_SELECTOR = [
+  ".ux-labels-values",
+  '[data-testid="ux-labels-values"]',
+  ".ux-layout-section-evo__row",
+  ".ux-layout-section--aspects",
+  '[data-testid="x-about-this-item"]',
+  'script[type="application/ld+json"]',
+].join(", ");
+
 export function extractListingTitleInPage(parserSelectors) {
   const titleSelectors = parserSelectors?.title || [];
   const decodeHtmlEntities = (text) => {
@@ -326,6 +344,697 @@ export function extractListingImagesInPage(ebaySelectors) {
   return urls;
 }
 
+export function extractListingSpecificsInPage() {
+  const specifics = [];
+  const embeddedKeys = [
+    "nameValuePairs",
+    "additionalProperty",
+    "localizedAspects",
+    "itemSpecifics",
+    "aspects",
+  ];
+
+  const automotiveSpecKeys = [
+    "Brand",
+    "Manufacturer Part Number",
+    "OE/OEM Part Number",
+    "Other Part Number",
+    "Interchange Part Number",
+    "Type",
+    "Manufacturer",
+    "Placement on Vehicle",
+    "Part Number",
+    "Superseded Part Number",
+    "Country/Region of Manufacture",
+    "Performance Part",
+    "Universal Fitment",
+    "Vintage Part",
+    "Modified Item",
+    "Custom Bundle",
+    "Condition",
+    "Warranty",
+    "Make",
+    "Model",
+    "Year",
+    "Trim",
+    "Engine",
+    "Engine Size",
+    "Engine Type",
+    "Fuel Type",
+    "Transmission",
+    "Drive Type",
+    "Body Style",
+    "Doors",
+    "Cylinders",
+    "Vehicle Position",
+    "Color",
+    "Material",
+    "Finish",
+    "Features",
+    "Mounting Hardware Included",
+    "Items Included",
+    "OE Specification",
+    "Quantity",
+    "Number in Pack",
+    "Terminal Type",
+    "Connector Type",
+    "Voltage",
+    "Amperage",
+    "Wattage",
+  ];
+
+  const compactKey = (key) => String(key || "").replace(/[^a-z0-9]/gi, "").toLowerCase();
+
+  const automotiveKeyByCompact = new Map(
+    automotiveSpecKeys.map((key) => [compactKey(key), key]),
+  );
+
+  const automotiveKeyAliases = {
+    mpn: "Manufacturer Part Number",
+    manufacturerpartnumber: "Manufacturer Part Number",
+    oempartnumber: "OE/OEM Part Number",
+    oepartnumber: "OE/OEM Part Number",
+    oeoempartnumber: "OE/OEM Part Number",
+    otherpartnumber: "Other Part Number",
+    interchangepartnumber: "Interchange Part Number",
+    supersededpartnumber: "Superseded Part Number",
+    partnumber: "Part Number",
+    countryoforigin: "Country/Region of Manufacture",
+    countryofmanufacture: "Country/Region of Manufacture",
+    countryregionofmanufacture: "Country/Region of Manufacture",
+    manufacturerwarranty: "Warranty",
+    placementonvehicle: "Placement on Vehicle",
+    universalfitment: "Universal Fitment",
+    performancepart: "Performance Part",
+    vintagepart: "Vintage Part",
+    modifieditem: "Modified Item",
+    custombundle: "Custom Bundle",
+    numberinpack: "Number in Pack",
+    mountinghardwareincluded: "Mounting Hardware Included",
+    itemsincluded: "Items Included",
+    oespecification: "OE Specification",
+    enginesize: "Engine Size",
+    enginetype: "Engine Type",
+    fueltype: "Fuel Type",
+    drivetype: "Drive Type",
+    bodystyle: "Body Style",
+    vehicleposition: "Vehicle Position",
+    terminaltype: "Terminal Type",
+    connectortype: "Connector Type",
+  };
+
+  const canonicalizeKey = (key) => {
+    const compact = compactKey(key);
+    return automotiveKeyAliases[compact] || automotiveKeyByCompact.get(compact) || key;
+  };
+
+  const cleanText = (text) =>
+    String(text || "")
+      .replace(/\u00a0/g, " ")
+      .replace(/\s+/g, " ")
+      .replace(/\s*\[?read more\]?\s*$/i, "")
+      .replace(/:$/, "")
+      .trim();
+
+  const isRejectedKey = (key) =>
+    /^see all/i.test(key) ||
+    /^show more/i.test(key) ||
+    /^read more/i.test(key) ||
+    /^item specifics$/i.test(key) ||
+    /^about this item$/i.test(key) ||
+    /^about this product$/i.test(key) ||
+    /^shipping$/i.test(key) ||
+    /^delivery$/i.test(key) ||
+    /^payments?$/i.test(key) ||
+    /^returns?$/i.test(key) ||
+    /^watch list$/i.test(key) ||
+    /^item location$/i.test(key) ||
+    /^located in$/i.test(key) ||
+    /^handling time$/i.test(key) ||
+    /^labels$/i.test(key) ||
+    /^values$/i.test(key) ||
+    /^was$/i.test(key) ||
+    /^item price$/i.test(key) ||
+    /^estimated total$/i.test(key) ||
+    /^pickup$/i.test(key) ||
+    /^buy it now/i.test(key) ||
+    /^duration$/i.test(key) ||
+    /^start time$/i.test(key) ||
+    /^custom label$/i.test(key) ||
+    /^seller notes$/i.test(key) ||
+    /%\s*off/i.test(key) ||
+    /^us\s*\$/i.test(key) ||
+    /\$\d/.test(key);
+
+  const addSpecific = (rawKey, rawValue) => {
+    const key = canonicalizeKey(cleanText(rawKey));
+    let value = cleanText(rawValue);
+    if (!key || !value || isRejectedKey(key) || key.length > 80) {
+      return;
+    }
+    if (/^condition$/i.test(key) && value.length > 120) {
+      const shortCondition = value.match(
+        /^(new(?:\s+other)?|used|open box|refurbished|seller refurbished|manufacturer refurbished|for parts(?: or not working)?)/i,
+      );
+      value = shortCondition ? shortCondition[0] : value.slice(0, 120).trim();
+    }
+    if (value.length > 300) {
+      return;
+    }
+    const duplicate = specifics.some(
+      (item) =>
+        item.key.toLowerCase() === key.toLowerCase() &&
+        item.value.toLowerCase() === value.toLowerCase(),
+    );
+    if (!duplicate) {
+      specifics.push({ key, value });
+    }
+  };
+
+  const sliceBalanced = (text) => {
+    const open = text[0];
+    const close = open === "[" ? "]" : open === "{" ? "}" : null;
+    if (!close) return null;
+    let depth = 0;
+    let inString = false;
+    let escape = false;
+    for (let i = 0; i < text.length; i += 1) {
+      const ch = text[i];
+      if (inString) {
+        if (escape) {
+          escape = false;
+          continue;
+        }
+        if (ch === "\\") {
+          escape = true;
+          continue;
+        }
+        if (ch === '"') inString = false;
+        continue;
+      }
+      if (ch === '"') {
+        inString = true;
+        continue;
+      }
+      if (ch === open) depth += 1;
+      else if (ch === close) {
+        depth -= 1;
+        if (depth === 0) return text.slice(0, i + 1);
+      }
+    }
+    return null;
+  };
+
+  const flattenValue = (raw) => {
+    if (typeof raw === "string" || typeof raw === "number") return String(raw);
+    if (Array.isArray(raw)) return raw.map(flattenValue).filter(Boolean).join(", ");
+    if (!raw || typeof raw !== "object") return "";
+    return flattenValue(raw.localizedValue || raw.value || raw.content || raw.name || raw.Value);
+  };
+
+  const nameFromRecord = (record) => {
+    const raw =
+      record.name ||
+      record.key ||
+      record.label ||
+      record.localizedAspectName ||
+      record.localizedName ||
+      record.Name;
+    return typeof raw === "string" || typeof raw === "number" ? String(raw) : "";
+  };
+
+  const valueFromRecord = (record) => {
+    if (record.values !== undefined) return flattenValue(record.values);
+    return flattenValue(
+      record.value ||
+        record.content ||
+        record.localizedValue ||
+        record.localizedAspectValue ||
+        record.Value,
+    );
+  };
+
+  const looksLikeSpecificRecord = (record, parentKey) => {
+    const parent = String(parentKey || "").toLowerCase();
+    if (record["@type"] === "PropertyValue") return true;
+    if (Array.isArray(record.values) && nameFromRecord(record)) return true;
+    return Boolean(
+      nameFromRecord(record) &&
+        valueFromRecord(record) &&
+        /specific|aspect|namevalue|attribute|additionalproperty/.test(parent),
+    );
+  };
+
+  const scanObject = (obj, parentKey = "") => {
+    if (!obj || typeof obj !== "object") return;
+    if (Array.isArray(obj)) {
+      obj.forEach((item) => scanObject(item, parentKey));
+      return;
+    }
+
+    if (looksLikeSpecificRecord(obj, parentKey)) {
+      addSpecific(nameFromRecord(obj), valueFromRecord(obj));
+    }
+
+    const brand = obj.brand;
+    if (!parentKey || String(parentKey).toLowerCase() === "product") {
+      if (typeof brand === "string") addSpecific("Brand", brand);
+      else if (brand && typeof brand === "object" && brand.name) addSpecific("Brand", brand.name);
+    }
+
+    Object.entries(obj).forEach(([key, value]) => {
+      if (
+        (key.toLowerCase().includes("specific") ||
+          key.toLowerCase() === "aspects" ||
+          key.toLowerCase() === "localizedaspects" ||
+          key.toLowerCase() === "namevaluepairs" ||
+          key.toLowerCase() === "additionalproperty") &&
+        value &&
+        typeof value === "object" &&
+        !Array.isArray(value)
+      ) {
+        Object.entries(value).forEach(([specificKey, specificValue]) => {
+          if (typeof specificValue === "string" || typeof specificValue === "number") {
+            addSpecific(specificKey, String(specificValue));
+          }
+        });
+      }
+      if (value && typeof value === "object") scanObject(value, key);
+    });
+  };
+
+  const parseScriptPayloads = (text) => {
+    const payloads = [];
+    const trimmed = text.trim();
+    const tryParse = (raw) => {
+      try {
+        payloads.push(JSON.parse(raw));
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    if ((trimmed.startsWith("{") || trimmed.startsWith("[")) && tryParse(trimmed)) {
+      return payloads;
+    }
+    const firstObj = trimmed.search(/[{[]/);
+    if (firstObj >= 0) {
+      const sliced = sliceBalanced(trimmed.slice(firstObj));
+      if (sliced) tryParse(sliced);
+    }
+    return payloads;
+  };
+
+  const extractJsonAfterKey = (html, key) => {
+    const results = [];
+    const needle = `"${key}"`;
+    let searchFrom = 0;
+    while (searchFrom < html.length) {
+      const idx = html.indexOf(needle, searchFrom);
+      if (idx === -1) break;
+      searchFrom = idx + needle.length;
+      const afterKey = html.slice(searchFrom).replace(/^\s*:\s*/, "");
+      if (!afterKey.startsWith("{") && !afterKey.startsWith("[")) continue;
+      const sliced = sliceBalanced(afterKey);
+      if (!sliced) continue;
+      try {
+        results.push(JSON.parse(sliced));
+      } catch {
+        // ignore invalid JSON slices
+      }
+      if (results.length >= 8) break;
+    }
+    return results;
+  };
+
+  const addFromLabelValue = (row) => {
+    const label =
+      row.querySelector(".ux-labels-values__labels-content") ||
+      row.querySelector(".ux-labels-values__labels") ||
+      row.querySelector('[class*="labels"]');
+    const value =
+      row.querySelector(".ux-labels-values__values-content") ||
+      row.querySelector(".ux-labels-values__values") ||
+      row.querySelector('[class*="values"]');
+    addSpecific(label?.innerText || label?.textContent, value?.innerText || value?.textContent);
+  };
+
+  document
+    .querySelectorAll(
+      "dl.ux-labels-values, .ux-labels-values, [data-testid='ux-labels-values'], .ux-layout-section-evo__col",
+    )
+    .forEach(addFromLabelValue);
+
+  document.querySelectorAll(".ux-layout-section-evo__row").forEach((row) => {
+    row.querySelectorAll(".ux-labels-values, .ux-layout-section-evo__col").forEach(addFromLabelValue);
+  });
+
+  document.querySelectorAll("dl").forEach((dl) => {
+    const terms = dl.querySelectorAll("dt");
+    const descriptions = dl.querySelectorAll("dd");
+    terms.forEach((term, index) => {
+      addSpecific(term.innerText, descriptions[index]?.innerText);
+    });
+  });
+
+  document
+    .querySelectorAll(
+      '[data-testid="x-about-this-item"], .ux-layout-section--aspects, .x-about-this-item, #viTabs_0_is',
+    )
+    .forEach((section) => {
+      section.querySelectorAll(".ux-labels-values, .ux-layout-section-evo__col, dl").forEach((row) => {
+        addFromLabelValue(row);
+        const terms = row.querySelectorAll("dt");
+        const descriptions = row.querySelectorAll("dd");
+        terms.forEach((term, index) => {
+          addSpecific(term.innerText, descriptions[index]?.innerText);
+        });
+      });
+    });
+
+  document.querySelectorAll("script").forEach((script) => {
+    const text = (script.textContent || "").trim();
+    if (!text) return;
+    const scriptType = (script.getAttribute("type") || "").toLowerCase();
+    const isJsonScript =
+      scriptType.includes("ld+json") || scriptType.includes("application/json");
+    const looksEmbedded =
+      /nameValuePairs|additionalProperty|itemSpecifics|localizedAspects|"aspects"/.test(text);
+    if (!isJsonScript && !looksEmbedded) return;
+
+    parseScriptPayloads(text).forEach((payload) => scanObject(payload));
+    embeddedKeys.forEach((key) => {
+      extractJsonAfterKey(text, key).forEach((payload) => scanObject(payload, key));
+    });
+  });
+
+  const html = document.documentElement?.innerHTML || "";
+  if (html) {
+    embeddedKeys.forEach((key) => {
+      extractJsonAfterKey(html, key).forEach((payload) => scanObject(payload, key));
+    });
+
+    const decodedHtml = html.replace(/\\u0022/gi, '"').replace(/&quot;/g, '"');
+    const labelValueRe =
+      /ux-labels-values__labels[\s\S]{0,500}?ux-textspans[^>]*>([^<]{1,80})[\s\S]{0,800}?ux-labels-values__values[\s\S]{0,500}?ux-textspans[^>]*>([^<]{1,300})/gi;
+    for (const match of decodedHtml.matchAll(labelValueRe)) {
+      addSpecific(match[1], match[2]);
+    }
+
+    const nameValuesRe =
+      /"name"\s*:\s*"((?:\\.|[^"\\])+)"\s*,\s*"values"\s*:\s*(\[[^\]]*])/g;
+    for (const match of decodedHtml.matchAll(nameValuesRe)) {
+      try {
+        addSpecific(match[1], flattenValue(JSON.parse(match[2])));
+      } catch {
+        // ignore invalid values arrays
+      }
+    }
+  }
+
+  const preferredOrder = new Map(automotiveSpecKeys.map((key, index) => [compactKey(key), index]));
+  specifics.sort((left, right) => {
+    const leftOrder = preferredOrder.has(compactKey(left.key))
+      ? preferredOrder.get(compactKey(left.key))
+      : automotiveSpecKeys.length;
+    const rightOrder = preferredOrder.has(compactKey(right.key))
+      ? preferredOrder.get(compactKey(right.key))
+      : automotiveSpecKeys.length;
+    return leftOrder - rightOrder;
+  });
+
+  return specifics;
+}
+
+export function extractListingCategoriesInPage() {
+  const category = { id: "", name: "", path: [] };
+  const storeCategories = [];
+
+  const cleanText = (text) =>
+    String(text || "")
+      .replace(/\u00a0/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const uniqueNames = (names) => {
+    const seen = new Set();
+    const unique = [];
+    names.forEach((name) => {
+      const key = name.toLowerCase();
+      if (!name || seen.has(key)) return;
+      seen.add(key);
+      unique.push(name);
+    });
+    return unique;
+  };
+
+  const isRejectedMarketplaceName = (name) =>
+    /^(home|ebay|back to search|all categories|see all|shop by category)$/i.test(name);
+
+  const isRejectedStoreName = (name) =>
+    /^(home|ebay|see all|visit store|seller information|feedback|contact)$/i.test(name);
+
+  const isStoreHref = (href) =>
+    /\/str\//i.test(href) ||
+    /stores\.ebay\./i.test(href) ||
+    /[?&]_ssn=/i.test(href) ||
+    /[?&]storecat=/i.test(href) ||
+    /[?&]_storecat=/i.test(href) ||
+    /[?&]_sc=1/i.test(href);
+
+  const categoryIdFromHref = (href) => {
+    if (!href) return "";
+    const sacat = href.match(/[?&]_sacat=(\d+)/i);
+    if (sacat?.[1]) return sacat[1];
+    const categoryId = href.match(/[?&](?:category[_-]?id|catid)=(\d+)/i);
+    if (categoryId?.[1]) return categoryId[1];
+    const bMatch = href.match(/\/b\/[^/?#]+\/(\d+)(?:\/|$)/i);
+    if (bMatch?.[1]) return bMatch[1];
+    const schMatch = href.match(/\/sch\/(\d+)\//i);
+    if (schMatch?.[1]) return schMatch[1];
+    return "";
+  };
+
+  const storeCategoryIdFromHref = (href) => {
+    if (!href) return "";
+    const storecat = href.match(/[?&](?:storecat|_storecat)=(\d+)/i);
+    return storecat?.[1] || "";
+  };
+
+  const addStoreCategory = (name, href = "", id = "") => {
+    const cleaned = cleanText(name);
+    if (!cleaned || isRejectedStoreName(cleaned) || isRejectedMarketplaceName(cleaned)) {
+      return;
+    }
+    if (categoryIdFromHref(href) && !isStoreHref(href)) return;
+    const exists = storeCategories.some(
+      (item) => item.name.toLowerCase() === cleaned.toLowerCase(),
+    );
+    if (exists) return;
+    const entry = { name: cleaned };
+    const storeId = id || storeCategoryIdFromHref(href);
+    if (storeId) entry.id = storeId;
+    storeCategories.push(entry);
+  };
+
+  const itemSelectors = [
+    '[data-testid="breadcrumbs"] a',
+    '[data-testid="x-breadcrumb"] a',
+    "nav[aria-label*='breadcrumb' i] a",
+    "nav.breadcrumbs a",
+    ".seo-breadcrumb a",
+    ".breadcrumbs a",
+    "ol.breadcrumb a",
+    ".x-breadcrumb a",
+    ".ux-section-breadcrumbs a",
+    '[class*="breadcrumb"] a',
+  ];
+
+  const storeSelectors = [
+    '[data-testid*="store-categor"] a',
+    '[data-testid="x-store-information"] a',
+    ".x-store-information a",
+    ".str-categories a",
+    ".store-categories a",
+    '[class*="store-categor"] a',
+    '[class*="storeCategories"] a',
+    'a[href*="/str/"]',
+    'a[href*="storecat"]',
+    'a[href*="_storecat"]',
+  ];
+
+  const pathEntries = [];
+  for (const selector of itemSelectors) {
+    const links = document.querySelectorAll(selector);
+    if (!links.length) continue;
+    links.forEach((link) => {
+      const name = cleanText(link.innerText || link.textContent);
+      const href = link.href || link.getAttribute("href") || "";
+      if (!name || isRejectedMarketplaceName(name) || isStoreHref(href)) return;
+      pathEntries.push({ name, href });
+    });
+    if (pathEntries.length) break;
+  }
+
+  if (pathEntries.length) {
+    category.path = uniqueNames(pathEntries.map((entry) => entry.name));
+    category.name = category.path[category.path.length - 1] || "";
+    const lastWithId = [...pathEntries]
+      .reverse()
+      .find((entry) => categoryIdFromHref(entry.href));
+    category.id = lastWithId ? categoryIdFromHref(lastWithId.href) : "";
+  }
+
+  storeSelectors.forEach((selector) => {
+    document.querySelectorAll(selector).forEach((link) => {
+      addStoreCategory(link.innerText || link.textContent, link.href || link.getAttribute("href") || "");
+    });
+  });
+
+  const collectFromJson = (obj, parentKey = "") => {
+    if (!obj || typeof obj !== "object") return;
+    if (Array.isArray(obj)) {
+      obj.forEach((item) => collectFromJson(item, parentKey));
+      return;
+    }
+
+    const parent = String(parentKey || "").toLowerCase();
+    const type = obj["@type"];
+    const isBreadcrumb =
+      type === "BreadcrumbList" ||
+      (Array.isArray(type) && type.includes("BreadcrumbList")) ||
+      parent.includes("breadcrumb");
+
+    if (isBreadcrumb) {
+      const elements = Array.isArray(obj.itemListElement) ? obj.itemListElement : [];
+      const names = elements
+        .map((item) => {
+          if (!item || typeof item !== "object") return { name: "", href: "" };
+          const href =
+            typeof item.item === "string"
+              ? item.item
+              : item.item?.["@id"] || item.item?.id || item.item?.url || "";
+          return { name: cleanText(item.name), href: String(href || "") };
+        })
+        .filter(
+          (entry) =>
+            entry.name &&
+            !isRejectedMarketplaceName(entry.name) &&
+            !isStoreHref(entry.href),
+        );
+      if (names.length > category.path.length) {
+        category.path = names.map((entry) => entry.name);
+        category.name = names[names.length - 1]?.name || category.name;
+        const lastWithId = [...names]
+          .reverse()
+          .find((entry) => categoryIdFromHref(entry.href));
+        if (lastWithId && !category.id) category.id = categoryIdFromHref(lastWithId.href);
+      }
+    }
+
+    if (typeof obj.category === "string" && !parent.includes("store")) {
+      const parts = obj.category
+        .split(/>|\/|\|/)
+        .map(cleanText)
+        .filter((part) => part && !isRejectedMarketplaceName(part));
+      if (parts.length > category.path.length) {
+        category.path = uniqueNames(parts);
+        category.name = category.path[category.path.length - 1] || category.name;
+      }
+    }
+
+    const maybeId =
+      (obj.categoryId && String(obj.categoryId)) ||
+      (obj.categoryID && String(obj.categoryID)) ||
+      (obj.leafCategoryId && String(obj.leafCategoryId)) ||
+      (obj.primaryCategoryId && String(obj.primaryCategoryId)) ||
+      (obj.primaryCategory &&
+        (obj.primaryCategory.categoryId || obj.primaryCategory.id) &&
+        String(obj.primaryCategory.categoryId || obj.primaryCategory.id)) ||
+      "";
+    const maybeName = cleanText(
+      obj.categoryName ||
+        obj.primaryCategoryName ||
+        obj.primaryCategory?.categoryName ||
+        obj.primaryCategory?.name ||
+        "",
+    );
+    const maybePath = Array.isArray(obj.categoryPath)
+      ? obj.categoryPath.map(cleanText).filter(Boolean)
+      : typeof obj.categoryPath === "string"
+        ? obj.categoryPath.split(/>|\/|\|/).map(cleanText).filter(Boolean)
+        : [];
+
+    if (!parent.includes("store") && (maybeId || maybeName || maybePath.length)) {
+      if (maybeId && !category.id) category.id = cleanText(maybeId);
+      if (maybeName && !isRejectedMarketplaceName(maybeName) && !category.name) {
+        category.name = maybeName;
+      }
+      if (maybePath.length > category.path.length) {
+        category.path = uniqueNames(
+          maybePath.filter((name) => !isRejectedMarketplaceName(name)),
+        );
+        if (!category.name) category.name = category.path[category.path.length - 1] || "";
+      }
+    }
+
+    const storeName = cleanText(
+      obj.storeCategoryName ||
+        obj.storeCategory2Name ||
+        (parent.includes("store") && parent.includes("categor") ? obj.name : ""),
+    );
+    const storeId = cleanText(
+      obj.storeCategoryId || obj.storeCategory2Id || obj.storeCategoryID || "",
+    );
+    if (storeName) addStoreCategory(storeName, "", storeId);
+
+    Object.entries(obj).forEach(([key, value]) => {
+      if (value && typeof value === "object") collectFromJson(value, key);
+    });
+  };
+
+  document.querySelectorAll("script").forEach((script) => {
+    const text = (script.textContent || "").trim();
+    if (!text) return;
+    const type = (script.getAttribute("type") || "").toLowerCase();
+    const interesting =
+      type.includes("ld+json") ||
+      type.includes("application/json") ||
+      /categoryId|categoryName|storeCategory|BreadcrumbList|primaryCategory/i.test(text);
+    if (!interesting) return;
+
+    const tryParse = (raw) => {
+      try {
+        collectFromJson(JSON.parse(raw));
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    if (text.startsWith("{") || text.startsWith("[")) {
+      tryParse(text);
+      return;
+    }
+    const firstObj = text.search(/[{[]/);
+    if (firstObj >= 0) {
+      tryParse(text.slice(firstObj));
+    }
+  });
+
+  if (!category.name && category.path.length) {
+    category.name = category.path[category.path.length - 1] || "";
+  }
+  if (category.name && !category.path.length) {
+    category.path = [category.name];
+  }
+
+  return { category, storeCategories };
+}
+
+export async function getItemSpecifics(page) {
+  return page.evaluate(extractListingSpecificsInPage);
+}
+
 export async function fetchEbayListing(page, listingUrl) {
   await page.goto(listingUrl, { waitUntil: "domcontentloaded" });
   await page
@@ -334,14 +1043,33 @@ export async function fetchEbayListing(page, listingUrl) {
   await page
     .waitForSelector(IMAGE_WAIT_SELECTOR, { timeout: 8000 })
     .catch(() => undefined);
+  await page
+    .waitForSelector(SPECIFICS_WAIT_SELECTOR, { timeout: 8000 })
+    .catch(() => undefined);
+  await page
+    .waitForSelector(CATEGORY_WAIT_SELECTOR, { timeout: 5000 })
+    .catch(() => undefined);
 
   const title = await page.evaluate(extractListingTitleInPage, PARSER_SELECTORS);
   const images = await page.evaluate(extractListingImagesInPage, EBAY_SELECTORS);
+  const itemSpecifics = await getItemSpecifics(page);
+  const categories = await page.evaluate(extractListingCategoriesInPage);
+  const category = categories?.category || { id: "", name: "", path: [] };
+  const storeCategories = Array.isArray(categories?.storeCategories)
+    ? categories.storeCategories
+    : [];
 
   return {
     title: typeof title === "string" ? title.trim() : "",
     sku: "",
     price: "",
     images: Array.isArray(images) ? images : [],
+    itemSpecifics: Array.isArray(itemSpecifics) ? itemSpecifics : [],
+    category: {
+      id: typeof category.id === "string" ? category.id : String(category.id || ""),
+      name: typeof category.name === "string" ? category.name : "",
+      path: Array.isArray(category.path) ? category.path.filter(Boolean) : [],
+    },
+    storeCategories,
   };
 }

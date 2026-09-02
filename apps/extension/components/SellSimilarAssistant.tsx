@@ -1,17 +1,15 @@
 import { useState, type ChangeEvent, type FormEvent } from "react";
+import { fillEbayListingCategories } from "../lib/fill-ebay-categories.ts";
 import { fillEbayListingImages } from "../lib/fill-ebay-images.ts";
+import { fillEbayListingSpecifics } from "../lib/fill-ebay-specifics.ts";
 import { fillEbayListingTitle } from "../lib/fill-ebay-title.ts";
 import { scrapeSourceListing } from "../lib/scrape-source-title.ts";
 import { ControlField } from "./ControlField.tsx";
 import { FieldRow } from "./FieldRow.tsx";
-import { GlobeIcon, LayersIcon, LinkIcon, SparkleIcon } from "./Icons.tsx";
+import { SparkleIcon } from "./Icons.tsx";
 import { ProgressBar } from "./ProgressBar.tsx";
-import {
-  SCRAPE_MODES,
-  isScrapeMode,
-  scrapeModeLabel,
-  type ScrapeMode,
-} from "./scrape-mode.ts";
+import { ScrapeModeSelect } from "./ScrapeModeSelect.tsx";
+import type { ScrapeMode } from "./scrape-mode.ts";
 import "./SellSimilarAssistant.css";
 
 const SAMPLE_SOURCE_URL = "https://www.ebay.com/itm/453712381834";
@@ -23,11 +21,8 @@ export function SellSimilarAssistant() {
   const [statusMessage, setStatusMessage] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
 
-  function handleScrapeModeChange(event: ChangeEvent<HTMLSelectElement>): void {
-    const { value } = event.target;
-    if (isScrapeMode(value)) {
-      setScrapeMode(value);
-    }
+  function handleScrapeModeChange(mode: ScrapeMode): void {
+    setScrapeMode(mode);
   }
 
   function handleSourceChange(event: ChangeEvent<HTMLInputElement>): void {
@@ -47,7 +42,7 @@ export function SellSimilarAssistant() {
     try {
       switch (scrapeMode) {
         case "full-scrape": {
-          setStatusMessage("Fetching listing title and images...");
+          setStatusMessage("Fetching listing title, images, and specs...");
           setProgress(28);
           const listing = await scrapeSourceListing(source);
           setProgress(55);
@@ -64,30 +59,49 @@ export function SellSimilarAssistant() {
 
           if (!filledTitle) {
             setProgress(100);
-            setStatusMessage(
-              `Found title, but the Title field was not on this page: ${listing.title}`,
-            );
+            setStatusMessage("Found title, but the Title field was not on this page");
             return;
           }
 
           setStatusMessage("Adding photos...");
           const filledImages = await fillEbayListingImages(listing.images);
+          setProgress(84);
+
+          setStatusMessage("Updating item category and store category...");
+          const categoryResult = await fillEbayListingCategories(
+            listing.category,
+            listing.storeCategories,
+          );
+          setProgress(92);
+
+          setStatusMessage("Replacing item specifics...");
+          const specResult = await fillEbayListingSpecifics(listing.itemSpecifics);
           setProgress(100);
 
-          if (listing.images.length === 0) {
-            setStatusMessage(`Filled title: ${listing.title}. No photos found.`);
-            return;
-          }
-
-          if (filledImages === 0) {
-            setStatusMessage(
-              `Filled title: ${listing.title}. Found ${listing.images.length} photos, but the photo uploader was not on this page.`,
-            );
-            return;
-          }
+          const photoSummary =
+            listing.images.length === 0
+              ? "No photos found"
+              : filledImages === 0
+                ? `Found ${listing.images.length} photos, but the photo uploader was not on this page`
+                : `Added ${filledImages} photo${filledImages === 1 ? "" : "s"}`;
+          const specSummary =
+            listing.itemSpecifics.length === 0
+              ? "no item specifics found"
+              : `filled ${specResult.filled} of ${listing.itemSpecifics.length} item specifics`;
+          const categorySummary = categoryResult.itemCategory
+            ? "updated item category"
+            : listing.category.name
+              ? "could not update item category"
+              : "no item category found";
+          const storeSummary =
+            listing.storeCategories.length === 0
+              ? "no store category found"
+              : categoryResult.storeCategories > 0
+                ? `updated ${categoryResult.storeCategories} store categor${categoryResult.storeCategories === 1 ? "y" : "ies"}`
+                : "could not update store category";
 
           setStatusMessage(
-            `Filled title: ${listing.title}. Added ${filledImages} photo${filledImages === 1 ? "" : "s"}.`,
+            `Filled title. ${photoSummary}. ${specSummary}. ${categorySummary}. ${storeSummary}.`,
           );
           return;
         }
@@ -114,35 +128,16 @@ export function SellSimilarAssistant() {
   return (
     <section className="assistant" aria-label="Sell Similar Assistant">
       <form className="assistant-form" onSubmit={handleSubmit}>
-        <FieldRow
-          label="Scrape mode"
-          hint="Choose what data you want to scrape"
-          htmlFor="scrape-mode"
-          icon={<LayersIcon />}
-        >
-          <ControlField showChevron>
-            <select
-              id="scrape-mode"
-              name="scrapeMode"
-              value={scrapeMode}
-              onChange={handleScrapeModeChange}
-            >
-              {SCRAPE_MODES.map((mode) => (
-                <option key={mode} value={mode}>
-                  {scrapeModeLabel(mode)}
-                </option>
-              ))}
-            </select>
-          </ControlField>
+        <FieldRow label="Scrape mode" htmlFor="scrape-mode">
+          <ScrapeModeSelect
+            id="scrape-mode"
+            value={scrapeMode}
+            onChange={handleScrapeModeChange}
+          />
         </FieldRow>
 
-        <FieldRow
-          label="Source URL / ID"
-          hint="Enter eBay listing URL or Item ID"
-          htmlFor="source-url"
-          icon={<LinkIcon />}
-        >
-          <ControlField leading={<GlobeIcon />}>
+        <FieldRow label="Source URL / ID" htmlFor="source-url">
+          <ControlField>
             <input
               id="source-url"
               name="source"

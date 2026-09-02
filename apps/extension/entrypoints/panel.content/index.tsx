@@ -38,8 +38,9 @@ function injectHostPageStyles(): void {
   grid-area: auto !important;
   inset: auto !important;
   transform: none !important;
-  z-index: auto !important;
+  z-index: 20 !important;
   box-sizing: border-box !important;
+  overflow: visible !important;
   background: transparent !important;
   border: none !important;
   box-shadow: none !important;
@@ -68,7 +69,8 @@ function applyInFlowHostStyles(shadowHost: HTMLElement, container: HTMLElement):
   shadowHost.style.setProperty("flex", "0 0 auto", "important");
   shadowHost.style.setProperty("inset", "auto", "important");
   shadowHost.style.setProperty("transform", "none", "important");
-  shadowHost.style.setProperty("z-index", "auto", "important");
+  shadowHost.style.setProperty("overflow", "visible", "important");
+  shadowHost.style.setProperty("z-index", "20", "important");
   shadowHost.style.setProperty("box-sizing", "border-box", "important");
 
   container.style.display = "block";

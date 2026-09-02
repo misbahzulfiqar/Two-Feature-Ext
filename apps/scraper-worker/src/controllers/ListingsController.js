@@ -31,6 +31,9 @@ export async function processListing(page, listingUrl, options = {}) {
     sku: "",
     price: "",
     images: [],
+    itemSpecifics: [],
+    category: { id: "", name: "", path: [] },
+    storeCategories: [],
     fitment: [],
   };
 
@@ -41,6 +44,9 @@ export async function processListing(page, listingUrl, options = {}) {
       listingData.sku = fetched.sku;
       listingData.price = fetched.price;
       listingData.images = fetched.images || [];
+      listingData.itemSpecifics = fetched.itemSpecifics || [];
+      listingData.category = fetched.category || { id: "", name: "", path: [] };
+      listingData.storeCategories = fetched.storeCategories || [];
 
       if (!listingData.title) {
         return {

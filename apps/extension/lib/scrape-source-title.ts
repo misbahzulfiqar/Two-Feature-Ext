@@ -1,4 +1,13 @@
+import {
+  getListingCategoriesFromHtml,
+  type ListingCategory,
+  type StoreCategory,
+} from "./extract-listing-categories.ts";
 import { extractListingImagesFromDocument } from "./extract-listing-images.ts";
+import {
+  getItemSpecificsFromHtml,
+  type ItemSpecific,
+} from "./extract-listing-specifics.ts";
 import { extractListingTitleFromDocument } from "./extract-listing-title.ts";
 import {
   SCRAPE_LISTING_HTML,
@@ -10,6 +19,9 @@ const ITEM_ID_PATTERN = /^\d{6,}$/;
 export type ScrapedListing = {
   title: string;
   images: string[];
+  itemSpecifics: ItemSpecific[];
+  category: ListingCategory;
+  storeCategories: StoreCategory[];
 };
 
 export function resolveSourceListingUrl(source: string): string {
@@ -53,9 +65,13 @@ export async function scrapeSourceListing(source: string): Promise<ScrapedListin
   }
 
   const doc = new DOMParser().parseFromString(response.html, "text/html");
+  const categories = getListingCategoriesFromHtml(response.html);
   return {
     title: extractListingTitleFromDocument(doc),
     images: extractListingImagesFromDocument(doc),
+    itemSpecifics: getItemSpecificsFromHtml(response.html),
+    category: categories.category,
+    storeCategories: categories.storeCategories,
   };
 }
 

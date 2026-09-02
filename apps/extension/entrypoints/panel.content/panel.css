@@ -7,7 +7,7 @@
   float: none !important;
   clear: both !important;
   inset: auto !important;
-  z-index: auto !important;
+  z-index: 20 !important;
   margin: 0 !important;
   padding: 0 !important;
   overflow: visible !important;
@@ -21,12 +21,5 @@
   display: block;
   width: 100%;
   position: static;
-}
-
-svg {
-  width: 18px !important;
-  height: 18px !important;
-  max-width: 18px !important;
-  max-height: 18px !important;
-  overflow: hidden !important;
+  overflow: visible;
 }
