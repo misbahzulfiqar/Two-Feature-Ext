@@ -1,0 +1,30 @@
+{
+  "name": "@sell-similar/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "check-types": "tsc --noEmit",
+    "clean": "node --input-type=module -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true });\""
+  },
+  "dependencies": {
+    "@sell-similar/config": "workspace:*",
+    "@sell-similar/contracts": "workspace:*",
+    "@sell-similar/ebay-models": "workspace:*",
+    "@sell-similar/logging": "workspace:*",
+    "@sell-similar/validation": "workspace:*",
+    "better-auth": "^1.7.2",
+    "express": "^5.2.1",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@sell-similar/tsconfig": "workspace:*",
+    "@types/express": "^5.0.6",
+    "@types/node": "catalog:",
+    "tsx": "^4.23.12",
+    "typescript": "catalog:"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "name": "@sell-similar/api-client",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch --preserveWatchOutput",
+    "check-types": "tsc --noEmit",
+    "clean": "node --input-type=module -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true });\""
+  },
+  "dependencies": {
+    "@sell-similar/contracts": "workspace:*",
+    "@sell-similar/validation": "workspace:*"
+  },
+  "devDependencies": {
+    "@sell-similar/tsconfig": "workspace:*",
+    "typescript": "catalog:"
+  }
+}

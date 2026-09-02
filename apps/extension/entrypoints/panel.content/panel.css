@@ -1,0 +1,25 @@
+:host {
+  display: block !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  height: auto !important;
+  position: static !important;
+  float: none !important;
+  clear: both !important;
+  inset: auto !important;
+  z-index: 20 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: visible !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  box-sizing: border-box !important;
+}
+
+.assistant-root {
+  display: block;
+  width: 100%;
+  position: static;
+  overflow: visible;
+}

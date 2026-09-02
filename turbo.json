@@ -1,0 +1,26 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "ui": "tui",
+  "concurrency": "20",
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "inputs": ["$TURBO_DEFAULT$", "!**/*.md"],
+      "outputs": ["dist/**", ".output/**"]
+    },
+    "dev": {
+      "dependsOn": ["^build"],
+      "cache": false,
+      "persistent": true
+    },
+    "check-types": {
+      "dependsOn": ["^build"]
+    },
+    "lint": {
+      "dependsOn": ["^lint"]
+    },
+    "clean": {
+      "cache": false
+    }
+  }
+}

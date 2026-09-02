@@ -1,0 +1,34 @@
+:root {
+  color-scheme: light;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+}
+
+body {
+  min-width: 280px;
+  background: #f4f6fb;
+  font-family: Inter, Segoe UI, system-ui, sans-serif;
+}
+
+.popup-note {
+  box-sizing: border-box;
+  padding: 16px 18px;
+  color: #0b1f4a;
+}
+
+.popup-note h1 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.popup-note p {
+  margin: 8px 0 0;
+  color: #6b778c;
+  font-size: 13px;
+  line-height: 1.4;
+}
