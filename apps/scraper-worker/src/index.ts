@@ -5,6 +5,7 @@ import { scrapeListingJobPayloadSchema } from "@sell-similar/validation";
 import { Worker } from "bullmq";
 import { Redis } from "ioredis";
 import { createBrowser } from "./browser.js";
+import { processListing } from "./controllers/ListingsController.js";
 import { scraperEnvSchema } from "./env.js";
 
 loadRootEnv();
@@ -23,10 +24,9 @@ const worker = new Worker<ScrapeListingJobPayload>(
     const browser = await createBrowser(env);
     try {
       const page = await browser.newPage();
-      await page.goto(payload.listingUrl, { waitUntil: "domcontentloaded" });
-      const title = await page.title();
-      log.info({ title }, "scrape-listing completed");
-      return { title };
+      const result = await processListing(page, payload.listingUrl);
+      log.info({ result }, "scrape-listing completed");
+      return result;
     } finally {
       await browser.close();
     }

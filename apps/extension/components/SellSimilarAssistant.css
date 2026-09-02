@@ -148,8 +148,9 @@
 }
 
 .control-field input::placeholder {
-  color: #9aa6bb;
-  font-weight: 500;
+  color: #c5cad3;
+  font-weight: 400;
+  opacity: 1;
 }
 
 .process-button {

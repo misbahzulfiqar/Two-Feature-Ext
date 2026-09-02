@@ -1,10 +1,6 @@
-import {
-  useEffect,
-  useRef,
-  useState,
-  type ChangeEvent,
-  type FormEvent,
-} from "react";
+import { useState, type ChangeEvent, type FormEvent } from "react";
+import { fillEbayListingTitle } from "../lib/fill-ebay-title.ts";
+import { scrapeSourceTitle } from "../lib/scrape-source-title.ts";
 import { ControlField } from "./ControlField.tsx";
 import { FieldRow } from "./FieldRow.tsx";
 import { GlobeIcon, LayersIcon, LinkIcon, SparkleIcon } from "./Icons.tsx";
@@ -21,30 +17,10 @@ const SAMPLE_SOURCE_URL = "https://www.ebay.com/itm/453712381834";
 
 export function SellSimilarAssistant() {
   const [scrapeMode, setScrapeMode] = useState<ScrapeMode>("full-scrape");
-  const [source, setSource] = useState(SAMPLE_SOURCE_URL);
+  const [source, setSource] = useState("");
   const [progress, setProgress] = useState(0);
   const [statusMessage, setStatusMessage] = useState("");
-  const [vehicleCount, setVehicleCount] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
-  const timersRef = useRef<number[]>([]);
-
-  useEffect(() => {
-    return () => {
-      clearTimers();
-    };
-  }, []);
-
-  function clearTimers(): void {
-    for (const timer of timersRef.current) {
-      window.clearTimeout(timer);
-    }
-    timersRef.current = [];
-  }
-
-  function queueTimeout(callback: () => void, delayMs: number): void {
-    const timer = window.setTimeout(callback, delayMs);
-    timersRef.current.push(timer);
-  }
 
   function handleScrapeModeChange(event: ChangeEvent<HTMLSelectElement>): void {
     const { value } = event.target;
@@ -57,22 +33,62 @@ export function SellSimilarAssistant() {
     setSource(event.target.value);
   }
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>): void {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
-    clearTimers();
+    if (isProcessing) {
+      return;
+    }
+
     setIsProcessing(true);
     setProgress(8);
-    setStatusMessage("Extracting vehicle compatibility...");
-    setVehicleCount(0);
+    setStatusMessage("");
 
-    queueTimeout(() => setProgress(36), 220);
-    queueTimeout(() => setProgress(72), 480);
-    queueTimeout(() => {
-      setProgress(100);
-      setVehicleCount(184);
+    try {
+      switch (scrapeMode) {
+        case "full-scrape": {
+          setStatusMessage("Fetching listing title...");
+          setProgress(28);
+          const title = await scrapeSourceTitle(source);
+          setProgress(72);
+
+          if (!title) {
+            setProgress(100);
+            setStatusMessage("Could not find a title on that listing");
+            return;
+          }
+
+          setStatusMessage("Filling Title field...");
+          const filled = fillEbayListingTitle(title);
+          setProgress(100);
+
+          if (!filled) {
+            setStatusMessage(
+              `Found title, but the Title field was not on this page: ${title}`,
+            );
+            return;
+          }
+
+          setStatusMessage(`Filled title: ${title}`);
+          return;
+        }
+        case "only-fitment": {
+          setProgress(100);
+          setStatusMessage("Fitment scrape is not implemented yet");
+          return;
+        }
+        default: {
+          const exhaustive: never = scrapeMode;
+          throw new Error(`Unhandled scrape mode: ${String(exhaustive)}`);
+        }
+      }
+    } catch (error) {
+      setProgress(0);
+      setStatusMessage(
+        error instanceof Error ? error.message : "Could not scrape listing title",
+      );
+    } finally {
       setIsProcessing(false);
-      setStatusMessage("Listing details ready to fill");
-    }, 720);
+    }
   }
 
   return (
@@ -152,13 +168,6 @@ export function SellSimilarAssistant() {
               Enter a source listing and process to fill this form
             </span>
           )}
-          {vehicleCount > 0 ? (
-            <span className="activity-result">
-              {" "}
-              Found <span className="highlight">{vehicleCount}</span> compatible
-              vehicles
-            </span>
-          ) : null}
         </p>
       </div>
     </section>
