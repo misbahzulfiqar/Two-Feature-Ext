@@ -66,7 +66,7 @@ export async function scrapeSourceListing(source: string): Promise<ScrapedListin
   })) as ScrapeListingResponseMessage;
 
   if (!response?.ok) {
-    throw new Error(response?.error || "Could not scrape listing");
+    throw new Error(response?.error || "Couldn't scrape listing");
   }
 
   return toScrapedListing(response.data);
