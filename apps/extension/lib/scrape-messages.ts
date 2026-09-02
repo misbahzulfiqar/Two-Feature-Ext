@@ -1,17 +1,19 @@
-export const SCRAPE_LISTING_HTML = "scrape-listing-html";
+import type { ScrapedListingData } from "@sell-similar/contracts";
 
-export type ScrapeListingHtmlRequest = {
-  type: typeof SCRAPE_LISTING_HTML;
+export const SCRAPE_LISTING = "scrape-listing";
+
+export type ScrapeListingRequestMessage = {
+  type: typeof SCRAPE_LISTING;
   listingUrl: string;
 };
 
-export type ScrapeListingHtmlResponse =
-  | { ok: true; html: string }
+export type ScrapeListingResponseMessage =
+  | { ok: true; data: ScrapedListingData }
   | { ok: false; error: string };
 
-export function isScrapeListingHtmlRequest(
+export function isScrapeListingRequest(
   message: unknown,
-): message is ScrapeListingHtmlRequest {
+): message is ScrapeListingRequestMessage {
   if (typeof message !== "object" || message === null) {
     return false;
   }
@@ -21,6 +23,6 @@ export function isScrapeListingHtmlRequest(
   }
 
   return (
-    message.type === SCRAPE_LISTING_HTML && typeof message.listingUrl === "string"
+    message.type === SCRAPE_LISTING && typeof message.listingUrl === "string"
   );
 }

@@ -1,4 +1,10 @@
-import { sellSimilarRequestSchema } from "@sell-similar/validation";
+import {
+  scrapeListingRequestSchema,
+  scrapedListingDataSchema,
+  sellSimilarRequestSchema,
+} from "@sell-similar/validation";
+
+const SCRAPE_TIMEOUT_MS = 120_000;
 
 export function validateListingData(
   listingData,
@@ -69,4 +75,76 @@ export function sellSimilar(req, res) {
     },
     correlationId: req.correlationId,
   });
+}
+
+export function createScrapeListingHandler(scraperWorkerUrl) {
+  const workerBaseUrl = String(scraperWorkerUrl).replace(/\/+$/, "");
+
+  return async function scrapeListing(req, res) {
+    const parsed = scrapeListingRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        ok: false,
+        error: { code: "INVALID_REQUEST", message: parsed.error.message },
+        correlationId: req.correlationId,
+      });
+    }
+
+    try {
+      const workerResponse = await fetch(`${workerBaseUrl}/scrape`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-correlation-id": req.correlationId,
+        },
+        body: JSON.stringify({
+          listingUrl: parsed.data.listingUrl,
+          html: parsed.data.html,
+        }),
+        signal: AbortSignal.timeout(SCRAPE_TIMEOUT_MS),
+      });
+
+      const payload = await workerResponse.json();
+      if (!workerResponse.ok || payload?.status !== "ok") {
+        return res.status(Number(payload?.code) || workerResponse.status || 502).json({
+          ok: false,
+          error: {
+            code: "SCRAPE_FAILED",
+            message: payload?.message || "Scraper worker failed to scrape listing",
+          },
+          correlationId: req.correlationId,
+        });
+      }
+
+      const listingData = scrapedListingDataSchema.safeParse(payload.listingData);
+      if (!listingData.success) {
+        return res.status(502).json({
+          ok: false,
+          error: {
+            code: "INVALID_SCRAPE_RESULT",
+            message: "Scraper worker returned invalid listing data",
+          },
+          correlationId: req.correlationId,
+        });
+      }
+
+      return res.status(200).json({
+        ok: true,
+        data: listingData.data,
+        correlationId: req.correlationId,
+      });
+    } catch (error) {
+      return res.status(502).json({
+        ok: false,
+        error: {
+          code: "SCRAPER_UNAVAILABLE",
+          message:
+            error instanceof Error
+              ? error.message
+              : "Could not reach scraper worker",
+        },
+        correlationId: req.correlationId,
+      });
+    }
+  };
 }

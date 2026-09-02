@@ -1,4 +1,12 @@
 export type { ApiFailure, ApiResponse, ApiSuccess, GetListingRequest, GetListingResponse, HealthResponse, SellSimilarRequest, SellSimilarResponse } from "./api.js";
+export type {
+  ItemSpecific,
+  ListingCategory,
+  ScrapeListingRequest,
+  ScrapeListingResponse,
+  ScrapedListingData,
+  StoreCategory,
+} from "./scrape.js";
 export type { Brand, CorrelationId, JobId, ListingId, UserId } from "./ids.js";
 export { assertNever } from "./ids.js";
 export type { JobName, JobPayloadByName, QueueJob, RefreshFitmentJobPayload, ScrapeListingJobPayload, ScrapeSimilarJobPayload } from "./jobs.js";

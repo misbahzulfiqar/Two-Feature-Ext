@@ -3,10 +3,15 @@ import type {
   GetListingResponse,
   HealthResponse,
   ListingId,
+  ScrapeListingRequest,
+  ScrapeListingResponse,
   SellSimilarRequest,
   SellSimilarResponse,
 } from "@sell-similar/contracts";
-import { sellSimilarRequestSchema } from "@sell-similar/validation";
+import {
+  scrapeListingRequestSchema,
+  sellSimilarRequestSchema,
+} from "@sell-similar/validation";
 
 export type SellSimilarApiClientOptions = {
   baseUrl: string;
@@ -25,6 +30,13 @@ export class SellSimilarApiError extends Error {
   }
 }
 
+function globalFetch(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+): Promise<Response> {
+  return fetch(input, init);
+}
+
 export class SellSimilarApiClient {
   private readonly baseUrl: string;
   private readonly fetchImpl: typeof fetch;
@@ -32,7 +44,7 @@ export class SellSimilarApiClient {
 
   constructor(options: SellSimilarApiClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/+$/, "");
-    this.fetchImpl = options.fetch ?? fetch;
+    this.fetchImpl = options.fetch ?? globalFetch;
     this.getCorrelationId = options.getCorrelationId;
   }
 
@@ -53,6 +65,17 @@ export class SellSimilarApiClient {
     return this.request<SellSimilarResponse>("/listings/sell-similar", {
       method: "POST",
       body: JSON.stringify(body),
+    });
+  }
+
+  async scrapeListing(
+    input: ScrapeListingRequest,
+  ): Promise<ScrapeListingResponse> {
+    const body = scrapeListingRequestSchema.parse(input);
+    return this.request<ScrapeListingResponse>("/listings/scrape", {
+      method: "POST",
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(120_000),
     });
   }
 

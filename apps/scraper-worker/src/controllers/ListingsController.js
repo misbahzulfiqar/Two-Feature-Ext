@@ -39,7 +39,7 @@ export async function processListing(page, listingUrl, options = {}) {
 
   switch (scrapeMode) {
     case "full-scrape": {
-      const fetched = await fetchEbayListing(page, listingUrl);
+      const fetched = await fetchEbayListing(page, listingUrl, options);
       listingData.title = fetched.title;
       listingData.sku = fetched.sku;
       listingData.price = fetched.price;

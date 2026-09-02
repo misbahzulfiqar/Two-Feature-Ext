@@ -1,17 +1,12 @@
+import type {
+  ItemSpecific,
+  ListingCategory,
+  ScrapedListingData,
+  StoreCategory,
+} from "@sell-similar/contracts";
 import {
-  getListingCategoriesFromHtml,
-  type ListingCategory,
-  type StoreCategory,
-} from "./extract-listing-categories.ts";
-import { extractListingImagesFromDocument } from "./extract-listing-images.ts";
-import {
-  getItemSpecificsFromHtml,
-  type ItemSpecific,
-} from "./extract-listing-specifics.ts";
-import { extractListingTitleFromDocument } from "./extract-listing-title.ts";
-import {
-  SCRAPE_LISTING_HTML,
-  type ScrapeListingHtmlResponse,
+  SCRAPE_LISTING,
+  type ScrapeListingResponseMessage,
 } from "./scrape-messages.ts";
 
 const ITEM_ID_PATTERN = /^\d{6,}$/;
@@ -53,26 +48,28 @@ export function resolveSourceListingUrl(source: string): string {
   return url.toString();
 }
 
+function toScrapedListing(data: ScrapedListingData): ScrapedListing {
+  return {
+    title: data.title ?? "",
+    images: Array.isArray(data.images) ? data.images : [],
+    itemSpecifics: Array.isArray(data.itemSpecifics) ? data.itemSpecifics : [],
+    category: data.category ?? { id: "", name: "", path: [] },
+    storeCategories: Array.isArray(data.storeCategories) ? data.storeCategories : [],
+  };
+}
+
 export async function scrapeSourceListing(source: string): Promise<ScrapedListing> {
   const listingUrl = resolveSourceListingUrl(source);
   const response = (await browser.runtime.sendMessage({
-    type: SCRAPE_LISTING_HTML,
+    type: SCRAPE_LISTING,
     listingUrl,
-  })) as ScrapeListingHtmlResponse;
+  })) as ScrapeListingResponseMessage;
 
   if (!response?.ok) {
-    throw new Error(response?.error || "Could not load listing");
+    throw new Error(response?.error || "Could not scrape listing");
   }
 
-  const doc = new DOMParser().parseFromString(response.html, "text/html");
-  const categories = getListingCategoriesFromHtml(response.html);
-  return {
-    title: extractListingTitleFromDocument(doc),
-    images: extractListingImagesFromDocument(doc),
-    itemSpecifics: getItemSpecificsFromHtml(response.html),
-    category: categories.category,
-    storeCategories: categories.storeCategories,
-  };
+  return toScrapedListing(response.data);
 }
 
 export async function scrapeSourceTitle(source: string): Promise<string> {

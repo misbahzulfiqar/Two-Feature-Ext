@@ -10,6 +10,7 @@ export const apiEnvSchema = z.object({
   BETTER_AUTH_SECRET: z.string().min(32),
   BETTER_AUTH_URL: z.string().url(),
   DATABASE_URL: z.string().min(1),
+  SCRAPER_WORKER_URL: z.string().url().default("http://127.0.0.1:3002"),
 });
 
 export type ApiEnv = z.infer<typeof apiEnvSchema>;

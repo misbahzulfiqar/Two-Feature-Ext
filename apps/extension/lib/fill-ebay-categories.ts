@@ -1,4 +1,4 @@
-import type { ListingCategory, StoreCategory } from "./extract-listing-categories.ts";
+import type { ListingCategory, StoreCategory } from "@sell-similar/contracts";
 
 export type FillCategoriesResult = {
   itemCategory: boolean;

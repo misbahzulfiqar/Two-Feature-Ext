@@ -1,4 +1,4 @@
-import type { ItemSpecific } from "./extract-listing-specifics.ts";
+import type { ItemSpecific } from "@sell-similar/contracts";
 
 export type FillSpecificsResult = {
   filled: number;

@@ -87,6 +87,10 @@ export function extractListingTitleInPage(parserSelectors) {
     const value = String(text || "").trim();
     if (value.length < 8) return true;
     return (
+      /^error page$/i.test(value) ||
+      /access denied/i.test(value) ||
+      /pardon our interruption/i.test(value) ||
+      /robot check/i.test(value) ||
       /^Was\s+US?\s?\$/i.test(value) ||
       /^\d+\.\d+\s*in/i.test(value) ||
       /best offer/i.test(value) ||
@@ -1035,25 +1039,57 @@ export async function getItemSpecifics(page) {
   return page.evaluate(extractListingSpecificsInPage);
 }
 
-export async function fetchEbayListing(page, listingUrl) {
-  await page.goto(listingUrl, { waitUntil: "domcontentloaded" });
-  await page
-    .waitForSelector(TITLE_WAIT_SELECTOR, { timeout: 10000 })
-    .catch(() => undefined);
-  await page
-    .waitForSelector(IMAGE_WAIT_SELECTOR, { timeout: 8000 })
-    .catch(() => undefined);
-  await page
-    .waitForSelector(SPECIFICS_WAIT_SELECTOR, { timeout: 8000 })
-    .catch(() => undefined);
-  await page
-    .waitForSelector(CATEGORY_WAIT_SELECTOR, { timeout: 5000 })
-    .catch(() => undefined);
+export async function fetchEbayListing(page, listingUrl, options = {}) {
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const evaluate = async (fn, ...args) => {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        return await page.evaluate(fn, ...args);
+      } catch (error) {
+        const message = String(error?.message || error);
+        if (!message.includes("detached") || attempt === 2) {
+          throw error;
+        }
+        await wait(1500);
+      }
+    }
+    return undefined;
+  };
 
-  const title = await page.evaluate(extractListingTitleInPage, PARSER_SELECTORS);
-  const images = await page.evaluate(extractListingImagesInPage, EBAY_SELECTORS);
-  const itemSpecifics = await getItemSpecifics(page);
-  const categories = await page.evaluate(extractListingCategoriesInPage);
+  const html = typeof options.html === "string" ? options.html : "";
+  if (html) {
+    await page.setContent(html, { waitUntil: "domcontentloaded", timeout: 30000 });
+  } else {
+    try {
+      await page.goto(listingUrl, { waitUntil: "domcontentloaded", timeout: 45000 });
+    } catch (error) {
+      const message = String(error?.message || error);
+      if (!message.includes("detached") && !message.includes("Navigation")) {
+        throw error;
+      }
+    }
+    await page
+      .waitForFunction(
+        () => {
+          const heading = document.querySelector(
+            'h1[data-testid="x-item-title-label"], .x-item-title__mainTitle, h1[itemprop="name"]',
+          );
+          const specs = document.querySelector(
+            ".ux-labels-values, [data-testid='ux-labels-values'], .ux-layout-section--aspects",
+          );
+          return Boolean(heading || specs);
+        },
+        { timeout: 20000 },
+      )
+      .catch(() => undefined);
+  }
+
+  await wait(300);
+
+  const title = await evaluate(extractListingTitleInPage, PARSER_SELECTORS);
+  const images = await evaluate(extractListingImagesInPage, EBAY_SELECTORS);
+  const itemSpecifics = await evaluate(extractListingSpecificsInPage);
+  const categories = await evaluate(extractListingCategoriesInPage);
   const category = categories?.category || { id: "", name: "", path: [] };
   const storeCategories = Array.isArray(categories?.storeCategories)
     ? categories.storeCategories
