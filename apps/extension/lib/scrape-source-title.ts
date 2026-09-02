@@ -1,3 +1,4 @@
+import { extractListingImagesFromDocument } from "./extract-listing-images.ts";
 import { extractListingTitleFromDocument } from "./extract-listing-title.ts";
 import {
   SCRAPE_LISTING_HTML,
@@ -5,6 +6,11 @@ import {
 } from "./scrape-messages.ts";
 
 const ITEM_ID_PATTERN = /^\d{6,}$/;
+
+export type ScrapedListing = {
+  title: string;
+  images: string[];
+};
 
 export function resolveSourceListingUrl(source: string): string {
   const trimmed = source.trim();
@@ -35,7 +41,7 @@ export function resolveSourceListingUrl(source: string): string {
   return url.toString();
 }
 
-export async function scrapeSourceTitle(source: string): Promise<string> {
+export async function scrapeSourceListing(source: string): Promise<ScrapedListing> {
   const listingUrl = resolveSourceListingUrl(source);
   const response = (await browser.runtime.sendMessage({
     type: SCRAPE_LISTING_HTML,
@@ -47,5 +53,13 @@ export async function scrapeSourceTitle(source: string): Promise<string> {
   }
 
   const doc = new DOMParser().parseFromString(response.html, "text/html");
-  return extractListingTitleFromDocument(doc);
+  return {
+    title: extractListingTitleFromDocument(doc),
+    images: extractListingImagesFromDocument(doc),
+  };
+}
+
+export async function scrapeSourceTitle(source: string): Promise<string> {
+  const listing = await scrapeSourceListing(source);
+  return listing.title;
 }

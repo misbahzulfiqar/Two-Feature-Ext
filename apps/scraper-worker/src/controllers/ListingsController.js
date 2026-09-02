@@ -30,6 +30,7 @@ export async function processListing(page, listingUrl, options = {}) {
     title: "",
     sku: "",
     price: "",
+    images: [],
     fitment: [],
   };
 
@@ -39,6 +40,7 @@ export async function processListing(page, listingUrl, options = {}) {
       listingData.title = fetched.title;
       listingData.sku = fetched.sku;
       listingData.price = fetched.price;
+      listingData.images = fetched.images || [];
 
       if (!listingData.title) {
         return {

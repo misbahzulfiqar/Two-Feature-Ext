@@ -1,6 +1,7 @@
 import { useState, type ChangeEvent, type FormEvent } from "react";
+import { fillEbayListingImages } from "../lib/fill-ebay-images.ts";
 import { fillEbayListingTitle } from "../lib/fill-ebay-title.ts";
-import { scrapeSourceTitle } from "../lib/scrape-source-title.ts";
+import { scrapeSourceListing } from "../lib/scrape-source-title.ts";
 import { ControlField } from "./ControlField.tsx";
 import { FieldRow } from "./FieldRow.tsx";
 import { GlobeIcon, LayersIcon, LinkIcon, SparkleIcon } from "./Icons.tsx";
@@ -46,29 +47,48 @@ export function SellSimilarAssistant() {
     try {
       switch (scrapeMode) {
         case "full-scrape": {
-          setStatusMessage("Fetching listing title...");
+          setStatusMessage("Fetching listing title and images...");
           setProgress(28);
-          const title = await scrapeSourceTitle(source);
-          setProgress(72);
+          const listing = await scrapeSourceListing(source);
+          setProgress(55);
 
-          if (!title) {
+          if (!listing.title) {
             setProgress(100);
             setStatusMessage("Could not find a title on that listing");
             return;
           }
 
           setStatusMessage("Filling Title field...");
-          const filled = fillEbayListingTitle(title);
-          setProgress(100);
+          const filledTitle = fillEbayListingTitle(listing.title);
+          setProgress(78);
 
-          if (!filled) {
+          if (!filledTitle) {
+            setProgress(100);
             setStatusMessage(
-              `Found title, but the Title field was not on this page: ${title}`,
+              `Found title, but the Title field was not on this page: ${listing.title}`,
             );
             return;
           }
 
-          setStatusMessage(`Filled title: ${title}`);
+          setStatusMessage("Adding photos...");
+          const filledImages = await fillEbayListingImages(listing.images);
+          setProgress(100);
+
+          if (listing.images.length === 0) {
+            setStatusMessage(`Filled title: ${listing.title}. No photos found.`);
+            return;
+          }
+
+          if (filledImages === 0) {
+            setStatusMessage(
+              `Filled title: ${listing.title}. Found ${listing.images.length} photos, but the photo uploader was not on this page.`,
+            );
+            return;
+          }
+
+          setStatusMessage(
+            `Filled title: ${listing.title}. Added ${filledImages} photo${filledImages === 1 ? "" : "s"}.`,
+          );
           return;
         }
         case "only-fitment": {
@@ -84,7 +104,7 @@ export function SellSimilarAssistant() {
     } catch (error) {
       setProgress(0);
       setStatusMessage(
-        error instanceof Error ? error.message : "Could not scrape listing title",
+        error instanceof Error ? error.message : "Could not scrape listing",
       );
     } finally {
       setIsProcessing(false);
