@@ -2,7 +2,8 @@ import type { ListingCategory, StoreCategory } from "@sell-similar/contracts";
 
 export type FillCategoriesResult = {
   itemCategory: boolean;
-  storeCategories: number;
+  storeCategory: boolean;
+  secondStoreCategory: boolean;
 };
 
 function delay(ms: number): Promise<void> {
@@ -91,14 +92,127 @@ function pickerRoots(): ParentNode[] {
   return roots;
 }
 
+function choicePickerRoots(): ParentNode[] {
+  const roots: ParentNode[] = [];
+  document
+    .querySelectorAll(
+      '.lightbox-dialog:not([hidden]), [role="dialog"]:not([hidden]), .drawer, [class*="category-picker"], [class*="categoryPicker"]',
+    )
+    .forEach((dialog) => roots.push(dialog));
+  return roots;
+}
+
+function itemCategorySection(): Element | null {
+  return document.querySelector(".summary__category");
+}
+
+function isCategoryPlaceholder(text: string): boolean {
+  return /^(select|choose|add|edit|browse)(\s+a)?(\s+item)?(\s+categor(y|ies))?$|^item category$|^category$/i.test(
+    text.trim(),
+  );
+}
+
 function currentItemCategoryLeaf(): string {
-  const button = document.querySelector('button[name="categoryId"]');
+  const root = itemCategorySection();
+  const button = (root ?? document).querySelector('button[name="categoryId"]');
+  if (button instanceof HTMLElement) {
+    const text = normalizeText(button.textContent ?? "");
+    if (text && !isCategoryPlaceholder(text)) {
+      return text;
+    }
+    const aria = normalizeText(button.getAttribute("aria-label") ?? "")
+      .replace(/\s+item category first category$/i, "")
+      .replace(/\s+item category.*$/i, "")
+      .trim();
+    if (aria && !isCategoryPlaceholder(aria)) {
+      return aria;
+    }
+  }
+
+  const pathText = currentItemCategoryPathText();
+  const lastPath = pathText.split(/>|›/).map((part) => part.trim()).filter(Boolean).pop();
+  return lastPath && !isCategoryPlaceholder(lastPath) ? lastPath : "";
+}
+
+function currentItemCategoryPathText(): string {
+  const root = itemCategorySection();
+  const secondary = root?.querySelector(".value-secondary");
+  return normalizeText(secondary?.textContent ?? "").replace(/^in\s+/i, "");
+}
+
+function currentItemCategoryId(): string {
+  const root = itemCategorySection();
+  const el = (root ?? document).querySelector(
+    'button[name="categoryId"], input[name="categoryId"], input[name="primaryCategoryId"]',
+  );
+  if (!(el instanceof HTMLElement)) {
+    return "";
+  }
+  if (el instanceof HTMLInputElement) {
+    return normalizeText(el.value);
+  }
+  return normalizeText(el.getAttribute("value") ?? "");
+}
+
+function itemCategoryMatches(category: ListingCategory): boolean {
+  if (category.id && currentItemCategoryId() && category.id === currentItemCategoryId()) {
+    return true;
+  }
+  const current = [currentItemCategoryLeaf(), currentItemCategoryPathText()]
+    .filter(Boolean)
+    .join(" ");
+  if (!current) {
+    return false;
+  }
+  const candidates = [category.name, ...category.path].filter(Boolean);
+  return candidates.some((candidate) => namesMatch(current, candidate));
+}
+
+function hasItemCategorySelected(): boolean {
+  const current = currentItemCategoryLeaf();
+  return Boolean(current) && !isCategoryPlaceholder(current);
+}
+
+function categoryPickerOpen(): boolean {
+  return choicePickerRoots().length > 0;
+}
+
+async function closeCategoryPicker(): Promise<void> {
+  if (!categoryPickerOpen()) {
+    return;
+  }
+  clickAny([
+    '.lightbox-dialog:not([hidden]) button[aria-label="Close"]',
+    '[role="dialog"]:not([hidden]) button[aria-label="Close"]',
+    '.lightbox-dialog:not([hidden]) .lightbox-dialog__close',
+  ]);
+  document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  await waitUntil(() => !categoryPickerOpen(), 1600);
+}
+
+function currentStoreCategoryName(
+  buttonName: "primaryStoreCategoryId" | "secondaryStoreCategoryId" = "primaryStoreCategoryId",
+): string {
+  const selector =
+    buttonName === "secondaryStoreCategoryId"
+      ? 'button[name="secondaryStoreCategoryId"], button[aria-label*="Store category Second" i], button[aria-label*="second store category" i]'
+      : 'button[name="primaryStoreCategoryId"], button[aria-label*="Store category First" i]';
+  const button = document.querySelector(selector);
   return normalizeText(button?.textContent ?? "");
 }
 
-function currentStoreCategoryName(name = "primaryStoreCategoryId"): string {
-  const button = document.querySelector(`button[name="${name}"]`);
-  return normalizeText(button?.textContent ?? "");
+function isStoreCategoryPlaceholder(text: string): boolean {
+  return (
+    isCategoryPlaceholder(text) ||
+    /^(add( a)?( second)?( store)? category|second category|store category)$/i.test(text.trim())
+  );
+}
+
+function storeCategoryIsSet(
+  buttonName: "primaryStoreCategoryId" | "secondaryStoreCategoryId",
+): boolean {
+  const text = currentStoreCategoryName(buttonName);
+  return Boolean(text) && !isStoreCategoryPlaceholder(text);
 }
 
 function namesMatch(left: string, right: string): boolean {
@@ -149,7 +263,9 @@ function choiceNodes(root: ParentNode): HTMLElement[] {
 function hasMatchingChoice(wanted: string, categoryId = ""): boolean {
   if (!wanted && !categoryId) return false;
   const wantedCompact = compactText(wanted);
-  for (const root of pickerRoots()) {
+  const roots = choicePickerRoots();
+  if (roots.length === 0) return false;
+  for (const root of roots) {
     for (const node of choiceNodes(root)) {
       if (!isShown(node)) continue;
       const idHint =
@@ -180,8 +296,10 @@ function clickMatchingChoice(wanted: string, categoryId = ""): boolean {
   if (!wanted && !categoryId) return false;
   const wantedCompact = compactText(wanted);
   let fallback: HTMLElement | null = null;
+  const roots = choicePickerRoots();
+  if (roots.length === 0) return false;
 
-  for (const root of pickerRoots()) {
+  for (const root of roots) {
     for (const node of choiceNodes(root)) {
       if (!isShown(node)) continue;
       const idHint =
@@ -255,10 +373,22 @@ function clickMatchingChoiceReady(): boolean {
   return false;
 }
 
+function clickShownByText(pattern: RegExp): boolean {
+  const nodes = document.querySelectorAll("button, a, [role='button']");
+  for (const node of nodes) {
+    if (!(node instanceof HTMLElement) || !isShown(node)) continue;
+    if (pattern.test(normalizeText(node.textContent ?? ""))) {
+      node.click();
+      return true;
+    }
+  }
+  return false;
+}
+
 async function openStoreCategoryEditor(): Promise<void> {
   clickAny([
     'button[name="primaryStoreCategoryId"]',
-    'button[aria-label*="Store category"]',
+    'button[aria-label*="Store category First" i]',
   ]);
   await delay(300);
   await waitUntil(() => {
@@ -269,6 +399,27 @@ async function openStoreCategoryEditor(): Promise<void> {
       }),
     ) || Boolean(findSearchInput());
   }, 2500);
+}
+
+async function openSecondStoreCategoryEditor(): Promise<void> {
+  const opened = clickAny([
+    'button[name="secondaryStoreCategoryId"]',
+    'button[aria-label*="Store category Second" i]',
+    'button[aria-label*="second store category" i]',
+  ]);
+  if (!opened) {
+    clickShownByText(
+      /^(add( a)? second (store )?category|second (store )?category)$/i,
+    );
+  }
+  await delay(400);
+  await waitUntil(
+    () =>
+      Boolean(document.querySelector('button[name="secondaryStoreCategoryId"]')) ||
+      Boolean(findSearchInput()) ||
+      choicePickerRoots().length > 0,
+    2500,
+  );
 }
 
 async function searchAndSelect(query: string, categoryId = ""): Promise<boolean> {
@@ -293,36 +444,35 @@ async function searchAndSelect(query: string, categoryId = ""): Promise<boolean>
 async function fillItemCategory(category: ListingCategory): Promise<boolean> {
   const leaf = category.name || category.path[category.path.length - 1] || "";
   if (!leaf && !category.id) {
-    return false;
+    return hasItemCategorySelected();
   }
 
-  if (leaf && namesMatch(currentItemCategoryLeaf(), leaf)) {
+  if (itemCategoryMatches(category) || hasItemCategorySelected()) {
     return true;
   }
 
   const before = currentItemCategoryLeaf();
   await openItemCategoryEditor();
 
-  const queries = [
-    leaf,
-    category.path.slice(-2).join(" "),
-    category.path.slice(-1)[0] ?? "",
-  ]
+  const queries = [...new Set([leaf, category.path[category.path.length - 1] ?? ""])]
     .map((query) => normalizeText(query))
     .filter(Boolean);
 
   for (const query of queries) {
-    await searchAndSelect(query, category.id);
-    const changed = await waitUntil(
-      () => currentItemCategoryLeaf() !== before && Boolean(currentItemCategoryLeaf()),
-      1800,
-    );
-    if (changed || (leaf && namesMatch(currentItemCategoryLeaf(), leaf))) {
+    const selected = await searchAndSelect(query, category.id);
+    const changed = await waitUntil(() => {
+      const now = currentItemCategoryLeaf();
+      return Boolean(now) && now !== before && !isCategoryPlaceholder(now);
+    }, 2500);
+    if (selected || changed || itemCategoryMatches(category)) {
+      await closeCategoryPicker();
       return true;
     }
   }
 
-  return Boolean(leaf && namesMatch(currentItemCategoryLeaf(), leaf));
+  await closeCategoryPicker();
+  await waitUntil(() => hasItemCategorySelected() || itemCategoryMatches(category), 4000);
+  return itemCategoryMatches(category) || hasItemCategorySelected();
 }
 
 async function fillOneStoreCategory(
@@ -336,41 +486,49 @@ async function fillOneStoreCategory(
     return true;
   }
 
-  const before = currentStoreCategoryName(buttonName);
   if (buttonName === "primaryStoreCategoryId") {
     await openStoreCategoryEditor();
   } else {
-    clickAny([
-      'button[name="secondaryStoreCategoryId"]',
-      'button[aria-label*="Second category"]',
-    ]);
-    await delay(400);
+    await openSecondStoreCategoryEditor();
   }
 
-  const selected = clickMatchingChoice(wanted) || (await searchAndSelect(wanted));
-  const changed = await waitUntil(
-    () => currentStoreCategoryName(buttonName) !== before,
-    1800,
+  await searchAndSelect(wanted);
+  await waitUntil(
+    () => namesMatch(currentStoreCategoryName(buttonName), wanted),
+    2200,
   );
-  return selected || changed || namesMatch(currentStoreCategoryName(buttonName), wanted);
+  await closeCategoryPicker();
+  return (
+    namesMatch(currentStoreCategoryName(buttonName), wanted) ||
+    storeCategoryIsSet(buttonName)
+  );
 }
 
-async function fillStoreCategories(storeCategories: StoreCategory[]): Promise<number> {
-  const names = storeCategories.map((item) => item.name.trim()).filter(Boolean);
-  if (names.length === 0) {
-    return 0;
+async function fillStoreCategories(
+  storeCategories: StoreCategory[],
+): Promise<{ storeCategory: boolean; secondStoreCategory: boolean }> {
+  const names: string[] = [];
+  for (const item of storeCategories) {
+    const name = item.name.trim();
+    if (!name) continue;
+    if (names.some((existing) => compactText(existing) === compactText(name))) continue;
+    names.push(name);
   }
 
-  let filled = 0;
   const primary = names[0];
-  if (primary && (await fillOneStoreCategory(primary, "primaryStoreCategoryId"))) {
-    filled += 1;
+  if (primary) {
+    await fillOneStoreCategory(primary, "primaryStoreCategoryId");
   }
+
   const secondary = names[1];
-  if (secondary && (await fillOneStoreCategory(secondary, "secondaryStoreCategoryId"))) {
-    filled += 1;
+  if (secondary) {
+    await fillOneStoreCategory(secondary, "secondaryStoreCategoryId");
   }
-  return filled;
+
+  return {
+    storeCategory: storeCategoryIsSet("primaryStoreCategoryId"),
+    secondStoreCategory: storeCategoryIsSet("secondaryStoreCategoryId"),
+  };
 }
 
 export async function fillEbayListingCategories(
@@ -383,6 +541,7 @@ export async function fillEbayListingCategories(
   await delay(250);
   return {
     itemCategory,
-    storeCategories: storeFilled,
+    storeCategory: storeFilled.storeCategory,
+    secondStoreCategory: storeFilled.secondStoreCategory,
   };
 }

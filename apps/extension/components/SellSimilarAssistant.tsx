@@ -93,12 +93,20 @@ export function SellSimilarAssistant() {
             : listing.category.name
               ? "could not update item category"
               : "no item category found";
-          const storeSummary =
-            listing.storeCategories.length === 0
-              ? "no store category found"
-              : categoryResult.storeCategories > 0
-                ? `updated ${categoryResult.storeCategories} store categor${categoryResult.storeCategories === 1 ? "y" : "ies"}`
-                : "could not update store category";
+          const storeParts: string[] = [];
+          if (categoryResult.storeCategory) {
+            storeParts.push("store category added");
+          } else if (listing.storeCategories[0]?.name) {
+            storeParts.push("could not add store category");
+          } else {
+            storeParts.push("no store category found");
+          }
+          if (categoryResult.secondStoreCategory) {
+            storeParts.push("second store category added");
+          } else if (listing.storeCategories[1]?.name) {
+            storeParts.push("could not add second store category");
+          }
+          const storeSummary = storeParts.join(". ");
 
           setStatusMessage(
             `Filled title. ${photoSummary}. ${specSummary}. ${categorySummary}. ${storeSummary}.`,

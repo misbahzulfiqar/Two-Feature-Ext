@@ -8,6 +8,21 @@ export default defineConfig({
   manifest: {
     name: "Sell Similar",
     description: "Find and list similar items on eBay",
+    icons: {
+      16: "/icon-16.png",
+      32: "/icon-32.png",
+      48: "/icon-48.png",
+      96: "/icon-96.png",
+      128: "/icon-128.png",
+    },
+    action: {
+      default_icon: {
+        16: "/icon-16.png",
+        32: "/icon-32.png",
+        48: "/icon-48.png",
+        128: "/icon-128.png",
+      },
+    },
     permissions: ["storage", "activeTab"],
     host_permissions: [
       "https://*.ebay.com/*",
