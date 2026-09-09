@@ -358,100 +358,6 @@ export function extractListingSpecificsInPage() {
     "aspects",
   ];
 
-  const automotiveSpecKeys = [
-    "Brand",
-    "Manufacturer Part Number",
-    "OE/OEM Part Number",
-    "Other Part Number",
-    "Interchange Part Number",
-    "Type",
-    "Manufacturer",
-    "Placement on Vehicle",
-    "Part Number",
-    "Superseded Part Number",
-    "Country/Region of Manufacture",
-    "Performance Part",
-    "Universal Fitment",
-    "Vintage Part",
-    "Modified Item",
-    "Custom Bundle",
-    "Condition",
-    "Warranty",
-    "Make",
-    "Model",
-    "Year",
-    "Trim",
-    "Engine",
-    "Engine Size",
-    "Engine Type",
-    "Fuel Type",
-    "Transmission",
-    "Drive Type",
-    "Body Style",
-    "Doors",
-    "Cylinders",
-    "Vehicle Position",
-    "Color",
-    "Material",
-    "Finish",
-    "Features",
-    "Mounting Hardware Included",
-    "Items Included",
-    "OE Specification",
-    "Quantity",
-    "Number in Pack",
-    "Terminal Type",
-    "Connector Type",
-    "Voltage",
-    "Amperage",
-    "Wattage",
-  ];
-
-  const compactKey = (key) => String(key || "").replace(/[^a-z0-9]/gi, "").toLowerCase();
-
-  const automotiveKeyByCompact = new Map(
-    automotiveSpecKeys.map((key) => [compactKey(key), key]),
-  );
-
-  const automotiveKeyAliases = {
-    mpn: "Manufacturer Part Number",
-    manufacturerpartnumber: "Manufacturer Part Number",
-    oempartnumber: "OE/OEM Part Number",
-    oepartnumber: "OE/OEM Part Number",
-    oeoempartnumber: "OE/OEM Part Number",
-    otherpartnumber: "Other Part Number",
-    interchangepartnumber: "Interchange Part Number",
-    supersededpartnumber: "Superseded Part Number",
-    partnumber: "Part Number",
-    countryoforigin: "Country/Region of Manufacture",
-    countryofmanufacture: "Country/Region of Manufacture",
-    countryregionofmanufacture: "Country/Region of Manufacture",
-    manufacturerwarranty: "Warranty",
-    placementonvehicle: "Placement on Vehicle",
-    universalfitment: "Universal Fitment",
-    performancepart: "Performance Part",
-    vintagepart: "Vintage Part",
-    modifieditem: "Modified Item",
-    custombundle: "Custom Bundle",
-    numberinpack: "Number in Pack",
-    mountinghardwareincluded: "Mounting Hardware Included",
-    itemsincluded: "Items Included",
-    oespecification: "OE Specification",
-    enginesize: "Engine Size",
-    enginetype: "Engine Type",
-    fueltype: "Fuel Type",
-    drivetype: "Drive Type",
-    bodystyle: "Body Style",
-    vehicleposition: "Vehicle Position",
-    terminaltype: "Terminal Type",
-    connectortype: "Connector Type",
-  };
-
-  const canonicalizeKey = (key) => {
-    const compact = compactKey(key);
-    return automotiveKeyAliases[compact] || automotiveKeyByCompact.get(compact) || key;
-  };
-
   const cleanText = (text) =>
     String(text || "")
       .replace(/\u00a0/g, " ")
@@ -490,10 +396,53 @@ export function extractListingSpecificsInPage() {
     /^us\s*\$/i.test(key) ||
     /\$\d/.test(key);
 
+  const isSchemaClassValue = (value) =>
+    /^[A-Z][A-Za-z0-9]+(?:[A-Z][A-Za-z0-9]+)+$/.test(String(value).trim());
+
+  const mergeValues = (left, right) => {
+    if (!left) return right;
+    if (!right) return left;
+    if (left.toLowerCase() === right.toLowerCase()) {
+      return left.length >= right.length ? left : right;
+    }
+    if (left.toLowerCase().includes(right.toLowerCase())) return left;
+    if (right.toLowerCase().includes(left.toLowerCase())) return right;
+    const parts = [];
+    const seen = new Set();
+    for (const source of [left, right]) {
+      String(source)
+        .split(/\s*,\s*/)
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .forEach((part) => {
+          const token = part.toLowerCase();
+          if (seen.has(token)) return;
+          seen.add(token);
+          parts.push(part);
+        });
+    }
+    return parts.join(", ");
+  };
+
   const addSpecific = (rawKey, rawValue) => {
-    const key = canonicalizeKey(cleanText(rawKey));
-    let value = cleanText(rawValue);
+    const originalKey = cleanText(rawKey);
+    const key = originalKey.replace(/^@/, "");
+    let value = cleanText(rawValue).replace(/\s*(see more|show more|read more)\s*$/i, "");
     if (!key || !value || isRejectedKey(key) || key.length > 80) {
+      return;
+    }
+    if (/^@(type|id|context|graph)$/i.test(originalKey)) {
+      return;
+    }
+    if (/^(type|id|context|graph)$/i.test(key) && isSchemaClassValue(value)) {
+      return;
+    }
+    if (
+      /^type$/i.test(key) &&
+      /^(PriceSpecification|UnitPriceSpecification|CompoundPriceSpecification|Offer|AggregateOffer|Product|Brand|Organization)$/i.test(
+        value,
+      )
+    ) {
       return;
     }
     if (/^condition$/i.test(key) && value.length > 120) {
@@ -502,17 +451,15 @@ export function extractListingSpecificsInPage() {
       );
       value = shortCondition ? shortCondition[0] : value.slice(0, 120).trim();
     }
-    if (value.length > 300) {
+    if (value.length > 4000) {
+      value = value.slice(0, 4000).trim();
+    }
+    const existing = specifics.find((item) => item.key.toLowerCase() === key.toLowerCase());
+    if (existing) {
+      existing.value = mergeValues(existing.value, value);
       return;
     }
-    const duplicate = specifics.some(
-      (item) =>
-        item.key.toLowerCase() === key.toLowerCase() &&
-        item.value.toLowerCase() === value.toLowerCase(),
-    );
-    if (!duplicate) {
-      specifics.push({ key, value });
-    }
+    specifics.push({ key, value });
   };
 
   const sliceBalanced = (text) => {
@@ -553,7 +500,13 @@ export function extractListingSpecificsInPage() {
     if (typeof raw === "string" || typeof raw === "number") return String(raw);
     if (Array.isArray(raw)) return raw.map(flattenValue).filter(Boolean).join(", ");
     if (!raw || typeof raw !== "object") return "";
-    return flattenValue(raw.localizedValue || raw.value || raw.content || raw.name || raw.Value);
+    if (raw.localizedValue || raw.value || raw.content || raw.Value) {
+      return flattenValue(raw.localizedValue || raw.value || raw.content || raw.Value);
+    }
+    if (typeof raw.name === "string" && !isSchemaClassValue(raw.name)) {
+      return raw.name;
+    }
+    return "";
   };
 
   const nameFromRecord = (record) => {
@@ -580,12 +533,51 @@ export function extractListingSpecificsInPage() {
 
   const looksLikeSpecificRecord = (record, parentKey) => {
     const parent = String(parentKey || "").toLowerCase();
-    if (record["@type"] === "PropertyValue") return true;
+    const types = Array.isArray(record["@type"])
+      ? record["@type"]
+      : record["@type"]
+        ? [record["@type"]]
+        : [];
+    if (types.length > 0 && !types.includes("PropertyValue")) {
+      return false;
+    }
+    if (types.includes("PropertyValue")) return true;
     if (Array.isArray(record.values) && nameFromRecord(record)) return true;
     return Boolean(
       nameFromRecord(record) &&
         valueFromRecord(record) &&
-        /specific|aspect|namevalue|attribute|additionalproperty/.test(parent),
+        isSpecContainerKey(parent),
+    );
+  };
+
+  const isSpecContainerKey = (key) => {
+    const lower = String(key || "").toLowerCase();
+    if (lower.includes("pricespecification")) return false;
+    return (
+      lower === "aspects" ||
+      lower === "localizedaspects" ||
+      lower === "namevaluepairs" ||
+      lower === "additionalproperty" ||
+      lower === "itemspecifics" ||
+      lower.includes("itemspecific") ||
+      lower.includes("namevaluepair")
+    );
+  };
+
+  const shouldSkipNestedKey = (key) => {
+    const lower = String(key || "").toLowerCase();
+    if (lower.startsWith("@")) return true;
+    return (
+      lower === "offers" ||
+      lower.includes("pricespecification") ||
+      lower === "aggregaterating" ||
+      lower === "review" ||
+      lower === "reviews" ||
+      lower === "image" ||
+      lower === "logo" ||
+      lower === "seller" ||
+      lower === "shippingdetails" ||
+      lower === "mainentityofpage"
     );
   };
 
@@ -607,17 +599,15 @@ export function extractListingSpecificsInPage() {
     }
 
     Object.entries(obj).forEach(([key, value]) => {
+      if (shouldSkipNestedKey(key)) return;
       if (
-        (key.toLowerCase().includes("specific") ||
-          key.toLowerCase() === "aspects" ||
-          key.toLowerCase() === "localizedaspects" ||
-          key.toLowerCase() === "namevaluepairs" ||
-          key.toLowerCase() === "additionalproperty") &&
+        isSpecContainerKey(key) &&
         value &&
         typeof value === "object" &&
         !Array.isArray(value)
       ) {
         Object.entries(value).forEach(([specificKey, specificValue]) => {
+          if (String(specificKey).startsWith("@")) return;
           if (typeof specificValue === "string" || typeof specificValue === "number") {
             addSpecific(specificKey, String(specificValue));
           }
@@ -680,8 +670,24 @@ export function extractListingSpecificsInPage() {
       row.querySelector(".ux-labels-values__values-content") ||
       row.querySelector(".ux-labels-values__values") ||
       row.querySelector('[class*="values"]');
-    addSpecific(label?.innerText || label?.textContent, value?.innerText || value?.textContent);
+    const spans = value
+      ? Array.from(value.querySelectorAll(".ux-textspans"))
+          .map((span) => cleanText(span.innerText || span.textContent))
+          .filter((text) => text && !/^(see more|show more|read more)$/i.test(text))
+      : [];
+    const valueText = value?.innerText || value?.textContent;
+    addSpecific(label?.innerText || label?.textContent, valueText);
+    if (spans.length > 0) {
+      addSpecific(label?.innerText || label?.textContent, spans.join(", "));
+    }
   };
+
+  document.querySelectorAll("button, a").forEach((el) => {
+    const text = cleanText(el.innerText || el.textContent);
+    if (/^(see more|show more|read more)$/i.test(text) && el.closest(".ux-labels-values, .ux-layout-section--aspects, [data-testid='x-about-this-item']")) {
+      el.click();
+    }
+  });
 
   document
     .querySelectorAll(
@@ -740,7 +746,7 @@ export function extractListingSpecificsInPage() {
 
     const decodedHtml = html.replace(/\\u0022/gi, '"').replace(/&quot;/g, '"');
     const labelValueRe =
-      /ux-labels-values__labels[\s\S]{0,500}?ux-textspans[^>]*>([^<]{1,80})[\s\S]{0,800}?ux-labels-values__values[\s\S]{0,500}?ux-textspans[^>]*>([^<]{1,300})/gi;
+      /ux-labels-values__labels[\s\S]{0,500}?ux-textspans[^>]*>([^<]{1,80})[\s\S]{0,1200}?ux-labels-values__values[\s\S]{0,800}?ux-textspans[^>]*>([^<]{1,2000})/gi;
     for (const match of decodedHtml.matchAll(labelValueRe)) {
       addSpecific(match[1], match[2]);
     }
@@ -756,23 +762,11 @@ export function extractListingSpecificsInPage() {
     }
   }
 
-  const preferredOrder = new Map(automotiveSpecKeys.map((key, index) => [compactKey(key), index]));
-  specifics.sort((left, right) => {
-    const leftOrder = preferredOrder.has(compactKey(left.key))
-      ? preferredOrder.get(compactKey(left.key))
-      : automotiveSpecKeys.length;
-    const rightOrder = preferredOrder.has(compactKey(right.key))
-      ? preferredOrder.get(compactKey(right.key))
-      : automotiveSpecKeys.length;
-    return leftOrder - rightOrder;
-  });
-
   return specifics;
 }
 
 export function extractListingCategoriesInPage() {
   const category = { id: "", name: "", path: [] };
-  const storeCategories = [];
 
   const cleanText = (text) =>
     String(text || "")
@@ -795,9 +789,6 @@ export function extractListingCategoriesInPage() {
   const isRejectedMarketplaceName = (name) =>
     /^(home|ebay|back to search|all categories|see all|shop by category)$/i.test(name);
 
-  const isRejectedStoreName = (name) =>
-    /^(home|ebay|see all|visit store|seller information|feedback|contact)$/i.test(name);
-
   const isStoreHref = (href) =>
     /\/str\//i.test(href) ||
     /stores\.ebay\./i.test(href) ||
@@ -819,28 +810,6 @@ export function extractListingCategoriesInPage() {
     return "";
   };
 
-  const storeCategoryIdFromHref = (href) => {
-    if (!href) return "";
-    const storecat = href.match(/[?&](?:storecat|_storecat)=(\d+)/i);
-    return storecat?.[1] || "";
-  };
-
-  const addStoreCategory = (name, href = "", id = "") => {
-    const cleaned = cleanText(name);
-    if (!cleaned || isRejectedStoreName(cleaned) || isRejectedMarketplaceName(cleaned)) {
-      return;
-    }
-    if (categoryIdFromHref(href) && !isStoreHref(href)) return;
-    const exists = storeCategories.some(
-      (item) => item.name.toLowerCase() === cleaned.toLowerCase(),
-    );
-    if (exists) return;
-    const entry = { name: cleaned };
-    const storeId = id || storeCategoryIdFromHref(href);
-    if (storeId) entry.id = storeId;
-    storeCategories.push(entry);
-  };
-
   const itemSelectors = [
     '[data-testid="breadcrumbs"] a',
     '[data-testid="x-breadcrumb"] a',
@@ -852,19 +821,6 @@ export function extractListingCategoriesInPage() {
     ".x-breadcrumb a",
     ".ux-section-breadcrumbs a",
     '[class*="breadcrumb"] a',
-  ];
-
-  const storeSelectors = [
-    '[data-testid*="store-categor"] a',
-    '[data-testid="x-store-information"] a',
-    ".x-store-information a",
-    ".str-categories a",
-    ".store-categories a",
-    '[class*="store-categor"] a',
-    '[class*="storeCategories"] a',
-    'a[href*="/str/"]',
-    'a[href*="storecat"]',
-    'a[href*="_storecat"]',
   ];
 
   const pathEntries = [];
@@ -888,12 +844,6 @@ export function extractListingCategoriesInPage() {
       .find((entry) => categoryIdFromHref(entry.href));
     category.id = lastWithId ? categoryIdFromHref(lastWithId.href) : "";
   }
-
-  storeSelectors.forEach((selector) => {
-    document.querySelectorAll(selector).forEach((link) => {
-      addStoreCategory(link.innerText || link.textContent, link.href || link.getAttribute("href") || "");
-    });
-  });
 
   const collectFromJson = (obj, parentKey = "") => {
     if (!obj || typeof obj !== "object") return;
@@ -982,16 +932,6 @@ export function extractListingCategoriesInPage() {
       }
     }
 
-    const storeName = cleanText(
-      obj.storeCategoryName ||
-        obj.storeCategory2Name ||
-        (parent.includes("store") && parent.includes("categor") ? obj.name : ""),
-    );
-    const storeId = cleanText(
-      obj.storeCategoryId || obj.storeCategory2Id || obj.storeCategoryID || "",
-    );
-    if (storeName) addStoreCategory(storeName, "", storeId);
-
     Object.entries(obj).forEach(([key, value]) => {
       if (value && typeof value === "object") collectFromJson(value, key);
     });
@@ -1004,7 +944,7 @@ export function extractListingCategoriesInPage() {
     const interesting =
       type.includes("ld+json") ||
       type.includes("application/json") ||
-      /categoryId|categoryName|storeCategory|BreadcrumbList|primaryCategory/i.test(text);
+      /categoryId|categoryName|BreadcrumbList|primaryCategory/i.test(text);
     if (!interesting) return;
 
     const tryParse = (raw) => {
@@ -1032,30 +972,15 @@ export function extractListingCategoriesInPage() {
     category.path = [category.name];
   }
 
-  return { category, storeCategories };
+  return { category, storeCategories: [] };
 }
 
 export async function getItemSpecifics(page) {
   return page.evaluate(extractListingSpecificsInPage);
 }
 
-export async function fetchEbayListing(page, listingUrl, options = {}) {
+export async function prepareListingPage(page, listingUrl, options = {}) {
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-  const evaluate = async (fn, ...args) => {
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      try {
-        return await page.evaluate(fn, ...args);
-      } catch (error) {
-        const message = String(error?.message || error);
-        if (!message.includes("detached") || attempt === 2) {
-          throw error;
-        }
-        await wait(1500);
-      }
-    }
-    return undefined;
-  };
-
   const html = typeof options.html === "string" ? options.html : "";
   if (html) {
     await page.setContent(html, { waitUntil: "domcontentloaded", timeout: 30000 });
@@ -1077,7 +1002,10 @@ export async function fetchEbayListing(page, listingUrl, options = {}) {
           const specs = document.querySelector(
             ".ux-labels-values, [data-testid='ux-labels-values'], .ux-layout-section--aspects",
           );
-          return Boolean(heading || specs);
+          const fitment = document.querySelector(
+            ".motors-compatibility-table, [data-testid='d-motors-compatibility-table'], [data-testid='d-item-compatibility']",
+          );
+          return Boolean(heading || specs || fitment);
         },
         { timeout: 20000 },
       )
@@ -1085,15 +1013,33 @@ export async function fetchEbayListing(page, listingUrl, options = {}) {
   }
 
   await wait(300);
+}
+
+export async function fetchEbayListing(page, listingUrl, options = {}) {
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const evaluate = async (fn, ...args) => {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        return await page.evaluate(fn, ...args);
+      } catch (error) {
+        const message = String(error?.message || error);
+        if (!message.includes("detached") || attempt === 2) {
+          throw error;
+        }
+        await wait(1500);
+      }
+    }
+    return undefined;
+  };
+
+  await prepareListingPage(page, listingUrl, options);
 
   const title = await evaluate(extractListingTitleInPage, PARSER_SELECTORS);
   const images = await evaluate(extractListingImagesInPage, EBAY_SELECTORS);
   const itemSpecifics = await evaluate(extractListingSpecificsInPage);
   const categories = await evaluate(extractListingCategoriesInPage);
   const category = categories?.category || { id: "", name: "", path: [] };
-  const storeCategories = Array.isArray(categories?.storeCategories)
-    ? categories.storeCategories
-    : [];
+  const storeCategories = [];
 
   return {
     title: typeof title === "string" ? title.trim() : "",
@@ -1107,5 +1053,8 @@ export async function fetchEbayListing(page, listingUrl, options = {}) {
       path: Array.isArray(category.path) ? category.path.filter(Boolean) : [],
     },
     storeCategories,
+    fitment: [],
+    compatibility: [],
+    compatibilityCount: 0,
   };
 }

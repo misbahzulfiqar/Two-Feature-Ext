@@ -11,7 +11,7 @@ export function scrapeModeLabel(mode: ScrapeMode): string {
     case "full-scrape":
       return "Full Scrape";
     case "only-fitment":
-      return "Only fitment";
+      return "Fitment only";
     default: {
       const exhaustive: never = mode;
       return exhaustive;

@@ -1,14 +1,21 @@
 import { useState, type ChangeEvent, type FormEvent } from "react";
+import type { ScrapeProgressStage, VehicleCompatibility } from "@sell-similar/contracts";
 import { fillEbayListingCategories } from "../lib/fill-ebay-categories.ts";
+import {
+  captureFitmentTargetEditor,
+  fillEbayListingFitment,
+  type FillFitmentResult,
+} from "../lib/fill-ebay-fitment.ts";
 import { fillEbayListingImages } from "../lib/fill-ebay-images.ts";
 import { fillEbayListingSpecifics } from "../lib/fill-ebay-specifics.ts";
 import { fillEbayListingTitle } from "../lib/fill-ebay-title.ts";
+import { fitmentLog } from "../lib/fitment-debug.ts";
+import { progressForStage } from "../lib/scrape-progress.ts";
 import { scrapeSourceListing } from "../lib/scrape-source-title.ts";
 import { ControlField } from "./ControlField.tsx";
 import { FieldRow } from "./FieldRow.tsx";
 import { SparkleIcon } from "./Icons.tsx";
 import { ProgressBar } from "./ProgressBar.tsx";
-import { ScrapeModeSelect } from "./ScrapeModeSelect.tsx";
 import type { ScrapeMode } from "./scrape-mode.ts";
 import "./SellSimilarAssistant.css";
 
@@ -29,6 +36,88 @@ export function SellSimilarAssistant() {
     setSource(event.target.value);
   }
 
+  function fitmentSummary(result: FillFitmentResult, total: number): string {
+    const existing =
+      result.existingCount > 0 ? ` Captured ${result.existingCount} existing target vehicles.` : "";
+    switch (result.code) {
+      case "FITMENT_EMPTY":
+        return `FITMENT_EMPTY. Existing target fitment left unchanged.${existing}`;
+      case "TARGET_EDITOR_CHANGED":
+        return "TARGET_EDITOR_CHANGED. Stopped before replacing target fitment.";
+      case "FITMENT_PICKER_TIMEOUT":
+        return (
+          result.warnings.find((warning) => warning.startsWith("FITMENT_PICKER_TIMEOUT")) ??
+          "FITMENT_PICKER_TIMEOUT"
+        );
+      case "VERIFICATION_FAILED": {
+        const failed =
+          result.warnings.find((warning) => warning.startsWith("Failed to apply:")) ??
+          result.warnings.find((warning) => warning.startsWith("VERIFICATION_FAILED")) ??
+          result.warnings[0] ??
+          "Exact option not found.";
+        return `VERIFICATION_FAILED. Did not save fitment; source and target did not match (${result.filled} of ${total} verified). ${failed.replace(/\n/g, " — ")}`;
+      }
+      case undefined:
+        break;
+      default: {
+        const exhaustive: never = result.code;
+        throw new Error(`Unhandled fitment code: ${String(exhaustive)}`);
+      }
+    }
+    if (total === 0) {
+      return `FITMENT_EMPTY. Existing target fitment left unchanged.${existing}`;
+    }
+    if (!result.sectionFound) {
+      return (
+        result.warnings[0] ??
+        "Could not find the fitment section on this editor."
+      );
+    }
+    if (result.sectionFound && result.filled >= total && result.skipped === 0) {
+      return `Fitment applied successfully. ${total} source row${total === 1 ? "" : "s"} matched.${existing}`;
+    }
+    const pickerFailed = result.warnings.find(
+      (warning) =>
+        warning.startsWith("FITMENT_PICKER_TIMEOUT") ||
+        warning.includes("Failed to open Fitment modal") ||
+        warning.includes("Fitment picker never became ready"),
+    );
+    if (pickerFailed) {
+      return pickerFailed;
+    }
+    const failed =
+      result.warnings.find((warning) => warning.startsWith("Failed to apply:")) ??
+      result.warnings[0] ??
+      "Exact option not found.";
+    return `VERIFICATION_FAILED. Did not save fitment; source and target did not match (${result.filled} of ${total} verified). ${failed.replace(/\n/g, " — ")}`;
+  }
+
+  function advanceProgress(stage: ScrapeProgressStage): void {
+    const next = progressForStage(stage);
+    setProgress((current) => (next >= current ? next : current));
+  }
+
+  async function applyNormalizedFitment(rows: VehicleCompatibility[]): Promise<FillFitmentResult> {
+    if (rows.length === 0) {
+      setStatusMessage("FITMENT_EMPTY. Existing target fitment left unchanged.");
+      advanceProgress("normalize");
+      return fillEbayListingFitment(rows);
+    }
+
+    setStatusMessage(
+      `Normalizing source fitment. Found ${rows.length} compatible vehicle${rows.length === 1 ? "" : "s"}.`,
+    );
+    advanceProgress("normalize");
+    setStatusMessage(
+      `Preparing target fitment editor. Found ${rows.length} compatible vehicle${rows.length === 1 ? "" : "s"}.`,
+    );
+    advanceProgress("target_prepare");
+
+    const result = await fillEbayListingFitment(rows);
+    advanceProgress("apply_fitment_media");
+    return result;
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     if (isProcessing) {
@@ -36,47 +125,47 @@ export function SellSimilarAssistant() {
     }
 
     setIsProcessing(true);
-    setProgress(8);
+    setProgress(progressForStage("queued"));
     setStatusMessage("");
+    captureFitmentTargetEditor();
+    fitmentLog("1 Process Listing clicked", `mode=${scrapeMode}`);
 
     try {
       switch (scrapeMode) {
         case "full-scrape": {
-          setStatusMessage("Fetching listing title, images, and specs...");
-          setProgress(28);
-          const listing = await scrapeSourceListing(source);
-          setProgress(55);
+          setStatusMessage("Opening eBay listing...");
+          setProgress(progressForStage("source_load"));
+          const listing = await scrapeSourceListing(source, "full-scrape");
+          setProgress(progressForStage("listing_extract"));
 
           if (!listing.title) {
-            setProgress(100);
+            setProgress(progressForStage("complete"));
             setStatusMessage("Could not find a title on that listing");
             return;
           }
 
-          setStatusMessage("Filling Title field...");
+          setStatusMessage("Populating listing editor...");
+          setProgress(progressForStage("target_prepare"));
           const filledTitle = fillEbayListingTitle(listing.title);
-          setProgress(78);
-
-          if (!filledTitle) {
-            setProgress(100);
-            setStatusMessage("Found title, but the Title field was not on this page");
-            return;
-          }
+          setProgress(progressForStage("apply_core"));
 
           setStatusMessage("Adding photos...");
           const filledImages = await fillEbayListingImages(listing.images);
-          setProgress(84);
+          setProgress(progressForStage("apply_core"));
 
-          setStatusMessage("Updating item category and store category...");
-          const categoryResult = await fillEbayListingCategories(
-            listing.category,
-            listing.storeCategories,
-          );
-          setProgress(92);
+          setStatusMessage("Updating item category...");
+          const categoryResult = await fillEbayListingCategories(listing.category);
+          setProgress(progressForStage("apply_core"));
 
           setStatusMessage("Replacing item specifics...");
           const specResult = await fillEbayListingSpecifics(listing.itemSpecifics);
-          setProgress(100);
+          setProgress(progressForStage("apply_core"));
+
+          setStatusMessage(
+            `Applying vehicle compatibility. Found ${listing.compatibility.length} compatible vehicle${listing.compatibility.length === 1 ? "" : "s"}.`,
+          );
+          const fitmentResult = await applyNormalizedFitment(listing.compatibility);
+          setProgress(progressForStage("complete"));
 
           const photoSummary =
             listing.images.length === 0
@@ -93,21 +182,30 @@ export function SellSimilarAssistant() {
             : listing.category.name
               ? "could not update item category"
               : "no item category found";
-          const storeSummary =
-            listing.storeCategories.length === 0
-              ? "no store category found"
-              : categoryResult.storeCategories > 0
-                ? `updated ${categoryResult.storeCategories} store categor${categoryResult.storeCategories === 1 ? "y" : "ies"}`
-                : "could not update store category";
 
+          const titleSummary = filledTitle
+            ? "Filled title"
+            : "Could not fill the Title field";
           setStatusMessage(
-            `Filled title. ${photoSummary}. ${specSummary}. ${categorySummary}. ${storeSummary}.`,
+            listing.compatibility.length === 0
+              ? `${titleSummary}. ${photoSummary}. ${specSummary}. ${categorySummary}. ${fitmentSummary(fitmentResult, listing.compatibility.length)}`
+              : fitmentResult.filled === listing.compatibility.length && fitmentResult.skipped === 0
+                ? `${titleSummary}. ${photoSummary}. ${specSummary}. ${categorySummary}. Fitment copied exactly. ${fitmentSummary(fitmentResult, listing.compatibility.length)}`
+                : `${titleSummary}. ${photoSummary}. ${specSummary}. ${categorySummary}. Fitment was not saved. ${fitmentSummary(fitmentResult, listing.compatibility.length)}`,
           );
           return;
         }
         case "only-fitment": {
-          setProgress(100);
-          setStatusMessage("Fitment scrape is not implemented yet");
+          setStatusMessage("Waiting for an available worker...");
+          setProgress(progressForStage("queued"));
+          setStatusMessage("Opening and validating the source eBay listing.");
+          setProgress(progressForStage("source_load"));
+          const listing = await scrapeSourceListing(source, "only-fitment");
+          setStatusMessage("Extracting vehicle compatibility...");
+          setProgress(progressForStage("fitment_extract"));
+          const fitmentResult = await applyNormalizedFitment(listing.compatibility);
+          setProgress(progressForStage("complete"));
+          setStatusMessage(fitmentSummary(fitmentResult, listing.compatibility.length));
           return;
         }
         default: {
@@ -129,11 +227,26 @@ export function SellSimilarAssistant() {
     <section className="assistant" aria-label="Sell Similar Assistant">
       <form className="assistant-form" onSubmit={handleSubmit}>
         <FieldRow label="Scrape mode" htmlFor="scrape-mode">
-          <ScrapeModeSelect
-            id="scrape-mode"
-            value={scrapeMode}
-            onChange={handleScrapeModeChange}
-          />
+          <div className="mode-select" id="scrape-mode" role="radiogroup" aria-label="Scrape mode">
+            <button
+              type="button"
+              role="radio"
+              aria-checked={scrapeMode === "full-scrape"}
+              className={scrapeMode === "full-scrape" ? "mode-select-option is-selected" : "mode-select-option"}
+              onClick={() => handleScrapeModeChange("full-scrape")}
+            >
+              Full Scrape
+            </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={scrapeMode === "only-fitment"}
+              className={scrapeMode === "only-fitment" ? "mode-select-option is-selected" : "mode-select-option"}
+              onClick={() => handleScrapeModeChange("only-fitment")}
+            >
+              Fitment only
+            </button>
+          </div>
         </FieldRow>
 
         <FieldRow label="Source URL / ID" htmlFor="source-url">

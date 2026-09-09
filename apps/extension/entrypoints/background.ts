@@ -1,4 +1,21 @@
 import { SellSimilarApiClient, SellSimilarApiError } from "@sell-similar/api-client";
+import { fetchListingHtml } from "../lib/fetch-listing-html.ts";
+import {
+  isFillFitmentBroadcast,
+  type FillFitmentFrameResponse,
+} from "../lib/fill-fitment-messages.ts";
+import {
+  clearFitmentPicker,
+  guardFitmentTree,
+  inspectFitmentPicker,
+  isFitmentMainRequest,
+  keepFitmentSummaryVisible,
+  persistFitmentViaApi,
+  saveFitmentPicker,
+  selectFitmentControl,
+  type FitmentMainRequest,
+  type FitmentMainResponse,
+} from "../lib/fitment-main-world.ts";
 import { isScrapeListingRequest } from "../lib/scrape-messages.ts";
 
 const apiBaseUrl =
@@ -26,16 +43,149 @@ function apiErrorMessage(error: unknown): string {
   return "Could not scrape listing";
 }
 
-async function fetchListingHtml(listingUrl: string): Promise<string> {
-  const response = await fetch(listingUrl, { credentials: "include" });
-  if (!response.ok) {
-    throw new Error(`Could not load listing (${response.status})`);
+async function sellfitFrameIds(tabId: number): Promise<number[]> {
+  const frames = await browser.webNavigation.getAllFrames({ tabId });
+  return (frames ?? [])
+    .filter((frame) => frame.frameId !== 0 && /\/sellfit/i.test(frame.url))
+    .map((frame) => frame.frameId);
+}
+
+async function showFitmentSummary(tabId: number): Promise<void> {
+  try {
+    await browser.scripting.executeScript({
+      target: { tabId },
+      world: "MAIN",
+      func: keepFitmentSummaryVisible,
+    });
+  } catch {
+    // listing frame may have been replaced
   }
-  const html = await response.text();
-  if (/sorry[\s\S]{0,80}something went wrong on our end/i.test(html)) {
-    throw new Error("eBay returned an error page for that listing");
+}
+
+async function runInFrames<T>(
+  tabId: number,
+  func: () => T | Promise<T>,
+): Promise<T | undefined> {
+  const frameIds = await sellfitFrameIds(tabId);
+  const targets: Array<number | undefined> = frameIds.length > 0 ? frameIds : [undefined];
+  for (const frameId of targets) {
+    try {
+      const injected = await browser.scripting.executeScript({
+        target: frameId === undefined ? { tabId } : { tabId, frameIds: [frameId] },
+        world: "MAIN",
+        func,
+      });
+      const value = injected[0]?.result;
+      if (value !== undefined) {
+        return value;
+      }
+    } catch {
+      // frame may have been replaced
+    }
   }
-  return html;
+  return undefined;
+}
+
+async function handleFitmentMain(
+  tabId: number,
+  message: FitmentMainRequest,
+): Promise<FitmentMainResponse> {
+  switch (message.action) {
+    case "guard": {
+      const frameIds = await sellfitFrameIds(tabId);
+      let patched = 0;
+      let ok = false;
+      for (const frameId of frameIds) {
+        try {
+          const injected = await browser.scripting.executeScript({
+            target: { tabId, frameIds: [frameId] },
+            world: "MAIN",
+            func: guardFitmentTree,
+          });
+          const value = injected[0]?.result;
+          if (value?.ok) {
+            ok = true;
+            patched += value.patched ?? 0;
+          }
+        } catch {
+          // frame may have been replaced
+        }
+      }
+      return { ok: ok || frameIds.length === 0, patched };
+    }
+    case "dismiss": {
+      await showFitmentSummary(tabId);
+      return { ok: true };
+    }
+    case "ready": {
+      const status = await runInFrames(tabId, inspectFitmentPicker);
+      if (!status) {
+        return { ok: false, ready: false };
+      }
+      return { ok: true, ...status };
+    }
+    case "clear": {
+      const result = await runInFrames(tabId, clearFitmentPicker);
+      return { ok: Boolean(result?.ok) };
+    }
+    case "select": {
+      const frameIds = await sellfitFrameIds(tabId);
+      const targets: Array<number | undefined> = frameIds.length > 0 ? frameIds : [undefined];
+      for (const frameId of targets) {
+        try {
+          const injected = await browser.scripting.executeScript({
+            target: frameId === undefined ? { tabId } : { tabId, frameIds: [frameId] },
+            world: "MAIN",
+            func: selectFitmentControl,
+            args: [message.field, message.value],
+          });
+          const value = injected[0]?.result;
+          if (value?.ok) {
+            return { ok: true };
+          }
+          if (value && !value.ok) {
+            return { ok: false, error: value.error };
+          }
+        } catch {
+          // try next frame
+        }
+      }
+      return { ok: false, error: "Could not select fitment option" };
+    }
+    case "save": {
+      const result = await runInFrames(tabId, saveFitmentPicker);
+      return { ok: Boolean(result?.ok) };
+    }
+    case "persist": {
+      try {
+        const injected = await browser.scripting.executeScript({
+          target: { tabId },
+          world: "MAIN",
+          func: persistFitmentViaApi,
+          args: [message.meta, message.rows],
+        });
+        const value = injected[0]?.result;
+        if (!value) {
+          return { ok: false, error: "Persist script did not run" };
+        }
+        if (value.ok) {
+          await showFitmentSummary(tabId);
+        }
+        return {
+          ok: Boolean(value.ok),
+          filled: value.filled,
+          error: value.error,
+        };
+      } catch (error) {
+        const messageText = error instanceof Error ? error.message : String(error);
+        return { ok: false, error: messageText };
+      }
+    }
+    default: {
+      const _exhaustive: never = message;
+      return _exhaustive;
+    }
+  }
 }
 
 export default defineBackground(() => {
@@ -44,15 +194,39 @@ export default defineBackground(() => {
     fetch: (input, init) => fetch(input, init),
   });
 
-  browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (isFitmentMainRequest(message)) {
+      const tabId = sender.tab?.id;
+      if (tabId == null) {
+        sendResponse({ ok: false, error: "No tab" } satisfies FitmentMainResponse);
+        return;
+      }
+      void handleFitmentMain(tabId, message).then(sendResponse);
+      return true;
+    }
+
+    if (isFillFitmentBroadcast(message)) {
+      sendResponse({ handled: false } satisfies FillFitmentFrameResponse);
+      return;
+    }
+
     if (!isScrapeListingRequest(message)) {
       return;
     }
 
     void fetchListingHtml(message.listingUrl)
-      .then((html) => api.scrapeListing({ listingUrl: message.listingUrl, html }))
+      .then((html) => {
+        console.log(`[Background] 📊 Scraping: ${message.listingUrl}`);
+        console.log(`[Background] 📊 Scrape mode: ${message.scrapeMode}`);
+        return api.scrapeListing({
+          listingUrl: message.listingUrl,
+          html,
+          scrapeMode: message.scrapeMode,
+        });
+      })
       .then((response) => {
         if (!response.ok) {
+          console.log(`[Background] ❌ Scrape failed:`, response.error);
           sendResponse({
             ok: false,
             error: response.error.message,
@@ -60,12 +234,17 @@ export default defineBackground(() => {
           return;
         }
 
+        console.log(`[Background] ✅ Scrape successful`);
+        console.log(`[Background] 📊 Compatibility count: ${response.data.compatibility?.length || 0}`);
+        console.log(`[Background] 📊 Fitment count: ${response.data.fitment?.length || 0}`);
+
         sendResponse({
           ok: true,
           data: response.data,
         });
       })
       .catch((error: unknown) => {
+        console.log(`[Background] ❌ Error:`, error);
         sendResponse({
           ok: false,
           error: apiErrorMessage(error),

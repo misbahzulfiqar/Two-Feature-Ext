@@ -1,0 +1,120 @@
+function decodeHref(href: string): string {
+  return href.replace(/&amp;/g, "&").replace(/&quot;/g, '"').trim();
+}
+
+function itemIdFromUrl(listingUrl: string): string {
+  const match = listingUrl.match(/\/itm\/(\d+)/i);
+  return match?.[1] ?? "";
+}
+
+function compatibilityVehicleCount(html: string): number {
+  const patterns = [
+    /compatible with\s+(\d+)\s+vehicle/i,
+    /fits\s+(\d+)\s+vehicle/i,
+    /(\d+)\s+compatible vehicle/i,
+    /this part fits\s+(\d+)/i,
+    /see all\s+(\d+)/i,
+  ];
+  for (const pattern of patterns) {
+    const match = html.match(pattern);
+    if (match?.[1]) {
+      return Number(match[1]);
+    }
+  }
+  return 0;
+}
+
+function toAbsoluteUrl(href: string, listingUrl: string): string | undefined {
+  const decoded = decodeHref(href);
+  if (!decoded || decoded.startsWith("javascript:") || decoded === "#") {
+    return undefined;
+  }
+  try {
+    return new URL(decoded, listingUrl).toString();
+  } catch {
+    return undefined;
+  }
+}
+
+export function extraCompatibilityUrls(listingUrl: string, html: string): string[] {
+  const urls = new Set<string>();
+  const itemId = itemIdFromUrl(listingUrl);
+  const patterns = [
+    /pagination__(?:item|next)[^>]{0,240}?href=["']([^"']+)["']/gi,
+    /href=["']([^"']+)["'][^>]{0,240}?pagination__(?:item|next)/gi,
+    /href=["']([^"']*\/pcc\/[^"']+)["']/gi,
+  ];
+
+  for (const pattern of patterns) {
+    for (const match of html.matchAll(pattern)) {
+      const absolute = toAbsoluteUrl(match[1] ?? "", listingUrl);
+      if (absolute && (/\/itm\//i.test(absolute) || /\/pcc\//i.test(absolute))) {
+        urls.add(absolute);
+      }
+    }
+  }
+
+  const count = compatibilityVehicleCount(html);
+  const pageCount = count > 20 ? Math.min(40, Math.ceil(count / 20)) : 1;
+
+  if (itemId) {
+    if (pageCount > 1) {
+      urls.add(`https://www.ebay.com/pcc/${itemId}`);
+    }
+    for (let page = 2; page <= pageCount; page += 1) {
+      const pgn = new URL(listingUrl);
+      pgn.searchParams.set("_pgn", String(page));
+      urls.add(pgn.toString());
+
+      const pcc = new URL(listingUrl);
+      pcc.searchParams.set("pccpage", String(page));
+      urls.add(pcc.toString());
+
+      urls.add(`https://www.ebay.com/pcc/${itemId}?page=${page}`);
+    }
+  }
+
+  return [...urls].filter((url) => {
+    try {
+      return new URL(url).toString() !== new URL(listingUrl).toString();
+    } catch {
+      return false;
+    }
+  });
+}
+
+async function fetchHtml(url: string): Promise<string> {
+  const response = await fetch(url, { credentials: "include" });
+  if (!response.ok) {
+    return "";
+  }
+  const html = await response.text();
+  if (/sorry[\s\S]{0,80}something went wrong on our end/i.test(html)) {
+    return "";
+  }
+  return html;
+}
+
+export async function fetchListingHtml(listingUrl: string): Promise<string> {
+  const response = await fetch(listingUrl, { credentials: "include" });
+  if (!response.ok) {
+    throw new Error(`Could not load listing (${response.status})`);
+  }
+  const html = await response.text();
+  if (/sorry[\s\S]{0,80}something went wrong on our end/i.test(html)) {
+    throw new Error("eBay returned an error page for that listing");
+  }
+
+  const extras: string[] = [];
+  for (const url of extraCompatibilityUrls(listingUrl, html).slice(0, 12)) {
+    const pageHtml = await fetchHtml(url);
+    if (pageHtml && /year/i.test(pageHtml) && /make/i.test(pageHtml)) {
+      extras.push(pageHtml);
+    }
+  }
+
+  if (extras.length === 0) {
+    return html;
+  }
+  return `${html}\n<!--SELL_SIMILAR_FITMENT_PAGES-->\n${extras.join("\n<!--SELL_SIMILAR_FITMENT_PAGE-->\n")}`;
+}

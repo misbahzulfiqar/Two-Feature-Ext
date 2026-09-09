@@ -1,6 +1,9 @@
 import type {
   ApiResponse,
+  CreateScrapeJobRequest,
+  CreateScrapeJobResponse,
   GetListingResponse,
+  GetScrapeJobResponse,
   HealthResponse,
   ListingId,
   ScrapeListingRequest,
@@ -9,6 +12,7 @@ import type {
   SellSimilarResponse,
 } from "@sell-similar/contracts";
 import {
+  createScrapeJobRequestSchema,
   scrapeListingRequestSchema,
   sellSimilarRequestSchema,
 } from "@sell-similar/validation";
@@ -77,6 +81,22 @@ export class SellSimilarApiClient {
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(120_000),
     });
+  }
+
+  async createScrapeJob(
+    input: CreateScrapeJobRequest,
+  ): Promise<CreateScrapeJobResponse> {
+    const body = createScrapeJobRequestSchema.parse(input);
+    return this.request<CreateScrapeJobResponse>("/listings/scrape-jobs", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  }
+
+  async getScrapeJob(jobId: string): Promise<GetScrapeJobResponse> {
+    return this.request<GetScrapeJobResponse>(
+      `/listings/scrape-jobs/${encodeURIComponent(jobId)}`,
+    );
   }
 
   private async request<T>(

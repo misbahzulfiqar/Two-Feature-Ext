@@ -4,3 +4,15 @@ export {
   vehicleFitmentSchema,
 } from "./fitment.js";
 export type { NormalizedListing, VehicleFitment } from "./fitment.js";
+export {
+  completeScrapeJob,
+  createQueuedScrapeJob,
+  failScrapeJob,
+  getMongoClient,
+  getScrapeJobById,
+  getScrapeJobsCollection,
+  markScrapeJobProcessing,
+  toScrapeJobRecord,
+  updateScrapeJobProgress,
+} from "./scrape-job-store.js";
+export type { ScrapeJobDocument } from "./scrape-job-store.js";

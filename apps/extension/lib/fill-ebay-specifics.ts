@@ -5,32 +5,28 @@ export type FillSpecificsResult = {
   skipped: string[];
 };
 
-const KEY_ALIASES: Record<string, string> = {
-  manufacturerpartnumber: "mpn",
-  mpn: "mpn",
-  countryofmanufacture: "countryoforigin",
-  countryregionofmanufacture: "countryoforigin",
-  manufacturerwarranty: "warranty",
-  itemweight: "weight",
-  itemwidth: "width",
-  itemdepth: "depth",
-  itemheight: "height",
-  upc: "universalproductcode",
-  oeoempartnumber: "oeoempartnumber",
-  oempartnumber: "oeoempartnumber",
-  placementonvehicle: "placementonvehicle",
-  universalfitment: "universalfitment",
-  numberinpack: "numberinpack",
-  mountinghardwareincluded: "mountinghardwareincluded",
-};
-
 function compactKey(key: string): string {
   return key.replace(/[^a-z0-9]/gi, "").toLowerCase();
 }
 
+function isSchemaClassValue(value: string): boolean {
+  return /^[A-Z][A-Za-z0-9]+(?:[A-Z][A-Za-z0-9]+)+$/.test(value.trim());
+}
+
+function isJsonLdTypeSpecific(spec: ItemSpecific): boolean {
+  if (compactKey(spec.key) !== "type") {
+    return false;
+  }
+  return (
+    isSchemaClassValue(spec.value) ||
+    /^(PriceSpecification|UnitPriceSpecification|CompoundPriceSpecification|Offer|AggregateOffer|Product|Brand|Organization)$/i.test(
+      spec.value.trim(),
+    )
+  );
+}
+
 function canonicalKey(key: string): string {
-  const compact = compactKey(key);
-  return KEY_ALIASES[compact] ?? compact;
+  return compactKey(key);
 }
 
 function delay(ms: number): Promise<void> {
@@ -93,8 +89,55 @@ function clippedValue(
   return value.slice(0, maxLength);
 }
 
+function splitForInputLimit(value: string, maxLength: number): string[] {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return [];
+  }
+  if (trimmed.length <= maxLength) {
+    return [trimmed];
+  }
+
+  const parts = trimmed
+    .split(/\s*,\s*/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const chunks: string[] = [];
+  let current = "";
+
+  for (const part of parts) {
+    if (part.length > maxLength) {
+      if (current) {
+        chunks.push(current);
+        current = "";
+      }
+      for (let index = 0; index < part.length; index += maxLength) {
+        chunks.push(part.slice(index, index + maxLength));
+      }
+      continue;
+    }
+
+    const next = current ? `${current}, ${part}` : part;
+    if (next.length <= maxLength) {
+      current = next;
+    } else {
+      if (current) {
+        chunks.push(current);
+      }
+      current = part;
+    }
+  }
+
+  if (current) {
+    chunks.push(current);
+  }
+  return chunks;
+}
+
 function clickMatchingOption(field: Element, value: string): boolean {
-  const options = field.querySelectorAll('[role="menuitemradio"], .menu__item');
+  const options = field.querySelectorAll(
+    '[role="menuitemradio"], [role="menuitemcheckbox"], [role="option"], .menu__item',
+  );
   for (const option of options) {
     const optionText = (option.textContent ?? "").replace(/\s+/g, " ").trim();
     if (
@@ -110,9 +153,140 @@ function clickMatchingOption(field: Element, value: string): boolean {
   return false;
 }
 
-function fillAttributeField(field: Element, value: string): boolean {
+function fireClick(el: HTMLElement): void {
+  el.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, composed: true }));
+  el.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, composed: true }));
+  el.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, composed: true }));
+  el.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, composed: true }));
+  el.click();
+}
+
+function normalizeYesNo(value: string): "yes" | "no" | null {
+  const trimmed = value.trim().toLowerCase();
+  if (/^(yes|true)\b/.test(trimmed)) {
+    return "yes";
+  }
+  if (/^(no|false)\b/.test(trimmed)) {
+    return "no";
+  }
+  return null;
+}
+
+function attributeValueRoot(field: Element): Element {
+  return field.querySelector(".summary__attributes--value") ?? field;
+}
+
+function clickYesNo(field: Element, value: string): boolean {
+  const wanted = normalizeYesNo(value);
+  if (!wanted) {
+    return false;
+  }
+
+  const root = attributeValueRoot(field);
+
+  const radios = root.querySelectorAll('input[type="radio"]');
+  for (const radio of radios) {
+    if (!(radio instanceof HTMLInputElement)) {
+      continue;
+    }
+    const haystack = [
+      radio.value,
+      radio.getAttribute("aria-label") ?? "",
+      radio.labels?.[0]?.textContent ?? "",
+      radio.closest("label")?.textContent ?? "",
+      radio.parentElement?.textContent ?? "",
+    ]
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .toLowerCase();
+    if (normalizeYesNo(haystack) !== wanted && radio.value.trim().toLowerCase() !== wanted) {
+      continue;
+    }
+    fireClick(radio);
+    radio.checked = true;
+    radio.dispatchEvent(new Event("input", { bubbles: true }));
+    radio.dispatchEvent(new Event("change", { bubbles: true }));
+    return true;
+  }
+
+  const exact: HTMLElement[] = [];
+  root.querySelectorAll("button, [role='button'], [role='radio'], [role='option'], label, a, span, div").forEach((node) => {
+    if (!(node instanceof HTMLElement)) {
+      return;
+    }
+    const text = (node.textContent ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+    if (text === wanted) {
+      exact.push(node);
+    }
+  });
+  exact.sort((left, right) => left.textContent!.length - right.textContent!.length);
+  const match = exact[0];
+  if (!match) {
+    return false;
+  }
+
+  const clickable =
+    match.closest("button, label, a, [role='button'], [role='radio'], [role='option']") ?? match;
+  if (!(clickable instanceof HTMLElement)) {
+    return false;
+  }
+  fireClick(clickable);
+  const nested = clickable.querySelector("input[type='radio'], input[type='checkbox']");
+  if (nested instanceof HTMLInputElement) {
+    nested.checked = true;
+    nested.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+  return true;
+}
+
+async function fillSearchBoxValues(
+  field: Element,
+  searchInput: HTMLInputElement,
+  value: string,
+): Promise<boolean> {
+  const toggle = field.querySelector('button[name^="attributes."]');
+  if (toggle instanceof HTMLElement && toggle.getAttribute("aria-expanded") !== "true") {
+    toggle.click();
+    await delay(80);
+  }
+
+  const limit = searchInput.maxLength > 0 ? searchInput.maxLength : 65;
+  const chunks = splitForInputLimit(value, limit);
+  if (chunks.length === 0) {
+    return false;
+  }
+
+  for (const chunk of chunks) {
+    searchInput.focus();
+    setNativeValue(searchInput, chunk);
+    searchInput.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+    );
+    clickMatchingOption(field, chunk);
+    await delay(140);
+  }
+
+  if (toggle instanceof HTMLElement && toggle.getAttribute("aria-expanded") === "true") {
+    toggle.click();
+  }
+  searchInput.blur();
+  return true;
+}
+
+async function fillAttributeField(field: Element, value: string): Promise<boolean> {
+  if (clickYesNo(field, value)) {
+    await delay(80);
+    return true;
+  }
+
+  const searchInput = field.querySelector('input[name^="search-box-attributes"]');
+  if (searchInput instanceof HTMLInputElement) {
+    return fillSearchBoxValues(field, searchInput, value);
+  }
+
   const namedInput = field.querySelector(
-    'input[name^="attributes."], textarea[name^="attributes."]',
+    'input[name^="attributes."]:not([type="radio"]):not([type="checkbox"]):not([type="hidden"]), textarea[name^="attributes."]',
   );
   if (
     namedInput instanceof HTMLInputElement ||
@@ -127,18 +301,13 @@ function fillAttributeField(field: Element, value: string): boolean {
   const toggle = field.querySelector('button[name^="attributes."]');
   if (toggle instanceof HTMLElement) {
     toggle.click();
-  }
-
-  const searchInput = field.querySelector('input[name^="search-box-attributes"]');
-  if (searchInput instanceof HTMLInputElement) {
-    searchInput.focus();
-    setNativeValue(searchInput, clippedValue(searchInput, value));
-    searchInput.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
-    );
-    clickMatchingOption(field, value);
-    searchInput.blur();
-    return true;
+    await delay(80);
+    if (clickMatchingOption(field, value) || clickYesNo(field, value)) {
+      if (toggle.getAttribute("aria-expanded") === "true") {
+        toggle.click();
+      }
+      return true;
+    }
   }
 
   const fallback = field.querySelector(
@@ -183,10 +352,7 @@ function findAttributeFields(key: string): Element[] {
     const searchName = name.match(/^search-box-attributes(.+)$/)?.[1];
     const candidate = attributeName ?? searchName ?? aria;
     if (candidate && canonicalKey(candidate) === wanted) {
-      add(el.closest('[data-testid="attribute"]') ?? el.parentElement);
-    }
-    if (wanted === "universalproductcode" && name === "universalProductCode") {
-      add(el.closest('[data-testid="attribute"]') ?? el.parentElement);
+      add(el.closest('[data-testid="attribute"]') ?? el.closest(".summary__attributes--value")?.parentElement ?? el.parentElement);
     }
   });
 
@@ -308,6 +474,10 @@ async function replaceExistingSpecifics(): Promise<void> {
   await delay(120);
 }
 
+export async function clearEbayListingSpecifics(): Promise<void> {
+  await replaceExistingSpecifics();
+}
+
 function expandHiddenAttributes(root: ParentNode): void {
   root.querySelectorAll("button, a, [role='button']").forEach((el) => {
     const text = (el.textContent ?? "").replace(/\s+/g, " ").trim();
@@ -378,15 +548,25 @@ async function addAndFillMissingSpecific(spec: ItemSpecific): Promise<boolean> {
     return false;
   }
 
-  return fields.some((field) => fillAttributeField(field, spec.value));
+  for (const field of fields) {
+    if (await fillAttributeField(field, spec.value)) {
+      return true;
+    }
+  }
+  return false;
 }
 
-function fillExistingSpecific(spec: ItemSpecific): boolean {
+async function fillExistingSpecific(spec: ItemSpecific): Promise<boolean> {
   const fields = findAttributeFields(spec.key);
   if (fields.length === 0) {
     return false;
   }
-  return fields.some((field) => fillAttributeField(field, spec.value));
+  for (const field of fields) {
+    if (await fillAttributeField(field, spec.value)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export async function fillEbayListingSpecifics(
@@ -398,7 +578,11 @@ export async function fillEbayListingSpecifics(
   let filled = 0;
 
   for (const spec of specifics) {
-    if (fillExistingSpecific(spec)) {
+    if (isJsonLdTypeSpecific(spec)) {
+      skipped.push(spec.key);
+      continue;
+    }
+    if (await fillExistingSpecific(spec)) {
       filled += 1;
       continue;
     }

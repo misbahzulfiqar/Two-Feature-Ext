@@ -4,9 +4,41 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Sell Similar Assistant</title>
+    <style>
+      html, body, #root { margin: 0; }
+      body {
+        min-width: 280px;
+        background: #f4f6fb;
+        font-family: Inter, Segoe UI, system-ui, sans-serif;
+      }
+      .popup-note {
+        box-sizing: border-box;
+        padding: 16px 18px;
+        color: #0b1f4a;
+      }
+      .popup-note h1 {
+        margin: 0;
+        font-size: 15px;
+        font-weight: 800;
+      }
+      .popup-note p {
+        margin: 8px 0 0;
+        color: #6b778c;
+        font-size: 13px;
+        line-height: 1.4;
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <main class="popup-note">
+        <h1>Sell Similar Assistant</h1>
+        <p>
+          Open an eBay listing editor (create, revise, or sell similar). The
+          toolbar appears at the top of that page.
+        </p>
+      </main>
+    </div>
     <script type="module" src="./main.tsx"></script>
   </body>
 </html>
