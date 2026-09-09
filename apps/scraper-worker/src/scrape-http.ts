@@ -83,15 +83,18 @@ async function handleRequest(
     );
     const result = await runScrape(env, parsed.data.listingUrl, {
       html: parsed.data.html,
+      scrapeMode: parsed.data.scrapeMode,
     });
     const listingData = result.listingData;
     logger.info(
       {
         status: result.status,
+        scrapeMode: parsed.data.scrapeMode ?? "full-scrape",
         title: listingData?.title,
         images: listingData?.images?.length ?? 0,
         itemSpecifics: listingData?.itemSpecifics?.length ?? 0,
         category: listingData?.category?.name,
+        compatibility: listingData?.compatibilityCount ?? listingData?.compatibility?.length ?? 0,
       },
       "HTTP scrape finished",
     );

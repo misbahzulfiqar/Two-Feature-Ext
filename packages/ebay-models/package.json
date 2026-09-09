@@ -21,10 +21,12 @@
   "dependencies": {
     "@sell-similar/contracts": "workspace:*",
     "@sell-similar/validation": "workspace:*",
+    "mongodb": "^6.20.0",
     "zod": "catalog:"
   },
   "devDependencies": {
     "@sell-similar/tsconfig": "workspace:*",
+    "@types/node": "catalog:",
     "typescript": "catalog:"
   }
 }

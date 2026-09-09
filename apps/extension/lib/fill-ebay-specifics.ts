@@ -474,6 +474,10 @@ async function replaceExistingSpecifics(): Promise<void> {
   await delay(120);
 }
 
+export async function clearEbayListingSpecifics(): Promise<void> {
+  await replaceExistingSpecifics();
+}
+
 function expandHiddenAttributes(root: ParentNode): void {
   root.querySelectorAll("button, a, [role='button']").forEach((el) => {
     const text = (el.textContent ?? "").replace(/\s+/g, " ").trim();

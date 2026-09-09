@@ -11,6 +11,14 @@ export const apiEnvSchema = z.object({
   BETTER_AUTH_URL: z.string().url(),
   DATABASE_URL: z.string().min(1),
   SCRAPER_WORKER_URL: z.string().url().default("http://127.0.0.1:3002"),
+  REDIS_URL: z.preprocess(
+    (value) => (value === "" || value === undefined ? undefined : value),
+    z.string().min(1).optional(),
+  ),
+  MONGO_URL: z.preprocess(
+    (value) => (value === "" || value === undefined ? undefined : value),
+    z.string().min(1).optional(),
+  ),
 });
 
 export type ApiEnv = z.infer<typeof apiEnvSchema>;

@@ -4,6 +4,7 @@ import type {
   ScrapeListingRequest,
   ScrapedListingData,
   StoreCategory,
+  VehicleCompatibility,
 } from "@sell-similar/contracts";
 import { z } from "zod";
 import type { AssertContract } from "./assert-contract.js";
@@ -27,6 +28,7 @@ export const scrapeListingRequestSchema = z.object({
     .url()
     .refine(isEbayItemUrl, "Source URL must be an eBay item listing (/itm/...)"),
   html: z.string().min(1).optional(),
+  scrapeMode: z.enum(["full-scrape", "only-fitment"]).optional(),
 });
 
 export const itemSpecificSchema = z.object({
@@ -46,6 +48,15 @@ export const storeCategorySchema = z.object({
   path: z.array(z.string()).optional(),
 });
 
+export const vehicleCompatibilitySchema = z.object({
+  year: z.string(),
+  make: z.string(),
+  model: z.string(),
+  trim: z.string().optional().default(""),
+  engine: z.string().optional().default(""),
+  notes: z.string().optional().default(""),
+});
+
 export const scrapedListingDataSchema = z.object({
   title: z.string().default(""),
   sku: z.string().default(""),
@@ -54,7 +65,9 @@ export const scrapedListingDataSchema = z.object({
   itemSpecifics: z.array(itemSpecificSchema).default([]),
   category: listingCategorySchema.default({ id: "", name: "", path: [] }),
   storeCategories: z.array(storeCategorySchema).default([]),
-  fitment: z.array(z.unknown()).default([]),
+  fitment: z.array(vehicleCompatibilitySchema).default([]),
+  compatibility: z.array(vehicleCompatibilitySchema).default([]),
+  compatibilityCount: z.number().int().nonnegative().default(0),
 });
 
 export type ParsedScrapeListingRequest = AssertContract<
@@ -72,6 +85,10 @@ export type ParsedListingCategory = AssertContract<
 export type ParsedStoreCategory = AssertContract<
   z.infer<typeof storeCategorySchema>,
   StoreCategory
+>;
+export type ParsedVehicleCompatibility = AssertContract<
+  z.infer<typeof vehicleCompatibilitySchema>,
+  VehicleCompatibility
 >;
 export type ParsedScrapedListingData = AssertContract<
   z.infer<typeof scrapedListingDataSchema>,

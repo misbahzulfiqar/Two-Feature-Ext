@@ -5,6 +5,7 @@ import { toNodeHandler } from "better-auth/node";
 import express from "express";
 import { createAuth } from "./auth.js";
 import { createListing, createScrapeListingHandler, sellSimilar } from "./controllers/ListingsController.js";
+import { createScrapeJobsHandlers } from "./controllers/ScrapeJobsController.js";
 import { correlationMiddleware } from "./correlation.js";
 import { corsMiddleware } from "./cors.js";
 import { apiEnvSchema } from "./env.js";
@@ -30,6 +31,10 @@ app.get("/health", (req, res) => {
 app.post("/listings", createListing);
 app.post("/listings/sell-similar", sellSimilar);
 app.post("/listings/scrape", createScrapeListingHandler(env.SCRAPER_WORKER_URL));
+
+const scrapeJobs = createScrapeJobsHandlers(env);
+app.post("/listings/scrape-jobs", scrapeJobs.createScrapeJob);
+app.get("/listings/scrape-jobs/:jobId", scrapeJobs.getScrapeJob);
 
 app.listen(env.API_PORT, () => {
   logger.info({ port: env.API_PORT }, "api listening");

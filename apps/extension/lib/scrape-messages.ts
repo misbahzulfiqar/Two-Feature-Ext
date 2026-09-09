@@ -1,10 +1,11 @@
-import type { ScrapedListingData } from "@sell-similar/contracts";
+import type { ScrapedListingData, ScrapeMode } from "@sell-similar/contracts";
 
 export const SCRAPE_LISTING = "scrape-listing";
 
 export type ScrapeListingRequestMessage = {
   type: typeof SCRAPE_LISTING;
   listingUrl: string;
+  scrapeMode?: ScrapeMode;
 };
 
 export type ScrapeListingResponseMessage =

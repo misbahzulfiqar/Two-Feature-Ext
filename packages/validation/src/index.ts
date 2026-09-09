@@ -1,8 +1,11 @@
 export type { AssertContract } from "./assert-contract.js";
 export {
+  createScrapeJobRequestSchema,
   jobNameSchema,
   refreshFitmentJobPayloadSchema,
+  scrapeJobStatusSchema,
   scrapeListingJobPayloadSchema,
+  scrapeProgressStageSchema,
   scrapeSimilarJobPayloadSchema,
 } from "./jobs.js";
 export {
@@ -19,6 +22,7 @@ export {
   scrapeListingRequestSchema,
   scrapedListingDataSchema,
   storeCategorySchema,
+  vehicleCompatibilitySchema,
 } from "./scrape.js";
 export type {
   ParsedListingCondition,
@@ -33,4 +37,5 @@ export type {
   ParsedScrapeListingRequest,
   ParsedScrapedListingData,
   ParsedStoreCategory,
+  ParsedVehicleCompatibility,
 } from "./scrape.js";

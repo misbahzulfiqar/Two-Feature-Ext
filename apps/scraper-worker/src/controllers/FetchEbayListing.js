@@ -767,9 +767,6 @@ export function extractListingSpecificsInPage() {
 
 export function extractListingCategoriesInPage() {
   const category = { id: "", name: "", path: [] };
-  const storeCategories = [];
-  let primaryStore = null;
-  let secondaryStore = null;
 
   const cleanText = (text) =>
     String(text || "")
@@ -792,11 +789,6 @@ export function extractListingCategoriesInPage() {
   const isRejectedMarketplaceName = (name) =>
     /^(home|ebay|back to search|all categories|see all|shop by category)$/i.test(name);
 
-  const isRejectedStoreName = (name) =>
-    /^(home|ebay|see all|visit store|seller information|feedback|contact|shop with confidence|save this seller|follow this seller)$/i.test(
-      name,
-    ) || /^(other|none|n\/?a|unassigned|not specified|default)$/i.test(name);
-
   const isStoreHref = (href) =>
     /\/str\//i.test(href) ||
     /stores\.ebay\./i.test(href) ||
@@ -818,41 +810,6 @@ export function extractListingCategoriesInPage() {
     return "";
   };
 
-  const storeCategoryIdFromHref = (href) => {
-    if (!href) return "";
-    const storecat = href.match(/[?&](?:storecat|_storecat)=(\d+)/i);
-    return storecat?.[1] || "";
-  };
-
-  const toStoreEntry = (name, href = "", id = "") => {
-    const cleaned = cleanText(name);
-    if (!cleaned || isRejectedStoreName(cleaned) || isRejectedMarketplaceName(cleaned)) {
-      return null;
-    }
-    const hrefText = String(href || "");
-    const storeId = id ? String(id) : storeCategoryIdFromHref(hrefText);
-    if (hrefText && isStoreHref(hrefText) && !storeId) {
-      return null;
-    }
-    if (categoryIdFromHref(hrefText) && !isStoreHref(hrefText)) return null;
-    const entry = { name: cleaned };
-    if (storeId) entry.id = storeId;
-    return entry;
-  };
-
-  const assignStore = (slot, name, href = "", id = "") => {
-    const entry = toStoreEntry(name, href, id);
-    if (!entry) return;
-    if (slot === "secondary") {
-      if (primaryStore && primaryStore.name.toLowerCase() === entry.name.toLowerCase()) {
-        return;
-      }
-      if (!secondaryStore) secondaryStore = entry;
-      return;
-    }
-    if (!primaryStore) primaryStore = entry;
-  };
-
   const itemSelectors = [
     '[data-testid="breadcrumbs"] a',
     '[data-testid="x-breadcrumb"] a',
@@ -864,16 +821,6 @@ export function extractListingCategoriesInPage() {
     ".x-breadcrumb a",
     ".ux-section-breadcrumbs a",
     '[class*="breadcrumb"] a',
-  ];
-
-  const storeSelectors = [
-    '[data-testid*="store-categor"] a',
-    ".str-categories a",
-    ".store-categories a",
-    '[class*="store-categor"] a',
-    '[class*="storeCategories"] a',
-    'a[href*="storecat="]',
-    'a[href*="_storecat="]',
   ];
 
   const pathEntries = [];
@@ -896,22 +843,6 @@ export function extractListingCategoriesInPage() {
       .reverse()
       .find((entry) => categoryIdFromHref(entry.href));
     category.id = lastWithId ? categoryIdFromHref(lastWithId.href) : "";
-  }
-
-  const storePathEntries = [];
-  storeSelectors.forEach((selector) => {
-    document.querySelectorAll(selector).forEach((link) => {
-      const href = link.href || link.getAttribute("href") || "";
-      const entry = toStoreEntry(link.innerText || link.textContent, href);
-      if (!entry) return;
-      const exists = storePathEntries.some(
-        (item) => item.name.toLowerCase() === entry.name.toLowerCase(),
-      );
-      if (!exists) storePathEntries.push(entry);
-    });
-  });
-  if (!primaryStore && storePathEntries.length) {
-    primaryStore = storePathEntries[storePathEntries.length - 1];
   }
 
   const collectFromJson = (obj, parentKey = "") => {
@@ -1001,41 +932,6 @@ export function extractListingCategoriesInPage() {
       }
     }
 
-    if (obj.storeCategoryName || obj.StoreCategoryName) {
-      assignStore(
-        "primary",
-        obj.storeCategoryName || obj.StoreCategoryName,
-        "",
-        obj.storeCategoryId || obj.storeCategoryID || obj.StoreCategoryID || "",
-      );
-    }
-    if (obj.storeCategory2Name || obj.StoreCategory2Name) {
-      assignStore(
-        "secondary",
-        obj.storeCategory2Name || obj.StoreCategory2Name,
-        "",
-        obj.storeCategory2Id || obj.storeCategory2ID || obj.StoreCategory2ID || "",
-      );
-    }
-    const primaryStoreObj = obj.primaryStoreCategory;
-    if (primaryStoreObj && typeof primaryStoreObj === "object") {
-      assignStore(
-        "primary",
-        primaryStoreObj.name || primaryStoreObj.categoryName,
-        "",
-        primaryStoreObj.id || primaryStoreObj.categoryId,
-      );
-    }
-    const secondaryStoreObj = obj.secondaryStoreCategory;
-    if (secondaryStoreObj && typeof secondaryStoreObj === "object") {
-      assignStore(
-        "secondary",
-        secondaryStoreObj.name || secondaryStoreObj.categoryName,
-        "",
-        secondaryStoreObj.id || secondaryStoreObj.categoryId,
-      );
-    }
-
     Object.entries(obj).forEach(([key, value]) => {
       if (value && typeof value === "object") collectFromJson(value, key);
     });
@@ -1048,7 +944,7 @@ export function extractListingCategoriesInPage() {
     const interesting =
       type.includes("ld+json") ||
       type.includes("application/json") ||
-      /categoryId|categoryName|storeCategory|BreadcrumbList|primaryCategory/i.test(text);
+      /categoryId|categoryName|BreadcrumbList|primaryCategory/i.test(text);
     if (!interesting) return;
 
     const tryParse = (raw) => {
@@ -1076,33 +972,15 @@ export function extractListingCategoriesInPage() {
     category.path = [category.name];
   }
 
-  if (primaryStore) storeCategories.push(primaryStore);
-  if (secondaryStore) storeCategories.push(secondaryStore);
-
-  return { category, storeCategories };
+  return { category, storeCategories: [] };
 }
 
 export async function getItemSpecifics(page) {
   return page.evaluate(extractListingSpecificsInPage);
 }
 
-export async function fetchEbayListing(page, listingUrl, options = {}) {
+export async function prepareListingPage(page, listingUrl, options = {}) {
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-  const evaluate = async (fn, ...args) => {
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      try {
-        return await page.evaluate(fn, ...args);
-      } catch (error) {
-        const message = String(error?.message || error);
-        if (!message.includes("detached") || attempt === 2) {
-          throw error;
-        }
-        await wait(1500);
-      }
-    }
-    return undefined;
-  };
-
   const html = typeof options.html === "string" ? options.html : "";
   if (html) {
     await page.setContent(html, { waitUntil: "domcontentloaded", timeout: 30000 });
@@ -1124,7 +1002,10 @@ export async function fetchEbayListing(page, listingUrl, options = {}) {
           const specs = document.querySelector(
             ".ux-labels-values, [data-testid='ux-labels-values'], .ux-layout-section--aspects",
           );
-          return Boolean(heading || specs);
+          const fitment = document.querySelector(
+            ".motors-compatibility-table, [data-testid='d-motors-compatibility-table'], [data-testid='d-item-compatibility']",
+          );
+          return Boolean(heading || specs || fitment);
         },
         { timeout: 20000 },
       )
@@ -1132,15 +1013,33 @@ export async function fetchEbayListing(page, listingUrl, options = {}) {
   }
 
   await wait(300);
+}
+
+export async function fetchEbayListing(page, listingUrl, options = {}) {
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const evaluate = async (fn, ...args) => {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        return await page.evaluate(fn, ...args);
+      } catch (error) {
+        const message = String(error?.message || error);
+        if (!message.includes("detached") || attempt === 2) {
+          throw error;
+        }
+        await wait(1500);
+      }
+    }
+    return undefined;
+  };
+
+  await prepareListingPage(page, listingUrl, options);
 
   const title = await evaluate(extractListingTitleInPage, PARSER_SELECTORS);
   const images = await evaluate(extractListingImagesInPage, EBAY_SELECTORS);
   const itemSpecifics = await evaluate(extractListingSpecificsInPage);
   const categories = await evaluate(extractListingCategoriesInPage);
   const category = categories?.category || { id: "", name: "", path: [] };
-  const storeCategories = Array.isArray(categories?.storeCategories)
-    ? categories.storeCategories
-    : [];
+  const storeCategories = [];
 
   return {
     title: typeof title === "string" ? title.trim() : "",
@@ -1154,5 +1053,8 @@ export async function fetchEbayListing(page, listingUrl, options = {}) {
       path: Array.isArray(category.path) ? category.path.filter(Boolean) : [],
     },
     storeCategories,
+    fitment: [],
+    compatibility: [],
+    compatibilityCount: 0,
   };
 }

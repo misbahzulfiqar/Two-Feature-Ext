@@ -100,6 +100,7 @@ export function createScrapeListingHandler(scraperWorkerUrl) {
         body: JSON.stringify({
           listingUrl: parsed.data.listingUrl,
           html: parsed.data.html,
+          scrapeMode: parsed.data.scrapeMode,
         }),
         signal: AbortSignal.timeout(SCRAPE_TIMEOUT_MS),
       });

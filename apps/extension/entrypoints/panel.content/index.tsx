@@ -3,12 +3,16 @@ import type { Root } from "react-dom/client";
 import { SellSimilarAssistant } from "../../components/SellSimilarAssistant.tsx";
 import assistantCss from "../../components/SellSimilarAssistant.css?inline";
 import {
+  EBAY_CONTENT_SCRIPT_EXCLUDE_MATCHES,
+  EBAY_LISTING_EDITOR_MATCHES,
+} from "../../lib/content-script-matches.ts";
+import {
   PANEL_HOST_ATTR,
   PANEL_HOST_SELECTOR,
   PANEL_HOST_TAG,
+  findListingEditorContainer,
   insertBeforeListingHeading,
   isEbayListingEditorUrl,
-  listingEditorAnchorSelector,
 } from "../../lib/ebay-listing-editor.ts";
 import panelCss from "./panel.css?inline";
 
@@ -38,7 +42,7 @@ function injectHostPageStyles(): void {
   grid-area: auto !important;
   inset: auto !important;
   transform: none !important;
-  z-index: 20 !important;
+  z-index: 40 !important;
   box-sizing: border-box !important;
   overflow: visible !important;
   background: transparent !important;
@@ -70,7 +74,7 @@ function applyInFlowHostStyles(shadowHost: HTMLElement, container: HTMLElement):
   shadowHost.style.setProperty("inset", "auto", "important");
   shadowHost.style.setProperty("transform", "none", "important");
   shadowHost.style.setProperty("overflow", "visible", "important");
-  shadowHost.style.setProperty("z-index", "20", "important");
+  shadowHost.style.setProperty("z-index", "40", "important");
   shadowHost.style.setProperty("box-sizing", "border-box", "important");
 
   container.style.display = "block";
@@ -80,9 +84,10 @@ function applyInFlowHostStyles(shadowHost: HTMLElement, container: HTMLElement):
 }
 
 function syncHostHeight(shadowHost: HTMLElement, container: HTMLElement): void {
-  const height = Math.ceil(container.getBoundingClientRect().height);
+  const height = Math.ceil(container.scrollHeight || container.getBoundingClientRect().height);
   if (height > 0) {
-    shadowHost.style.setProperty("height", `${height}px`, "important");
+    shadowHost.style.setProperty("min-height", `${height}px`, "important");
+    shadowHost.style.setProperty("height", "auto", "important");
   }
 }
 
@@ -90,33 +95,31 @@ function syncHostHeight(shadowHost: HTMLElement, container: HTMLElement): void {
  * FR-001: insert the assistant into the listing form, above the page title.
  */
 export default defineContentScript({
-  matches: ["*://*.ebay.com/*", "*://ebay.com/*"],
+  matches: [...EBAY_LISTING_EDITOR_MATCHES],
+  excludeMatches: [...EBAY_CONTENT_SCRIPT_EXCLUDE_MATCHES],
   runAt: "document_idle",
+  allFrames: false,
   cssInjectionMode: "manual",
 
   async main(ctx) {
+    document.querySelectorAll(PANEL_HOST_SELECTOR).forEach((host) => {
+      host.remove();
+    });
+
     injectHostPageStyles();
 
     const ui = await createShadowRootUi<MountedAssistant>(ctx, {
       name: PANEL_HOST_TAG,
       position: "inline",
-      inheritStyles: false,
+      inheritStyles: true,
       css: SHADOW_CSS,
       append: insertBeforeListingHeading,
-      anchor: listingEditorAnchorSelector,
-      isolateEvents: [
-        "keyup",
-        "keydown",
-        "keypress",
-        "click",
-        "mousedown",
-        "mouseup",
-        "pointerdown",
-        "pointerup",
-      ],
+      anchor: () => findListingEditorContainer(),
+      isolateEvents: ["keyup", "keydown", "keypress"],
       onMount(container, shadow, shadowHost) {
         applyShadowCss(shadow);
         applyInFlowHostStyles(shadowHost, container);
+        shadowHost.style.setProperty("min-height", "140px", "important");
         const root = ReactDOM.createRoot(container);
         root.render(<SellSimilarAssistant />);
         syncHostHeight(shadowHost, container);
@@ -137,28 +140,33 @@ export default defineContentScript({
       },
     });
 
-    let autoMountStarted = false;
-
-    function pruneDuplicateHosts(): void {
-      const hosts = document.querySelectorAll(PANEL_HOST_SELECTOR);
-      hosts.forEach((host, index) => {
-        if (index > 0) {
-          host.remove();
-        }
-      });
-    }
+    let didMount = false;
+    let persistQueued = false;
 
     function showPanel(): void {
-      if (!autoMountStarted) {
-        ui.autoMount();
-        autoMountStarted = true;
+      const container = findListingEditorContainer();
+      if (!container) {
+        return;
       }
-      pruneDuplicateHosts();
+      try {
+        if (!didMount) {
+          ui.mount();
+          didMount = true;
+          insertBeforeListingHeading(container, ui.shadowHost);
+          return;
+        }
+        if (!ui.shadowHost.isConnected) {
+          insertBeforeListingHeading(container, ui.shadowHost);
+        }
+      } catch (error) {
+        didMount = false;
+        console.warn("Sell Similar: failed to mount assistant", error);
+      }
     }
 
     function hidePanel(): void {
       ui.remove();
-      autoMountStarted = false;
+      didMount = false;
     }
 
     function syncPanel(url: URL = new URL(window.location.href)): void {
@@ -169,9 +177,37 @@ export default defineContentScript({
       hidePanel();
     }
 
+    function queuePlace(): void {
+      if (persistQueued) {
+        return;
+      }
+      persistQueued = true;
+      requestAnimationFrame(() => {
+        persistQueued = false;
+        if (!ui.shadowHost.isConnected && isEbayListingEditorUrl(window.location.href)) {
+          showPanel();
+        }
+      });
+    }
+
     syncPanel();
     ctx.addEventListener(window, "wxt:locationchange", ({ newUrl }) => {
       syncPanel(newUrl);
+    });
+
+    const persist = new MutationObserver(() => {
+      if (!ui.shadowHost.isConnected) {
+        queuePlace();
+      }
+    });
+    persist.observe(document.documentElement, { childList: true, subtree: true });
+    ctx.setInterval(() => {
+      if (!ui.shadowHost.isConnected && isEbayListingEditorUrl(window.location.href)) {
+        showPanel();
+      }
+    }, 2000);
+    ctx.onInvalidated(() => {
+      persist.disconnect();
     });
   },
 });

@@ -130,87 +130,30 @@
 }
 
 .mode-select {
-  position: relative;
-  width: 100%;
-}
-
-.mode-select-trigger {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
   width: 100%;
-  margin: 0;
-  padding: 8px 12px;
+  overflow: visible;
   border: 1px solid #c5d4f5;
   border-radius: 10px;
   background: #fff;
-  color: var(--navy);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  text-align: left;
-  cursor: pointer;
 }
 
-.mode-select-trigger:focus-visible,
-.mode-select.is-open .mode-select-trigger {
-  border-color: var(--blue);
-  box-shadow: 0 0 0 3px rgba(45, 100, 245, 0.12);
-}
-
-.mode-select.is-open .chevron {
-  transform: rotate(180deg);
-}
-
-.mode-select .chevron {
-  transition: transform 140ms ease;
-}
-
-.mode-select-menu {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
-  right: 0;
-  z-index: 30;
-  width: 100%;
+.mode-select-option {
+  flex: 1 1 50%;
   margin: 0;
-  padding: 6px;
-  list-style: none;
-  background: #fff;
-  border: 1px solid #d7def0;
-  border-radius: 10px;
-  box-shadow: 0 12px 32px rgba(11, 31, 74, 0.16);
-}
-
-.mode-select-menu li {
-  margin: 0;
-  padding: 0;
-}
-
-.mode-select-menu button {
-  display: block;
-  width: 100%;
-  margin: 0;
-  padding: 9px 12px;
+  padding: 8px 10px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 9px;
   background: transparent;
   color: var(--navy);
   font: inherit;
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.01em;
-  text-align: left;
   cursor: pointer;
 }
 
-.mode-select-menu button:hover {
-  background: #f3f6ff;
-}
-
-.mode-select-menu button.is-selected {
+.mode-select-option.is-selected {
   background: var(--blue);
   color: #fff;
 }
