@@ -41,7 +41,7 @@ export function SellSimilarAssistant() {
       result.existingCount > 0 ? ` Captured ${result.existingCount} existing target vehicles.` : "";
     switch (result.code) {
       case "FITMENT_EMPTY":
-        return `FITMENT_EMPTY. Existing target fitment left unchanged.${existing}`;
+        return `FITMENT_EMPTY. Existing target fitment not updated.${existing}`;
       case "TARGET_EDITOR_CHANGED":
         return "TARGET_EDITOR_CHANGED. Stopped before replacing target fitment.";
       case "FITMENT_PICKER_TIMEOUT":
