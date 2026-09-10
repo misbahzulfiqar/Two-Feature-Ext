@@ -83,38 +83,42 @@ export function extraCompatibilityUrls(listingUrl: string, html: string): string
   });
 }
 
-async function fetchHtml(url: string): Promise<string> {
-  const response = await fetch(url, { credentials: "include" });
+function looksLikeEbayListing(html: string): boolean {
+  if (html.length < 1500) return false;
+  if (/sorry[\s\S]{0,80}something went wrong on our end/i.test(html)) return false;
+  if (/checking your browser|pardon our interruption|captcha/i.test(html)) return false;
+  return /x-item-title|itemprop="name"|x-item-condition|ux-labels-values|itm-/i.test(html);
+}
+
+async function fetchHtml(
+  url: string,
+  credentials: RequestCredentials,
+): Promise<string> {
+  const response = await fetch(url, {
+    credentials,
+    redirect: "follow",
+    cache: "no-store",
+    signal: AbortSignal.timeout(20000),
+  });
   if (!response.ok) {
     return "";
   }
-  const html = await response.text();
-  if (/sorry[\s\S]{0,80}something went wrong on our end/i.test(html)) {
-    return "";
-  }
-  return html;
+  return response.text();
 }
 
 export async function fetchListingHtml(listingUrl: string): Promise<string> {
-  const response = await fetch(listingUrl, { credentials: "include" });
-  if (!response.ok) {
-    throw new Error(`Could not load listing (${response.status})`);
+  const anonymous = await fetchHtml(listingUrl, "omit");
+  if (looksLikeEbayListing(anonymous)) {
+    return anonymous;
   }
-  const html = await response.text();
-  if (/sorry[\s\S]{0,80}something went wrong on our end/i.test(html)) {
+
+  const session = await fetchHtml(listingUrl, "include");
+  if (looksLikeEbayListing(session)) {
+    return session;
+  }
+
+  if (session) {
     throw new Error("eBay returned an error page for that listing");
   }
-
-  const extras: string[] = [];
-  for (const url of extraCompatibilityUrls(listingUrl, html).slice(0, 12)) {
-    const pageHtml = await fetchHtml(url);
-    if (pageHtml && /year/i.test(pageHtml) && /make/i.test(pageHtml)) {
-      extras.push(pageHtml);
-    }
-  }
-
-  if (extras.length === 0) {
-    return html;
-  }
-  return `${html}\n<!--SELL_SIMILAR_FITMENT_PAGES-->\n${extras.join("\n<!--SELL_SIMILAR_FITMENT_PAGE-->\n")}`;
+  throw new Error("Could not load listing");
 }

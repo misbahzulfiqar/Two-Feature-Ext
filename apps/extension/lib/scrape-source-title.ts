@@ -18,6 +18,8 @@ export type ScrapedListing = {
   title: string;
   images: string[];
   itemSpecifics: ItemSpecific[];
+  condition: string;
+  conditionDescription: string;
   category: ListingCategory;
   storeCategories: StoreCategory[];
   fitment: VehicleCompatibility[];
@@ -83,8 +85,18 @@ function toCompatibility(rows: VehicleCompatibility[] | undefined): VehicleCompa
   }));
 }
 
+function sellerNotesDescription(specifics: ItemSpecific[]): string {
+  const notes = specifics.find((item) => item.key.replace(/[^a-z0-9]/gi, "").toLowerCase() === "sellernotes");
+  return (notes?.value ?? "").replace(/^["']+|["']+$/g, "").trim();
+}
+
 function toScrapedListing(data: ScrapedListingData): ScrapedListing {
   // ✅ ADD DEBUGGING
+  console.log("[SellSimilar][condition] scraped", {
+    condition: data.condition,
+    conditionDescription: data.conditionDescription,
+  });
+  console.log("[SellSimilar][item-category] scraped", data.category);
   console.log('[SellSimilar] 📊 Raw data received:', data);
   console.log('[SellSimilar] 📊 data.compatibility:', data.compatibility);
   console.log('[SellSimilar] 📊 data.compatibility length:', data.compatibility?.length);
@@ -105,6 +117,10 @@ function toScrapedListing(data: ScrapedListingData): ScrapedListing {
     title: data.title ?? "",
     images: Array.isArray(data.images) ? data.images : [],
     itemSpecifics: Array.isArray(data.itemSpecifics) ? data.itemSpecifics : [],
+    condition: data.condition ?? "",
+    conditionDescription:
+      (data.conditionDescription ?? "").replace(/^["']+|["']+$/g, "").trim() ||
+      sellerNotesDescription(Array.isArray(data.itemSpecifics) ? data.itemSpecifics : []),
     category: data.category ?? { id: "", name: "", path: [] },
     storeCategories: [],
     fitment: compatibility,

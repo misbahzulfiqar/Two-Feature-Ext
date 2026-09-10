@@ -1,6 +1,7 @@
 import { useState, type ChangeEvent, type FormEvent } from "react";
 import type { ScrapeProgressStage, VehicleCompatibility } from "@sell-similar/contracts";
 import { fillEbayListingCategories } from "../lib/fill-ebay-categories.ts";
+import { fillEbayListingCondition } from "../lib/fill-ebay-condition.ts";
 import {
   captureFitmentTargetEditor,
   fillEbayListingFitment,
@@ -11,6 +12,7 @@ import { fillEbayListingSpecifics } from "../lib/fill-ebay-specifics.ts";
 import { fillEbayListingTitle } from "../lib/fill-ebay-title.ts";
 import { fitmentLog } from "../lib/fitment-debug.ts";
 import { progressForStage } from "../lib/scrape-progress.ts";
+import { restoreListingPage } from "../lib/restore-listing-page.ts";
 import { scrapeSourceListing } from "../lib/scrape-source-title.ts";
 import { ControlField } from "./ControlField.tsx";
 import { FieldRow } from "./FieldRow.tsx";
@@ -137,6 +139,9 @@ export function SellSimilarAssistant() {
           setProgress(progressForStage("source_load"));
           const listing = await scrapeSourceListing(source, "full-scrape");
           setProgress(progressForStage("listing_extract"));
+          await new Promise((resolve) => {
+            window.setTimeout(resolve, 200);
+          });
 
           if (!listing.title) {
             setProgress(progressForStage("complete"));
@@ -154,17 +159,42 @@ export function SellSimilarAssistant() {
           setProgress(progressForStage("apply_core"));
 
           setStatusMessage("Updating item category...");
+          console.log("[SellSimilar][item-category] assistant calling fill", listing.category);
           const categoryResult = await fillEbayListingCategories(listing.category);
+          console.log("[SellSimilar][item-category] assistant result", categoryResult);
+          setProgress(progressForStage("apply_core"));
+          await new Promise((resolve) => {
+            window.setTimeout(resolve, 700);
+          });
+
+          setStatusMessage("Updating item condition...");
+          console.log("[SellSimilar][condition] assistant calling fill", {
+            condition: listing.condition,
+            conditionDescription: listing.conditionDescription,
+          });
+          let conditionResult = await fillEbayListingCondition(
+            listing.condition,
+            listing.conditionDescription,
+          );
+          console.log("[SellSimilar][condition] assistant result", conditionResult);
           setProgress(progressForStage("apply_core"));
 
           setStatusMessage("Replacing item specifics...");
           const specResult = await fillEbayListingSpecifics(listing.itemSpecifics);
           setProgress(progressForStage("apply_core"));
 
+          if (listing.conditionDescription) {
+            conditionResult = await fillEbayListingCondition(
+              listing.condition,
+              listing.conditionDescription,
+            );
+          }
+
           setStatusMessage(
             `Applying vehicle compatibility. Found ${listing.compatibility.length} compatible vehicle${listing.compatibility.length === 1 ? "" : "s"}.`,
           );
           const fitmentResult = await applyNormalizedFitment(listing.compatibility);
+          await restoreListingPage();
           setProgress(progressForStage("complete"));
 
           const photoSummary =
@@ -178,20 +208,30 @@ export function SellSimilarAssistant() {
               ? "no item specifics found"
               : `filled ${specResult.filled} of ${listing.itemSpecifics.length} item specifics`;
           const categorySummary = categoryResult.itemCategory
-            ? "updated item category"
-            : listing.category.name
-              ? "could not update item category"
+            ? `updated item category (${listing.category.path.join(" > ") || listing.category.name})`
+            : listing.category.path.length || listing.category.name
+              ? `could not update item category (${listing.category.path.join(" > ") || listing.category.name})`
               : "no item category found";
 
           const titleSummary = filledTitle
             ? "Filled title"
             : "Could not fill the Title field";
+          const conditionSummary = conditionResult.condition
+            ? `updated item condition (${listing.condition})`
+            : listing.condition
+              ? `could not update item condition (${listing.condition})`
+              : "no item condition found";
+          const conditionDescSummary = conditionResult.conditionDescription
+            ? "updated condition description"
+            : listing.conditionDescription
+              ? "could not update condition description"
+              : "no condition description found";
           setStatusMessage(
             listing.compatibility.length === 0
-              ? `${titleSummary}. ${photoSummary}. ${specSummary}. ${categorySummary}. ${fitmentSummary(fitmentResult, listing.compatibility.length)}`
+              ? `${titleSummary}. ${photoSummary}. ${specSummary}. ${categorySummary}. ${conditionSummary}. ${conditionDescSummary}. ${fitmentSummary(fitmentResult, listing.compatibility.length)}`
               : fitmentResult.filled === listing.compatibility.length && fitmentResult.skipped === 0
-                ? `${titleSummary}. ${photoSummary}. ${specSummary}. ${categorySummary}. Fitment copied exactly. ${fitmentSummary(fitmentResult, listing.compatibility.length)}`
-                : `${titleSummary}. ${photoSummary}. ${specSummary}. ${categorySummary}. Fitment was not saved. ${fitmentSummary(fitmentResult, listing.compatibility.length)}`,
+                ? `${titleSummary}. ${photoSummary}. ${specSummary}. ${categorySummary}. ${conditionSummary}. ${conditionDescSummary}. Fitment copied exactly. ${fitmentSummary(fitmentResult, listing.compatibility.length)}`
+                : `${titleSummary}. ${photoSummary}. ${specSummary}. ${categorySummary}. ${conditionSummary}. ${conditionDescSummary}. Fitment was not saved. ${fitmentSummary(fitmentResult, listing.compatibility.length)}`,
           );
           return;
         }
@@ -204,6 +244,7 @@ export function SellSimilarAssistant() {
           setStatusMessage("Extracting vehicle compatibility...");
           setProgress(progressForStage("fitment_extract"));
           const fitmentResult = await applyNormalizedFitment(listing.compatibility);
+          await restoreListingPage();
           setProgress(progressForStage("complete"));
           setStatusMessage(fitmentSummary(fitmentResult, listing.compatibility.length));
           return;
@@ -219,6 +260,7 @@ export function SellSimilarAssistant() {
         error instanceof Error ? error.message : "Could not scrape listing",
       );
     } finally {
+      await restoreListingPage();
       setIsProcessing(false);
     }
   }
