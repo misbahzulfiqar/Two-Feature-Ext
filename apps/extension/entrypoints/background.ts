@@ -1,5 +1,10 @@
 import { SellSimilarApiClient, SellSimilarApiError } from "@sell-similar/api-client";
+import {
+  isFillItemCategoryRequest,
+  type FillItemCategoryResponse,
+} from "../lib/category-messages.ts";
 import { fetchListingHtml } from "../lib/fetch-listing-html.ts";
+import { fillItemCategoryInPage } from "../lib/fill-item-category-main.ts";
 import {
   isFillFitmentBroadcast,
   type FillFitmentFrameResponse,
@@ -195,6 +200,43 @@ export default defineBackground(() => {
   });
 
   browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (isFillItemCategoryRequest(message)) {
+      const tabId = sender.tab?.id;
+      if (tabId == null) {
+        sendResponse({
+          ok: false,
+          itemCategory: false,
+          reason: "No tab",
+        } satisfies FillItemCategoryResponse);
+        return;
+      }
+      void browser.scripting
+        .executeScript({
+          target: { tabId },
+          world: "MAIN",
+          func: fillItemCategoryInPage,
+          args: [message.category],
+        })
+        .then((injected) => {
+          const result = injected[0]?.result;
+          sendResponse(
+            result ?? {
+              ok: false,
+              itemCategory: false,
+              reason: "Category fill script did not run",
+            },
+          );
+        })
+        .catch((error: unknown) => {
+          sendResponse({
+            ok: false,
+            itemCategory: false,
+            reason: error instanceof Error ? error.message : String(error),
+          } satisfies FillItemCategoryResponse);
+        });
+      return true;
+    }
+
     if (isFitmentMainRequest(message)) {
       const tabId = sender.tab?.id;
       if (tabId == null) {

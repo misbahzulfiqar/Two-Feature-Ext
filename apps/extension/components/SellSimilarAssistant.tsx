@@ -154,7 +154,9 @@ export function SellSimilarAssistant() {
           setProgress(progressForStage("apply_core"));
 
           setStatusMessage("Updating item category...");
+          console.log("[SellSimilar][item-category] assistant calling fill", listing.category);
           const categoryResult = await fillEbayListingCategories(listing.category);
+          console.log("[SellSimilar][item-category] assistant result", categoryResult);
           setProgress(progressForStage("apply_core"));
 
           setStatusMessage("Replacing item specifics...");
@@ -178,9 +180,9 @@ export function SellSimilarAssistant() {
               ? "no item specifics found"
               : `filled ${specResult.filled} of ${listing.itemSpecifics.length} item specifics`;
           const categorySummary = categoryResult.itemCategory
-            ? "updated item category"
-            : listing.category.name
-              ? "could not update item category"
+            ? `updated item category (${listing.category.path.join(" > ") || listing.category.name})`
+            : listing.category.path.length || listing.category.name
+              ? `could not update item category (${listing.category.path.join(" > ") || listing.category.name})`
               : "no item category found";
 
           const titleSummary = filledTitle

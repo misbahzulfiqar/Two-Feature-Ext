@@ -811,11 +811,14 @@ export function extractListingCategoriesInPage() {
   };
 
   const itemSelectors = [
+    "a.seo-breadcrumb-text",
+    "nav .seo-breadcrumb-text",
+    "ul.seo-breadcrumb a",
+    ".seo-breadcrumb a",
     '[data-testid="breadcrumbs"] a',
     '[data-testid="x-breadcrumb"] a',
     "nav[aria-label*='breadcrumb' i] a",
     "nav.breadcrumbs a",
-    ".seo-breadcrumb a",
     ".breadcrumbs a",
     "ol.breadcrumb a",
     ".x-breadcrumb a",
@@ -843,6 +846,31 @@ export function extractListingCategoriesInPage() {
       .reverse()
       .find((entry) => categoryIdFromHref(entry.href));
     category.id = lastWithId ? categoryIdFromHref(lastWithId.href) : "";
+  }
+
+  if (!category.id || category.path.length < 2) {
+    const breadcrumbRoots = document.querySelectorAll(
+      '[data-testid="breadcrumbs"], [data-testid="x-breadcrumb"], nav[aria-label*="breadcrumb" i], nav.breadcrumbs, .seo-breadcrumb, .breadcrumbs, ol.breadcrumb, .x-breadcrumb, .ux-section-breadcrumbs, [class*="breadcrumb"]',
+    );
+    const fromBrowse = [];
+    breadcrumbRoots.forEach((root) => {
+      root.querySelectorAll('a[href*="/b/"]').forEach((link) => {
+        const name = cleanText(link.innerText || link.textContent);
+        const href = link.href || link.getAttribute("href") || "";
+        if (!name || isRejectedMarketplaceName(name) || isStoreHref(href)) return;
+        fromBrowse.push({ name, href });
+      });
+    });
+    if (fromBrowse.length > category.path.length) {
+      category.path = uniqueNames(fromBrowse.map((entry) => entry.name));
+      category.name = category.path[category.path.length - 1] || category.name;
+    }
+    if (!category.id) {
+      const lastWithId = [...(fromBrowse.length ? fromBrowse : pathEntries)]
+        .reverse()
+        .find((entry) => categoryIdFromHref(entry.href));
+      if (lastWithId) category.id = categoryIdFromHref(lastWithId.href);
+    }
   }
 
   const collectFromJson = (obj, parentKey = "") => {
@@ -1040,6 +1068,13 @@ export async function fetchEbayListing(page, listingUrl, options = {}) {
   const categories = await evaluate(extractListingCategoriesInPage);
   const category = categories?.category || { id: "", name: "", path: [] };
   const storeCategories = [];
+
+  console.log("[FetchEbayListing] item category", {
+    id: category.id,
+    name: category.name,
+    path: category.path,
+    pathText: Array.isArray(category.path) ? category.path.join(" > ") : "",
+  });
 
   return {
     title: typeof title === "string" ? title.trim() : "",

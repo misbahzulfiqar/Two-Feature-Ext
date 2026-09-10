@@ -85,6 +85,7 @@ function toCompatibility(rows: VehicleCompatibility[] | undefined): VehicleCompa
 
 function toScrapedListing(data: ScrapedListingData): ScrapedListing {
   // ✅ ADD DEBUGGING
+  console.log("[SellSimilar][item-category] scraped", data.category);
   console.log('[SellSimilar] 📊 Raw data received:', data);
   console.log('[SellSimilar] 📊 data.compatibility:', data.compatibility);
   console.log('[SellSimilar] 📊 data.compatibility length:', data.compatibility?.length);
