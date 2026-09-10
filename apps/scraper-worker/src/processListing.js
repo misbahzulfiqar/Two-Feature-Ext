@@ -8,6 +8,8 @@ function emptyListingData() {
     price: "",
     images: [],
     itemSpecifics: [],
+    condition: "",
+    conditionDescription: "",
     category: { id: "", name: "", path: [] },
     storeCategories: [],
     fitment: [],
@@ -38,6 +40,8 @@ function applyFetchedListing(listingData, fetched) {
   listingData.price = fetched.price;
   listingData.images = fetched.images || [];
   listingData.itemSpecifics = fetched.itemSpecifics || [];
+  listingData.condition = fetched.condition || "";
+  listingData.conditionDescription = fetched.conditionDescription || "";
   listingData.category = fetched.category || { id: "", name: "", path: [] };
   listingData.storeCategories = [];
   applyFitment(listingData, fetched);

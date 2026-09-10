@@ -86,6 +86,8 @@ export type ScrapedListingData = {
   price: string;
   images: string[];
   itemSpecifics: ItemSpecific[];
+  condition: string;
+  conditionDescription: string;
   category: ListingCategory;
   storeCategories: StoreCategory[];
   fitment: VehicleCompatibility[];

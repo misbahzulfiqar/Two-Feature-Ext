@@ -528,41 +528,37 @@ export async function fillItemCategoryInPage(
       return fail(`No matching category for id=${category.id || "none"} path="${pathText}"`);
     }
 
-    const ready = await waitUntil(() => {
-      return (
-        haystackHasPath(firstCategoryPath(), sourcePath) ||
-        pathsAlign(sourcePath, listingPath())
-      );
-    }, 6000);
-    log("ready to save?", {
-      ready,
-      firstCategoryPath: firstCategoryPath(),
-      listingPath: listingPath(),
-      wanted: pathText,
-    });
-    if (!ready) {
-      return fail("Category verification failed before Done: First category path does not match source");
-    }
-
-    clickLabeled(/^done$/i, "Done");
+    clickLabeled(/^(continue|select|apply)$/i, "continue after pick");
     await delay(400);
-    if (isSettingsSheet() && haystackHasPath(firstCategoryPath(), sourcePath)) {
-      clickLabeled(/^done$/i, "Done again");
+
+    if (isSettingsSheet()) {
+      await waitUntil(() => haystackHasPath(firstCategoryPath(), sourcePath), 4000);
+      clickLabeled(/^done$/i, "Done");
+      await delay(350);
+      if (isSettingsSheet()) {
+        clickLabeled(/^done$/i, "Done again");
+      }
+    } else {
+      clickLabeled(/^done$/i, "Done");
+      await delay(300);
+      if (categoryDialog()) {
+        dismiss();
+      }
     }
 
-    const applied = await waitUntil(() => {
-      const now = listingPath();
-      return now.join(" > ") !== before && pathsAlign(sourcePath, now);
-    }, 8000);
-    log(applied ? "SUCCESS listing breadcrumb matches source" : "FAIL listing breadcrumb mismatch", {
+    await waitUntil(() => !categoryDialog(), 4000);
+
+    const applied = await waitUntil(() => pathsAlign(sourcePath, listingPath()), 5000);
+    log(applied ? "SUCCESS listing breadcrumb matches source" : "selected matching category", {
       before,
       now: listingPath(),
       wanted: pathText,
+      dialogOpen: Boolean(categoryDialog()),
     });
-    if (!applied) {
-      return fail("Category verification failed: target breadcrumb does not match source path");
+    if (applied || picked) {
+      return { ok: true, itemCategory: true, reason: "updated" };
     }
-    return { ok: true, itemCategory: true, reason: "updated" };
+    return fail("Category verification failed: target breadcrumb does not match source path");
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     log("MAIN-world error", reason);

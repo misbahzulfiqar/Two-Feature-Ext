@@ -3,8 +3,13 @@ import {
   isFillItemCategoryRequest,
   type FillItemCategoryResponse,
 } from "../lib/category-messages.ts";
-import { fetchListingHtml } from "../lib/fetch-listing-html.ts";
+import {
+  isFillItemConditionRequest,
+  type FillItemConditionResponse,
+} from "../lib/condition-messages.ts";
 import { fillItemCategoryInPage } from "../lib/fill-item-category-main.ts";
+import { fillItemConditionInPage } from "../lib/fill-ebay-condition-main.ts";
+import { fetchListingHtml } from "../lib/fetch-listing-html.ts";
 import {
   isFillFitmentBroadcast,
   type FillFitmentFrameResponse,
@@ -237,6 +242,51 @@ export default defineBackground(() => {
       return true;
     }
 
+    if (isFillItemConditionRequest(message)) {
+      const tabId = sender.tab?.id;
+      if (tabId == null) {
+        sendResponse({
+          ok: false,
+          condition: false,
+          conditionDescription: false,
+          reason: "No tab",
+        } satisfies FillItemConditionResponse);
+        return;
+      }
+      void browser.scripting
+        .executeScript({
+          target: { tabId },
+          world: "MAIN",
+          func: fillItemConditionInPage,
+          args: [
+            {
+              condition: message.condition,
+              conditionDescription: message.conditionDescription,
+            },
+          ],
+        })
+        .then((injected) => {
+          const result = injected[0]?.result;
+          sendResponse(
+            result ?? {
+              ok: false,
+              condition: false,
+              conditionDescription: false,
+              reason: "Condition fill script did not run",
+            },
+          );
+        })
+        .catch((error: unknown) => {
+          sendResponse({
+            ok: false,
+            condition: false,
+            conditionDescription: false,
+            reason: error instanceof Error ? error.message : String(error),
+          } satisfies FillItemConditionResponse);
+        });
+      return true;
+    }
+
     if (isFitmentMainRequest(message)) {
       const tabId = sender.tab?.id;
       if (tabId == null) {
@@ -256,16 +306,16 @@ export default defineBackground(() => {
       return;
     }
 
+    console.log(`[Background] 📊 Scraping: ${message.listingUrl}`);
+    console.log(`[Background] 📊 Scrape mode: ${message.scrapeMode}`);
     void fetchListingHtml(message.listingUrl)
-      .then((html) => {
-        console.log(`[Background] 📊 Scraping: ${message.listingUrl}`);
-        console.log(`[Background] 📊 Scrape mode: ${message.scrapeMode}`);
-        return api.scrapeListing({
+      .then((html) =>
+        api.scrapeListing({
           listingUrl: message.listingUrl,
           html,
           scrapeMode: message.scrapeMode,
-        });
-      })
+        }),
+      )
       .then((response) => {
         if (!response.ok) {
           console.log(`[Background] ❌ Scrape failed:`, response.error);

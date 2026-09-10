@@ -134,26 +134,63 @@ function splitForInputLimit(value: string, maxLength: number): string[] {
   return chunks;
 }
 
-function clickMatchingOption(field: Element, value: string): boolean {
-  const options = field.querySelectorAll(
-    '[role="menuitemradio"], [role="menuitemcheckbox"], [role="option"], .menu__item',
+function isShown(el: HTMLElement): boolean {
+  if (el.hidden || el.getAttribute("aria-hidden") === "true") return false;
+  const style = window.getComputedStyle(el);
+  if (style.display === "none" || style.visibility === "hidden") return false;
+  const rect = el.getBoundingClientRect();
+  return rect.width > 0 && rect.height > 0;
+}
+
+function optionLabel(option: Element): string {
+  const aria = option.getAttribute("aria-label") ?? "";
+  if (aria && aria.length < 80) {
+    return aria.replace(/\s+/g, " ").trim();
+  }
+  const text = (option.textContent ?? "").trim();
+  return (text.split("\n")[0] ?? "").replace(/\s+/g, " ").trim();
+}
+
+function optionMatchesValue(option: Element, value: string): boolean {
+  const wanted = canonicalKey(value);
+  if (!wanted) return false;
+  const label = optionLabel(option);
+  const compactLabel = canonicalKey(label);
+  return compactLabel === wanted || compactLabel.replace(/seedetails/g, "") === wanted;
+}
+
+function visibleMenuOptions(): HTMLElement[] {
+  const nodes = document.querySelectorAll(
+    '[role="option"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="menuitem"], .menu__item, .listbox__option, .listbox-button__option',
   );
-  for (const option of options) {
-    const optionText = (option.textContent ?? "").replace(/\s+/g, " ").trim();
-    if (
-      optionText.toLowerCase() === value.toLowerCase() ||
-      canonicalKey(optionText) === canonicalKey(value)
-    ) {
-      if (option instanceof HTMLElement) {
-        option.click();
-        return true;
-      }
+  return [...nodes].filter((node): node is HTMLElement => node instanceof HTMLElement && isShown(node));
+}
+
+function clickMatchingOption(field: Element, value: string): boolean {
+  const local = field.querySelectorAll(
+    '[role="menuitemradio"], [role="menuitemcheckbox"], [role="option"], .menu__item, .listbox__option',
+  );
+  const candidates = [...local, ...visibleMenuOptions()];
+  let best: HTMLElement | null = null;
+  let bestSize = Infinity;
+  const seen = new Set<HTMLElement>();
+  for (const option of candidates) {
+    if (!(option instanceof HTMLElement) || seen.has(option)) continue;
+    seen.add(option);
+    if (!optionMatchesValue(option, value)) continue;
+    const label = optionLabel(option);
+    if (label.length < bestSize) {
+      best = option;
+      bestSize = label.length;
     }
   }
-  return false;
+  if (!best) return false;
+  fireClick(best);
+  return true;
 }
 
 function fireClick(el: HTMLElement): void {
+  el.scrollIntoView({ block: "nearest", inline: "nearest" });
   el.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, composed: true }));
   el.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, composed: true }));
   el.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, composed: true }));
@@ -247,8 +284,8 @@ async function fillSearchBoxValues(
 ): Promise<boolean> {
   const toggle = field.querySelector('button[name^="attributes."]');
   if (toggle instanceof HTMLElement && toggle.getAttribute("aria-expanded") !== "true") {
-    toggle.click();
-    await delay(80);
+    fireClick(toggle);
+    await delay(150);
   }
 
   const limit = searchInput.maxLength > 0 ? searchInput.maxLength : 65;
@@ -257,21 +294,47 @@ async function fillSearchBoxValues(
     return false;
   }
 
+  let any = false;
   for (const chunk of chunks) {
     searchInput.focus();
     setNativeValue(searchInput, chunk);
     searchInput.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+      new KeyboardEvent("keydown", { key: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true }),
     );
-    clickMatchingOption(field, chunk);
-    await delay(140);
+    searchInput.dispatchEvent(
+      new KeyboardEvent("keyup", { key: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true }),
+    );
+    await delay(180);
+    if (clickMatchingOption(field, chunk)) {
+      any = true;
+    } else {
+      any = true;
+    }
+    await delay(120);
   }
 
   if (toggle instanceof HTMLElement && toggle.getAttribute("aria-expanded") === "true") {
-    toggle.click();
+    fireClick(toggle);
   }
   searchInput.blur();
-  return true;
+  return any;
+}
+
+function comboboxInput(field: Element): HTMLInputElement | null {
+  const named = field.querySelector('input[name^="search-box-attributes"]');
+  if (named instanceof HTMLInputElement && isShown(named)) return named;
+  const inField = field.querySelector(
+    "input.textbox__control, input[type='text']:not([type='hidden'])",
+  );
+  if (inField instanceof HTMLInputElement && isShown(inField)) return inField;
+  for (const input of document.querySelectorAll(
+    '.listbox input, [role="listbox"] input, .menu input, .se-filter-menu input, .lightbox-dialog input.textbox__control',
+  )) {
+    if (input instanceof HTMLInputElement && isShown(input) && input.type !== "hidden") {
+      return input;
+    }
+  }
+  return null;
 }
 
 async function fillAttributeField(field: Element, value: string): Promise<boolean> {
@@ -280,8 +343,21 @@ async function fillAttributeField(field: Element, value: string): Promise<boolea
     return true;
   }
 
-  const searchInput = field.querySelector('input[name^="search-box-attributes"]');
-  if (searchInput instanceof HTMLInputElement) {
+  const toggle = field.querySelector<HTMLElement>('button[name^="attributes."], button.listbox-button__control, button.se-expand-button');
+  if (toggle && isShown(toggle) && toggle.getAttribute("aria-expanded") !== "true") {
+    fireClick(toggle);
+    await delay(180);
+  }
+
+  if (clickMatchingOption(field, value) || clickYesNo(field, value)) {
+    if (toggle instanceof HTMLElement && toggle.getAttribute("aria-expanded") === "true") {
+      fireClick(toggle);
+    }
+    return true;
+  }
+
+  const searchInput = comboboxInput(field);
+  if (searchInput) {
     return fillSearchBoxValues(field, searchInput, value);
   }
 
@@ -296,18 +372,6 @@ async function fillAttributeField(field: Element, value: string): Promise<boolea
     setNativeValue(namedInput, clippedValue(namedInput, value));
     namedInput.blur();
     return true;
-  }
-
-  const toggle = field.querySelector('button[name^="attributes."]');
-  if (toggle instanceof HTMLElement) {
-    toggle.click();
-    await delay(80);
-    if (clickMatchingOption(field, value) || clickYesNo(field, value)) {
-      if (toggle.getAttribute("aria-expanded") === "true") {
-        toggle.click();
-      }
-      return true;
-    }
   }
 
   const fallback = field.querySelector(
@@ -390,6 +454,25 @@ async function removeOptionalAttributes(root: ParentNode): Promise<void> {
   }
 }
 
+function fieldHasValue(field: Element, value: string): boolean {
+  const wanted = canonicalKey(value);
+  if (!wanted) return false;
+  const selected = selectedDropdownText(field);
+  if (selected && (canonicalKey(selected) === wanted || canonicalKey(selected).includes(wanted))) {
+    return true;
+  }
+  for (const input of field.querySelectorAll("input, textarea")) {
+    if (
+      (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement) &&
+      canonicalKey(input.value) === wanted
+    ) {
+      return true;
+    }
+  }
+  const chips = canonicalKey(field.textContent ?? "");
+  return Boolean(wanted.length >= 3 && chips.includes(wanted));
+}
+
 function selectedDropdownText(field: Element): string {
   return (field.querySelector(".se-expand-button__button-text")?.textContent ?? "")
     .replace(/\s+/g, " ")
@@ -467,7 +550,7 @@ async function clearRemainingAttributeFields(root: ParentNode): Promise<void> {
 
 async function replaceExistingSpecifics(): Promise<void> {
   const root = attributeRoot();
-  expandHiddenAttributes(root);
+  await expandHiddenAttributes(root);
   await delay(120);
   await removeOptionalAttributes(root);
   await clearRemainingAttributeFields(root);
@@ -478,15 +561,43 @@ export async function clearEbayListingSpecifics(): Promise<void> {
   await replaceExistingSpecifics();
 }
 
-function expandHiddenAttributes(root: ParentNode): void {
-  root.querySelectorAll("button, a, [role='button']").forEach((el) => {
-    const text = (el.textContent ?? "").replace(/\s+/g, " ").trim();
-    if (/^(show more|see more|see all|more item specifics)/i.test(text)) {
-      if (el instanceof HTMLElement) {
-        el.click();
-      }
+function shouldSkipSpecific(spec: ItemSpecific): boolean {
+  const key = compactKey(spec.key);
+  if (
+    key === "condition" ||
+    key === "sellernotes" ||
+    key === "category" ||
+    key === "itemcategory" ||
+    key === "itemspecifics"
+  ) {
+    return true;
+  }
+  return isJsonLdTypeSpecific(spec);
+}
+
+async function waitForAttributeFields(): Promise<void> {
+  const started = Date.now();
+  while (Date.now() - started < 4000) {
+    await expandHiddenAttributes(attributeRoot());
+    if (document.querySelectorAll('[data-testid="attribute"]').length > 0) {
+      return;
     }
-  });
+    await delay(150);
+  }
+}
+
+async function expandHiddenAttributes(root: ParentNode): Promise<void> {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const more = [...root.querySelectorAll("button, a, [role='button']")].find((el) => {
+      const text = (el.textContent ?? "").replace(/\s+/g, " ").trim();
+      return /^(show more|see more|see all|more item specifics)/i.test(text);
+    });
+    if (!(more instanceof HTMLElement)) {
+      return;
+    }
+    fireClick(more);
+    await delay(250);
+  }
 }
 
 function findAddSpecificInput(root: ParentNode): HTMLInputElement | null {
@@ -562,7 +673,7 @@ async function fillExistingSpecific(spec: ItemSpecific): Promise<boolean> {
     return false;
   }
   for (const field of fields) {
-    if (await fillAttributeField(field, spec.value)) {
+    if ((await fillAttributeField(field, spec.value)) && fieldHasValue(field, spec.value)) {
       return true;
     }
   }
@@ -572,16 +683,25 @@ async function fillExistingSpecific(spec: ItemSpecific): Promise<boolean> {
 export async function fillEbayListingSpecifics(
   specifics: ItemSpecific[],
 ): Promise<FillSpecificsResult> {
+  await waitForAttributeFields();
   await replaceExistingSpecifics();
+  await expandHiddenAttributes(attributeRoot());
+  await delay(200);
 
   const skipped: string[] = [];
   let filled = 0;
 
   for (const spec of specifics) {
-    if (isJsonLdTypeSpecific(spec)) {
+    if (shouldSkipSpecific(spec)) {
       skipped.push(spec.key);
       continue;
     }
+    if (await fillExistingSpecific(spec)) {
+      filled += 1;
+      continue;
+    }
+
+    await expandHiddenAttributes(attributeRoot());
     if (await fillExistingSpecific(spec)) {
       filled += 1;
       continue;
@@ -591,9 +711,11 @@ export async function fillEbayListingSpecifics(
     if (added) {
       filled += 1;
     } else {
+      console.log("[SellSimilar][specifics] skipped", spec.key, spec.value);
       skipped.push(spec.key);
     }
   }
 
+  console.log("[SellSimilar][specifics] result", { filled, skipped, total: specifics.length });
   return { filled, skipped };
 }

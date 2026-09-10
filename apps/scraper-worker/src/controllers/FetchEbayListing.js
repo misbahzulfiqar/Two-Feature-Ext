@@ -1003,6 +1003,130 @@ export function extractListingCategoriesInPage() {
   return { category, storeCategories: [] };
 }
 
+export function extractListingConditionInPage() {
+  const cleanText = (text) =>
+    String(text || "")
+      .replace(/\u00a0/g, " ")
+      .replace(/[“”«»]/g, '"')
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const normalizeCondition = (text) =>
+    cleanText(text)
+      .replace(/[–—]/g, "-")
+      .replace(/\s*-\s*/g, " - ")
+      .replace(/^condition:\s*/i, "");
+
+  const stripQuotes = (text) => cleanText(text).replace(/^["']+|["']+$/g, "").trim();
+
+  const isJunkLine = (text) =>
+    /^(condition|item condition|see details|price details|learn more|sale ends in)/i.test(text);
+
+  let condition = "";
+  let conditionDescription = "";
+
+  const takeFromBlock = (el) => {
+    if (!(el instanceof HTMLElement) || (condition && conditionDescription)) return;
+    const lines = String(el.innerText || el.textContent || "")
+      .split("\n")
+      .map((line) => cleanText(line))
+      .filter(Boolean)
+      .filter((line) => !isJunkLine(line));
+    if (!lines.length) return;
+    if (!condition) {
+      condition = normalizeCondition(lines[0]);
+    }
+    const rest = lines
+      .slice(1)
+      .map(stripQuotes)
+      .filter(Boolean)
+      .join(" ");
+    if (!conditionDescription && rest) {
+      conditionDescription = rest;
+    }
+  };
+
+  const dedicated = document.querySelector(
+    '[data-testid="x-item-condition"], [data-testid="d-item-condition"], .x-item-condition, .d-item-condition',
+  );
+  if (dedicated instanceof HTMLElement) {
+    const valueEl = dedicated.querySelector(
+      ".x-item-condition-text, [class*='condition-text'], .ux-textspans",
+    );
+    const descEl = dedicated.querySelector(
+      ".x-item-condition-desc, [class*='condition-desc'], .ux-textspans--SECONDARY",
+    );
+    if (valueEl && !condition) {
+      condition = normalizeCondition(valueEl.textContent || "");
+    }
+    if (descEl && !conditionDescription) {
+      conditionDescription = stripQuotes(descEl.textContent || "");
+    }
+    takeFromBlock(dedicated);
+  }
+
+  document.querySelectorAll(".ux-labels-values, [data-testid='ux-labels-values']").forEach((row) => {
+    if (!(row instanceof HTMLElement) || (condition && conditionDescription)) return;
+    const label = cleanText(
+      row.querySelector(".ux-labels-values__labels, .ux-labels-values--labels")?.textContent || "",
+    );
+    if (!/^condition$/i.test(label)) return;
+    const values = row.querySelector(".ux-labels-values__values, .ux-labels-values--values") || row;
+    takeFromBlock(values instanceof HTMLElement ? values : row);
+  });
+
+  if (!condition) {
+    document.querySelectorAll("dt, th, .ux-textspans--BOLD").forEach((label) => {
+      if (condition) return;
+      if (!/^condition:?$/i.test(cleanText(label.textContent || ""))) return;
+      const value =
+        label.nextElementSibling ||
+        label.parentElement?.querySelector("dd, td, .ux-textspans");
+      if (value instanceof HTMLElement) takeFromBlock(value);
+    });
+  }
+
+  if (!condition) {
+    document.querySelectorAll('script[type="application/ld+json"]').forEach((script) => {
+      if (condition) return;
+      try {
+        const data = JSON.parse(script.textContent || "");
+        const visit = (obj) => {
+          if (!obj || typeof obj !== "object" || condition) return;
+          if (Array.isArray(obj)) {
+            obj.forEach(visit);
+            return;
+          }
+          const raw = obj.itemCondition || obj.condition;
+          if (typeof raw === "string" && !/^https?:/i.test(raw)) {
+            condition = normalizeCondition(raw);
+          } else if (raw && typeof raw === "object" && raw.name) {
+            condition = normalizeCondition(raw.name);
+          }
+          Object.values(obj).forEach(visit);
+        };
+        visit(data);
+      } catch {
+        // ignore
+      }
+    });
+  }
+
+  if (conditionDescription && compactSame(condition, conditionDescription)) {
+    conditionDescription = "";
+  }
+
+  function compactSame(left, right) {
+    const compact = (text) => text.replace(/[^a-z0-9]/gi, "").toLowerCase();
+    return Boolean(left) && compact(left) === compact(right);
+  }
+
+  return {
+    condition: normalizeCondition(condition),
+    conditionDescription: stripQuotes(conditionDescription).slice(0, 1000),
+  };
+}
+
 export async function getItemSpecifics(page) {
   return page.evaluate(extractListingSpecificsInPage);
 }
@@ -1068,6 +1192,13 @@ export async function fetchEbayListing(page, listingUrl, options = {}) {
   const categories = await evaluate(extractListingCategoriesInPage);
   const category = categories?.category || { id: "", name: "", path: [] };
   const storeCategories = [];
+  const conditionData = await evaluate(extractListingConditionInPage);
+  const condition =
+    typeof conditionData?.condition === "string" ? conditionData.condition : "";
+  const conditionDescription =
+    typeof conditionData?.conditionDescription === "string"
+      ? conditionData.conditionDescription
+      : "";
 
   console.log("[FetchEbayListing] item category", {
     id: category.id,
@@ -1075,6 +1206,7 @@ export async function fetchEbayListing(page, listingUrl, options = {}) {
     path: category.path,
     pathText: Array.isArray(category.path) ? category.path.join(" > ") : "",
   });
+  console.log("[FetchEbayListing] condition", { condition, conditionDescription });
 
   return {
     title: typeof title === "string" ? title.trim() : "",
@@ -1082,6 +1214,8 @@ export async function fetchEbayListing(page, listingUrl, options = {}) {
     price: "",
     images: Array.isArray(images) ? images : [],
     itemSpecifics: Array.isArray(itemSpecifics) ? itemSpecifics : [],
+    condition,
+    conditionDescription,
     category: {
       id: typeof category.id === "string" ? category.id : String(category.id || ""),
       name: typeof category.name === "string" ? category.name : "",

@@ -200,7 +200,8 @@ export default defineContentScript({
         queuePlace();
       }
     });
-    persist.observe(document.documentElement, { childList: true, subtree: true });
+    const editorRoot = findListingEditorContainer()?.parentElement ?? document.body;
+    persist.observe(editorRoot, { childList: true, subtree: false });
     ctx.setInterval(() => {
       if (!ui.shadowHost.isConnected && isEbayListingEditorUrl(window.location.href)) {
         showPanel();
