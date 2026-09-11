@@ -20,10 +20,12 @@ const ITEM_ID_PATTERN = /^\d{6,}$/;
 
 export type ScrapedListing = {
   title: string;
+  price: string;
   images: string[];
   itemSpecifics: ItemSpecific[];
   condition: string;
   conditionDescription: string;
+  description: string;
   category: ListingCategory;
   storeCategories: StoreCategory[];
   fitment: VehicleCompatibility[];
@@ -96,9 +98,15 @@ function sellerNotesDescription(specifics: ItemSpecific[]): string {
 
 function toScrapedListing(data: ScrapedListingData): ScrapedListing {
   // ✅ ADD DEBUGGING
+  console.log("[SellSimilar][price] scraped", {
+    price: data.price,
+  });
   console.log("[SellSimilar][condition] scraped", {
     condition: data.condition,
     conditionDescription: data.conditionDescription,
+  });
+  console.log("[SellSimilar][description] scraped", {
+    length: data.description?.length ?? 0,
   });
   console.log("[SellSimilar][item-category] scraped", data.category);
   console.log('[SellSimilar] 📊 Raw data received:', data);
@@ -119,12 +127,14 @@ function toScrapedListing(data: ScrapedListingData): ScrapedListing {
   
   return {
     title: data.title ?? "",
+    price: data.price ?? "",
     images: Array.isArray(data.images) ? data.images : [],
     itemSpecifics: Array.isArray(data.itemSpecifics) ? data.itemSpecifics : [],
     condition: data.condition ?? "",
     conditionDescription:
       (data.conditionDescription ?? "").replace(/^["']+|["']+$/g, "").trim() ||
       sellerNotesDescription(Array.isArray(data.itemSpecifics) ? data.itemSpecifics : []),
+    description: data.description ?? "",
     category: data.category ?? { id: "", name: "", path: [] },
     storeCategories: [],
     fitment: compatibility,

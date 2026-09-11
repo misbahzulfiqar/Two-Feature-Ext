@@ -7,8 +7,23 @@ import {
   isFillItemConditionRequest,
   type FillItemConditionResponse,
 } from "../lib/condition-messages.ts";
+import {
+  isFillItemDescriptionRequest,
+  type FillItemDescriptionResponse,
+} from "../lib/description-messages.ts";
+import {
+  isFillItemPriceRequest,
+  type FillItemPriceResponse,
+} from "../lib/price-messages.ts";
 import { fillItemCategoryInPage } from "../lib/fill-item-category-main.ts";
 import { fillItemConditionInPage } from "../lib/fill-ebay-condition-main.ts";
+import { fillItemDescriptionInPage } from "../lib/fill-ebay-description-main.ts";
+import { fillItemPriceInPage } from "../lib/fill-ebay-price-main.ts";
+import { restoreListingPageInPage } from "../lib/restore-listing-page-main.ts";
+import {
+  isRestoreListingPageRequest,
+  type RestoreListingPageResponse,
+} from "../lib/restore-messages.ts";
 import { fetchListingHtml } from "../lib/fetch-listing-html.ts";
 import {
   isFillFitmentBroadcast,
@@ -272,6 +287,43 @@ export default defineBackground(() => {
       return true;
     }
 
+    if (isFillItemPriceRequest(message)) {
+      const tabId = sender.tab?.id;
+      if (tabId == null) {
+        sendResponse({
+          ok: false,
+          price: false,
+          reason: "No tab",
+        } satisfies FillItemPriceResponse);
+        return;
+      }
+      void browser.scripting
+        .executeScript({
+          target: { tabId },
+          world: "MAIN",
+          func: fillItemPriceInPage,
+          args: [message.price],
+        })
+        .then((injected) => {
+          const result = injected[0]?.result;
+          sendResponse(
+            result ?? {
+              ok: false,
+              price: false,
+              reason: "Price fill script did not run",
+            },
+          );
+        })
+        .catch((error: unknown) => {
+          sendResponse({
+            ok: false,
+            price: false,
+            reason: error instanceof Error ? error.message : String(error),
+          } satisfies FillItemPriceResponse);
+        });
+      return true;
+    }
+
     if (isFillItemConditionRequest(message)) {
       const tabId = sender.tab?.id;
       if (tabId == null) {
@@ -313,6 +365,64 @@ export default defineBackground(() => {
             conditionDescription: false,
             reason: error instanceof Error ? error.message : String(error),
           } satisfies FillItemConditionResponse);
+        });
+      return true;
+    }
+
+    if (isRestoreListingPageRequest(message)) {
+      const tabId = sender.tab?.id;
+      if (tabId == null) {
+        sendResponse({ ok: false } satisfies RestoreListingPageResponse);
+        return;
+      }
+      void browser.scripting
+        .executeScript({
+          target: { tabId },
+          world: "MAIN",
+          func: restoreListingPageInPage,
+        })
+        .then(() => {
+          sendResponse({ ok: true } satisfies RestoreListingPageResponse);
+        })
+        .catch(() => {
+          sendResponse({ ok: false } satisfies RestoreListingPageResponse);
+        });
+      return true;
+    }
+
+    if (isFillItemDescriptionRequest(message)) {
+      const tabId = sender.tab?.id;
+      if (tabId == null) {
+        sendResponse({
+          ok: false,
+          description: false,
+          reason: "No tab",
+        } satisfies FillItemDescriptionResponse);
+        return;
+      }
+      void browser.scripting
+        .executeScript({
+          target: { tabId },
+          world: "MAIN",
+          func: fillItemDescriptionInPage,
+          args: [message.description],
+        })
+        .then((injected) => {
+          const result = injected[0]?.result;
+          sendResponse(
+            result ?? {
+              ok: false,
+              description: false,
+              reason: "Description fill script did not run",
+            },
+          );
+        })
+        .catch((error: unknown) => {
+          sendResponse({
+            ok: false,
+            description: false,
+            reason: error instanceof Error ? error.message : String(error),
+          } satisfies FillItemDescriptionResponse);
         });
       return true;
     }

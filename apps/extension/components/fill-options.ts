@@ -4,10 +4,12 @@
  */
 export const FILL_OPTIONS = [
   { id: "title", label: "Title" },
+  { id: "price", label: "Price" },
   { id: "images", label: "Photos" },
   { id: "category", label: "Item category" },
   { id: "condition", label: "Condition" },
   { id: "specifics", label: "Item specifics" },
+  { id: "description", label: "Description" },
   { id: "fitment", label: "Vehicle compatibility" },
 ] as const;
 
@@ -17,10 +19,12 @@ export type FillOptions = Record<FillOptionId, boolean>;
 
 export const DEFAULT_FILL_OPTIONS: FillOptions = {
   title: true,
+  price: true,
   images: true,
   category: true,
   condition: true,
   specifics: true,
+  description: true,
   fitment: true,
 };
 

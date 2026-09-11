@@ -101,6 +101,7 @@ export type ScrapedListingData = {
   itemSpecifics: ItemSpecific[];
   condition: string;
   conditionDescription: string;
+  description: string;
   category: ListingCategory;
   storeCategories: StoreCategory[];
   fitment: VehicleCompatibility[];

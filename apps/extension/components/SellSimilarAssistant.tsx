@@ -5,6 +5,8 @@ import {
   ensureConditionDescription,
   fillEbayListingCondition,
 } from "../lib/fill-ebay-condition.ts";
+import { fillEbayListingDescription } from "../lib/fill-ebay-description.ts";
+import { fillEbayListingPrice } from "../lib/fill-ebay-price.ts";
 import {
   captureFitmentTargetEditor,
   fillEbayListingFitment,
@@ -318,6 +320,13 @@ export function SellSimilarAssistant() {
             setProgress(progressForStage("apply_core"));
           }
 
+          let priceResult = { price: false };
+          if (fillOptions.price) {
+            setStatusMessage("Updating price...");
+            priceResult = await fillEbayListingPrice(listing.price);
+            setProgress(progressForStage("apply_core"));
+          }
+
           let filledImages = 0;
           if (fillOptions.images) {
             setStatusMessage("Adding photos...");
@@ -361,6 +370,13 @@ export function SellSimilarAssistant() {
             };
           }
 
+          let descriptionResult = { description: false };
+          if (fillOptions.description) {
+            setStatusMessage("Updating item description...");
+            descriptionResult = await fillEbayListingDescription(listing.description);
+            setProgress(progressForStage("apply_core"));
+          }
+
           let fitmentText = "Vehicle compatibility skipped";
           if (fillOptions.fitment) {
             setStatusMessage(
@@ -383,6 +399,15 @@ export function SellSimilarAssistant() {
                 ? "Filled title"
                 : "Could not fill the Title field"
               : "Title skipped",
+          );
+          parts.push(
+            !fillOptions.price
+              ? "price skipped"
+              : priceResult.price
+                ? `updated price (${listing.price})`
+                : listing.price
+                  ? `could not update price (${listing.price})`
+                  : "no item price found",
           );
           parts.push(
             !fillOptions.images
@@ -427,6 +452,15 @@ export function SellSimilarAssistant() {
                   : "no condition description found",
             );
           }
+          parts.push(
+            !fillOptions.description
+              ? "description skipped"
+              : descriptionResult.description
+                ? "updated item description"
+                : listing.description
+                  ? "could not update item description"
+                  : "no item description found",
+          );
           parts.push(fitmentText);
 
           setStatusMessage(`${parts.join(". ")}.`);
