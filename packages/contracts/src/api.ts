@@ -1,6 +1,7 @@
 import type { CorrelationId, ListingId } from "./ids.js";
 import type { CreateScrapeJobRequest, ScrapeJobRecord } from "./jobs.js";
 import type { ListingDetails, ListingSummary } from "./listing.js";
+import type { ClearScrapeCacheResult } from "./scrape.js";
 
 export type ApiSuccess<T> = {
   ok: true;
@@ -38,6 +39,8 @@ export type HealthResponse = {
   ok: true;
   service: string;
 };
+
+export type ClearScrapeCacheResponse = ApiResponse<ClearScrapeCacheResult>;
 
 export type CreateScrapeJobResponse = ApiResponse<ScrapeJobRecord>;
 

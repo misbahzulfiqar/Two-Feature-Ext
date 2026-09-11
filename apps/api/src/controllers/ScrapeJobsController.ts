@@ -2,8 +2,11 @@ import type { CorrelationId, ScrapeMode } from "@sell-similar/contracts";
 import {
   createQueuedScrapeJob,
   failScrapeJob,
+  findReusableScrapeJob,
   getScrapeJobById,
 } from "@sell-similar/ebay-models";
+import { ebayItemIdFromListingUrl } from "@sell-similar/contracts";
+import { SCRAPE_CACHE_TTL_MS } from "../scrape-cache.js";
 import { createScrapeJobRequestSchema } from "@sell-similar/validation";
 import { randomUUID } from "node:crypto";
 import type { Request, Response } from "express";
@@ -40,6 +43,23 @@ export function createScrapeJobsHandlers(env: {
       }
 
       const scrapeMode: ScrapeMode = parsed.data.scrapeMode ?? "full-scrape";
+
+      if (!parsed.data.refresh) {
+        const reusable = await findReusableScrapeJob(env.MONGO_URL, {
+          ebayItemId: ebayItemIdFromListingUrl(parsed.data.listingUrl),
+          scrapeMode,
+          withinMs: SCRAPE_CACHE_TTL_MS,
+        }).catch(() => null);
+        if (reusable) {
+          return res.status(200).json({
+            ok: true,
+            data: reusable,
+            reused: true,
+            correlationId: req.correlationId,
+          });
+        }
+      }
+
       const jobId = randomUUID();
 
       try {

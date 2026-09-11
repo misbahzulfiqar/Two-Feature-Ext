@@ -197,6 +197,24 @@ function applyConditionDescription(wanted: string): boolean {
   return current === expected || current.includes(expected) || expected.includes(current);
 }
 
+/**
+ * Re-apply only the condition description. Filling item specifics can wipe it,
+ * but restoring it writes straight to the textarea - it never opens the
+ * condition modal, so this is safe to call as a follow-up pass.
+ */
+export function ensureConditionDescription(conditionDescription: string): boolean {
+  const wanted = normalize(conditionDescription).replace(/^["']+|["']+$/g, "");
+  if (!wanted) {
+    return false;
+  }
+  const current = compact(currentDescription());
+  const expected = compact(wanted);
+  if (current && (current === expected || current.includes(expected))) {
+    return true;
+  }
+  return applyConditionDescription(wanted);
+}
+
 export async function fillEbayListingCondition(
   condition: string,
   conditionDescription: string,
@@ -221,9 +239,26 @@ export async function fillEbayListingCondition(
   }
 
   if (wantedCondition || wantedDescription) {
-    const applied = await applyConditionAndDescription(wantedCondition, wantedDescription);
-    result.condition = applied.condition;
-    result.conditionDescription = applied.conditionDescription;
+    // Opening the picker is the only thing that shows a modal. If the listing
+    // is already on the wanted condition there is nothing to pick, so skip it
+    // and just write the description.
+    const conditionAlreadySet =
+      Boolean(wantedCondition) &&
+      (valuesMatch(currentCondition(), wantedCondition) ||
+        compact(currentCondition()).replace(/seedetails/g, "") ===
+          compact(wantedCondition).replace(/seedetails/g, ""));
+
+    if (conditionAlreadySet) {
+      console.log("[SellSimilar][condition] already set; not opening the picker");
+      result.condition = true;
+      result.conditionDescription = wantedDescription
+        ? applyConditionDescription(wantedDescription)
+        : false;
+    } else {
+      const applied = await applyConditionAndDescription(wantedCondition, wantedDescription);
+      result.condition = applied.condition;
+      result.conditionDescription = applied.conditionDescription;
+    }
   }
   await dismissLeftoverConditionDialogs();
   if (wantedDescription && !result.conditionDescription) {

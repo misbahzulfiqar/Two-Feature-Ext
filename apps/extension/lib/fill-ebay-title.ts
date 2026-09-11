@@ -31,6 +31,18 @@ function setNativeInputValue(input: HTMLInputElement, value: string): void {
   input.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true }));
 }
 
+/** Blank the Title field. */
+export function clearEbayListingTitle(): boolean {
+  const input = findTitleInput();
+  if (!input) {
+    return false;
+  }
+  input.focus();
+  setNativeInputValue(input, "");
+  input.blur();
+  return input.value === "";
+}
+
 export function fillEbayListingTitle(title: string): boolean {
   const input = findTitleInput();
   if (!input) {

@@ -1,5 +1,5 @@
 import type { ScrapeMode, ScrapeProgressStage } from "@sell-similar/contracts";
-import { createBrowser } from "./browser.js";
+import { withPage } from "./browser-pool.js";
 import { processListing } from "./processListing.js";
 import type { ScraperEnv } from "./env.js";
 
@@ -9,6 +9,12 @@ export type RunScrapeOptions = {
   html?: string;
   scrapeMode?: ScrapeMode;
   onProgress?: (stage: ScrapeProgressStage) => void | Promise<void>;
+  /** Called once per compatibility page; forwarded to fetchFitment. */
+  onFitmentProgress?: (
+    page: number,
+    rows: number,
+    message: string,
+  ) => void | Promise<void>;
 };
 
 let scrapeQueue: Promise<unknown> = Promise.resolve();
@@ -19,17 +25,17 @@ export async function runScrape(
   options: RunScrapeOptions = {},
 ): Promise<ScrapeResult> {
   const run = scrapeQueue.then(async () => {
-    const browser = await createBrowser(env);
-    try {
-      const page = await browser.newPage();
-      await page.setUserAgent(
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-      );
-      await options.onProgress?.("source_load");
-      return await processListing(page, listingUrl, options);
-    } finally {
-      await browser.close();
-    }
+    const startedAt = Date.now();
+    return withPage(env, async (page, resourceStats) => {
+      try {
+        await options.onProgress?.("source_load");
+        return await processListing(page, listingUrl, options);
+      } finally {
+        console.log(
+          `[runScrape] finished in ${Date.now() - startedAt}ms | requests allowed=${resourceStats.allowed} blocked=${resourceStats.blocked}`,
+        );
+      }
+    });
   });
 
   scrapeQueue = run.then(

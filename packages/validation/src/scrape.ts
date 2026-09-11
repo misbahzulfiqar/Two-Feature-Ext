@@ -1,4 +1,5 @@
 import type {
+  ClearScrapeCacheRequest,
   ItemSpecific,
   ListingCategory,
   ScrapeListingRequest,
@@ -29,6 +30,15 @@ export const scrapeListingRequestSchema = z.object({
     .refine(isEbayItemUrl, "Source URL must be an eBay item listing (/itm/...)"),
   html: z.string().min(1).optional(),
   scrapeMode: z.enum(["full-scrape", "only-fitment"]).optional(),
+  refresh: z.boolean().optional(),
+});
+
+/**
+ * Accepts a full eBay item URL or a bare numeric item ID, so the clear-cache
+ * button works with whatever the user typed in the source field.
+ */
+export const clearScrapeCacheRequestSchema = z.object({
+  listingUrl: z.string().min(1),
 });
 
 export const itemSpecificSchema = z.object({
@@ -75,6 +85,10 @@ export const scrapedListingDataSchema = z.object({
 export type ParsedScrapeListingRequest = AssertContract<
   z.infer<typeof scrapeListingRequestSchema>,
   ScrapeListingRequest
+>;
+export type ParsedClearScrapeCacheRequest = AssertContract<
+  z.infer<typeof clearScrapeCacheRequestSchema>,
+  ClearScrapeCacheRequest
 >;
 export type ParsedItemSpecific = AssertContract<
   z.infer<typeof itemSpecificSchema>,

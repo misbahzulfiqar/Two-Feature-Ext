@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "layout-transition",
+        "value": "*",
+        "files": [
+          "apps/extension/components/SellSimilarAssistant.css"
+        ],
+        "createdAt": "2026-09-11T07:51:17.990Z",
+        "reason": "Claude: .progress-fill animates width as literal data motion for a progress bar; transform:scaleX would stretch its 90deg gradient rather than reveal it. Pre-existing code, untouched this session."
+      }
+    ]
+  }
+}

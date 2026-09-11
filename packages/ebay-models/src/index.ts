@@ -8,6 +8,7 @@ export {
   completeScrapeJob,
   createQueuedScrapeJob,
   failScrapeJob,
+  findReusableScrapeJob,
   getMongoClient,
   getScrapeJobById,
   getScrapeJobsCollection,

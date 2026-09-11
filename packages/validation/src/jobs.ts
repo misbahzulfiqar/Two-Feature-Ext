@@ -14,6 +14,7 @@ export const scrapeListingJobPayloadSchema = z.object({
 export const createScrapeJobRequestSchema = scrapeListingRequestSchema.pick({
   listingUrl: true,
   scrapeMode: true,
+  refresh: true,
 });
 
 export const scrapeJobStatusSchema = z.enum(SCRAPE_JOB_STATUSES);

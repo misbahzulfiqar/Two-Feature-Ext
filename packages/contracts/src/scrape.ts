@@ -1,7 +1,9 @@
 import type { ApiResponse } from "./api.js";
 import { assertNever } from "./ids.js";
 
-export type ScrapeMode = "full-scrape" | "only-fitment";
+export const SCRAPE_MODES = ["full-scrape", "only-fitment"] as const;
+
+export type ScrapeMode = (typeof SCRAPE_MODES)[number];
 
 export const SCRAPE_PROGRESS_STAGES = [
   "queued",
@@ -54,6 +56,17 @@ export function ebayItemIdFromListingUrl(listingUrl: string): string {
   return match?.[1] ?? "";
 }
 
+export type ScrapeProgressSnapshot = {
+  active: boolean;
+  listingUrl: string;
+  stage: ScrapeProgressStage | null;
+  message: string;
+  fitmentPage: number;
+  fitmentRows: number;
+  startedAt: number | null;
+  updatedAt: number;
+};
+
 export type ItemSpecific = {
   key: string;
   value: string;
@@ -99,6 +112,18 @@ export type ScrapeListingRequest = {
   listingUrl: string;
   html?: string;
   scrapeMode?: ScrapeMode;
+  /** Bypass any cached result for this item and force a fresh scrape. */
+  refresh?: boolean;
+};
+
+export type ClearScrapeCacheRequest = {
+  /** Full eBay item URL or a bare numeric item ID. */
+  listingUrl: string;
+};
+
+export type ClearScrapeCacheResult = {
+  ebayItemId: string;
+  cleared: number;
 };
 
 export type ScrapeListingResponse = ApiResponse<ScrapedListingData>;

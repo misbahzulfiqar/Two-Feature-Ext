@@ -8,8 +8,12 @@ import {
   type VehicleCompatibility,
 } from "@sell-similar/contracts";
 import {
+  CLEAR_SCRAPE_CACHE,
   SCRAPE_LISTING,
+  SCRAPE_PROGRESS,
+  type ClearScrapeCacheResponseMessage,
   type ScrapeListingResponseMessage,
+  type ScrapeProgressResponseMessage,
 } from "./scrape-messages.ts";
 
 const ITEM_ID_PATTERN = /^\d{6,}$/;
@@ -129,6 +133,25 @@ function toScrapedListing(data: ScrapedListingData): ScrapedListing {
   };
 }
 
+/**
+ * Live status of the scrape the worker is running right now. Returns undefined
+ * when nothing is running or the lookup fails - progress is best-effort and
+ * must never interrupt a scrape.
+ */
+export async function readScrapeProgress(): Promise<string | undefined> {
+  try {
+    const response = (await browser.runtime.sendMessage({
+      type: SCRAPE_PROGRESS,
+    })) as ScrapeProgressResponseMessage | undefined;
+    if (!response?.ok || !response.active || !response.message) {
+      return undefined;
+    }
+    return response.message;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function scrapeSourceListing(
   source: string,
   scrapeMode: ScrapeMode = "full-scrape",
@@ -145,6 +168,25 @@ export async function scrapeSourceListing(
   }
 
   return toScrapedListing(response.data);
+}
+
+/**
+ * Clear the cached scrape for whatever the user typed in the source field.
+ * Accepts the same URL or bare item ID as a normal scrape.
+ */
+export async function clearSourceListingCache(
+  source: string,
+): Promise<{ cleared: number; ebayItemId: string }> {
+  const listingUrl = resolveSourceListingUrl(source);
+  const response = (await browser.runtime.sendMessage({
+    type: CLEAR_SCRAPE_CACHE,
+    listingUrl,
+  })) as ClearScrapeCacheResponseMessage | undefined;
+
+  if (!response?.ok) {
+    throw new Error(response?.error || "Could not clear the cache");
+  }
+  return { cleared: response.cleared, ebayItemId: response.ebayItemId };
 }
 
 export async function scrapeSourceTitle(source: string): Promise<string> {

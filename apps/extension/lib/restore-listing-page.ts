@@ -12,6 +12,25 @@ function delay(ms: number): Promise<void> {
   });
 }
 
+export type ListingScrollPosition = {
+  x: number;
+  y: number;
+};
+
+/** Where the page is scrolled right now, so it can be handed back later. */
+export function captureListingScroll(): ListingScrollPosition {
+  return { x: window.scrollX, y: window.scrollY };
+}
+
+/**
+ * Put the page back where the user left it. Driving eBay's dialogs requires
+ * scrollIntoView, which otherwise strands them next to whichever widget was
+ * filled last.
+ */
+export function restoreListingScroll(position: ListingScrollPosition): void {
+  window.scrollTo({ left: position.x, top: position.y, behavior: "auto" });
+}
+
 export async function restoreListingPage(): Promise<void> {
   const dialogs = document.querySelectorAll(
     '.lightbox-dialog, [role="dialog"], .drawer, .lightbox-dialog__window',

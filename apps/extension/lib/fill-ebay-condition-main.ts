@@ -314,18 +314,65 @@ export async function fillItemConditionInPage(
     return false;
   };
 
-  const confirmPicker = (dialog: HTMLElement): boolean => {
-    const primary = dialog.querySelector<HTMLElement>(
-      "footer button.btn--primary, .lightbox-dialog__footer button.btn--primary, button.btn--primary",
-    );
-    if (primary && isShown(primary)) {
-      const text = normalize(primary.textContent ?? "");
-      if (!/^(cancel|close)$/i.test(text)) {
-        fireClick(primary, "confirm condition");
-        return true;
+  /**
+   * Find the dialog's confirm control.
+   *
+   * eBay's condition modal puts Done in the panel HEADER as
+   * .se-panel-container__header-suffix > button.btn--secondary - not a primary
+   * button in a footer. Looking only for button.btn--primary missed it every
+   * time, so match the header-suffix button and the _track attribute too.
+   */
+  const findConfirmControl = (dialog: HTMLElement): HTMLElement | null => {
+    const selectors = [
+      '.se-panel-container__header-suffix button',
+      'button[_track$=".Done"]',
+      '[_track$=".Done"]',
+      "footer button.btn--primary",
+      ".lightbox-dialog__footer button.btn--primary",
+      "button.btn--primary",
+    ];
+    for (const selector of selectors) {
+      for (const node of dialog.querySelectorAll<HTMLElement>(selector)) {
+        if (!isShown(node)) continue;
+        const text = normalize(node.textContent ?? "");
+        if (/^(cancel|close|read more)$/i.test(text)) continue;
+        return node;
       }
     }
-    return clickLabeled(dialog, /^(done|continue|save|apply|update)$/i, "confirm condition");
+    // Last resort: any visible control literally labelled Done/Save/Apply.
+    for (const node of dialog.querySelectorAll<HTMLElement>("button, a, [role='button']")) {
+      if (!isShown(node)) continue;
+      const text = normalize(node.textContent ?? "");
+      const aria = node.getAttribute("aria-label") ?? "";
+      if (/^(done|continue|save|apply|update)$/i.test(text) || /^(done|save|apply)$/i.test(aria)) {
+        return node;
+      }
+    }
+    return null;
+  };
+
+  const confirmPicker = (dialog: HTMLElement): boolean => {
+    const control = findConfirmControl(dialog);
+    if (!control) {
+      return false;
+    }
+    fireClick(control, "confirm condition");
+    return true;
+  };
+
+  /**
+   * Selecting a radio re-renders the dialog, so the confirm control can appear a
+   * beat later. Retry briefly instead of giving up on the first miss.
+   */
+  const confirmPickerWithRetry = async (dialog: HTMLElement): Promise<boolean> => {
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const live = conditionDialog() ?? dialog;
+      if (live && isShown(live) && confirmPicker(live)) {
+        return true;
+      }
+      await delay(200);
+    }
+    return false;
   };
 
   const closeForeignDialogs = async (): Promise<void> => {
@@ -441,7 +488,7 @@ export async function fillItemConditionInPage(
 
       dialog = conditionDialog() ?? dialog;
       if (dialog && isShown(dialog)) {
-        const confirmed = confirmPicker(dialog);
+        const confirmed = await confirmPickerWithRetry(dialog);
         if (!confirmed) await delay(350);
       }
 
@@ -449,7 +496,7 @@ export async function fillItemConditionInPage(
       if (!closed) {
         const leftover = conditionDialog();
         if (leftover) {
-          if (!confirmPicker(leftover)) {
+          if (!(await confirmPickerWithRetry(leftover))) {
             closePicker(leftover, "force-close condition picker");
           }
           closed = await waitUntil(() => !conditionDialog(), 1500);

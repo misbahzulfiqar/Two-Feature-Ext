@@ -64,7 +64,8 @@ async function confirmPhotoDeleteIfNeeded(): Promise<void> {
   }
 }
 
-async function removeExistingPhotos(): Promise<void> {
+async function removeExistingPhotos(): Promise<number> {
+  let removed = 0;
   for (let guard = 0; guard < 30; guard += 1) {
     const buttons = existingPhotoDeleteButtons();
     const last = buttons[buttons.length - 1];
@@ -72,10 +73,17 @@ async function removeExistingPhotos(): Promise<void> {
       break;
     }
     last.click();
+    removed += 1;
     await confirmPhotoDeleteIfNeeded();
     await wait(90);
   }
   await wait(150);
+  return removed;
+}
+
+/** Delete every photo currently on the listing. */
+export async function clearEbayListingImages(): Promise<number> {
+  return removeExistingPhotos();
 }
 
 function fileNameFromUrl(url: string, index: number): string {

@@ -1,7 +1,10 @@
-import { useState, type ChangeEvent, type FormEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import type { ScrapeProgressStage, VehicleCompatibility } from "@sell-similar/contracts";
 import { fillEbayListingCategories } from "../lib/fill-ebay-categories.ts";
-import { fillEbayListingCondition } from "../lib/fill-ebay-condition.ts";
+import {
+  ensureConditionDescription,
+  fillEbayListingCondition,
+} from "../lib/fill-ebay-condition.ts";
 import {
   captureFitmentTargetEditor,
   fillEbayListingFitment,
@@ -12,12 +15,28 @@ import { fillEbayListingSpecifics } from "../lib/fill-ebay-specifics.ts";
 import { fillEbayListingTitle } from "../lib/fill-ebay-title.ts";
 import { fitmentLog } from "../lib/fitment-debug.ts";
 import { progressForStage } from "../lib/scrape-progress.ts";
-import { restoreListingPage } from "../lib/restore-listing-page.ts";
-import { scrapeSourceListing } from "../lib/scrape-source-title.ts";
+import {
+  captureListingScroll,
+  restoreListingPage,
+  restoreListingScroll,
+} from "../lib/restore-listing-page.ts";
+import {
+  clearFilledListingFields,
+  type ClearableField,
+} from "../lib/clear-listing-fields.ts";
+import {
+  clearSourceListingCache,
+  readScrapeProgress,
+  scrapeSourceListing,
+} from "../lib/scrape-source-title.ts";
+import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { ControlField } from "./ControlField.tsx";
 import { FieldRow } from "./FieldRow.tsx";
-import { SparkleIcon } from "./Icons.tsx";
+import { FillOptionsMenu } from "./FillOptionsMenu.tsx";
+import { CheckCircleIcon, SparkleIcon, TrashIcon } from "./Icons.tsx";
 import { ProgressBar } from "./ProgressBar.tsx";
+import { ScrapeModeSelect } from "./ScrapeModeSelect.tsx";
+import { DEFAULT_FILL_OPTIONS, type FillOptions } from "./fill-options.ts";
 import type { ScrapeMode } from "./scrape-mode.ts";
 import "./SellSimilarAssistant.css";
 
@@ -25,10 +44,56 @@ const SAMPLE_SOURCE_URL = "https://www.ebay.com/itm/453712381834";
 
 export function SellSimilarAssistant() {
   const [scrapeMode, setScrapeMode] = useState<ScrapeMode>("full-scrape");
+  const [fillOptions, setFillOptions] = useState<FillOptions>(DEFAULT_FILL_OPTIONS);
   const [source, setSource] = useState("");
   const [progress, setProgress] = useState(0);
   const [statusMessage, setStatusMessage] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isClearingCache, setIsClearingCache] = useState(false);
+  const [isComplete, setIsComplete] = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [isClearingForm, setIsClearingForm] = useState(false);
+  // eBay's Compatibility section is rendered from server state at page load, so
+  // vehicles saved through its API only appear after the page reloads.
+  const [needsReloadForFitment, setNeedsReloadForFitment] = useState(false);
+
+  const rootRef = useRef<HTMLElement | null>(null);
+  const isBusy = isProcessing || isClearingForm;
+
+  /**
+   * Pin the panel while it drives eBay's form. Filling scrolls the page to
+   * each widget in turn, and eBay masks the page while its dialogs are open,
+   * so without this the progress bar scrolls out of sight and the page just
+   * looks frozen.
+   *
+   * The shadow host carries inline "position: static !important" from the
+   * content script, so only an inline override can win.
+   */
+  useEffect(() => {
+    const node = rootRef.current;
+    const root = node?.getRootNode();
+    const host =
+      root instanceof ShadowRoot && root.host instanceof HTMLElement ? root.host : null;
+    if (!host) {
+      return;
+    }
+
+    function release(): void {
+      host?.style.setProperty("position", "static", "important");
+      host?.style.removeProperty("top");
+      host?.style.setProperty("z-index", "40", "important");
+    }
+
+    if (isBusy) {
+      host.style.setProperty("position", "sticky", "important");
+      host.style.setProperty("top", "0px", "important");
+      host.style.setProperty("z-index", "2147483000", "important");
+    } else {
+      release();
+    }
+
+    return release;
+  }, [isBusy]);
 
   function handleScrapeModeChange(mode: ScrapeMode): void {
     setScrapeMode(mode);
@@ -36,6 +101,74 @@ export function SellSimilarAssistant() {
 
   function handleSourceChange(event: ChangeEvent<HTMLInputElement>): void {
     setSource(event.target.value);
+  }
+
+  async function handleClearCache(): Promise<void> {
+    if (isProcessing || isClearingCache) {
+      return;
+    }
+    setIsClearingCache(true);
+    try {
+      const result = await clearSourceListingCache(source);
+      setStatusMessage(
+        result.cleared > 0
+          ? `Cleared cached scrape for item ${result.ebayItemId}. The next run will fetch from eBay.`
+          : `Nothing was cached for item ${result.ebayItemId}. The next run will fetch from eBay.`,
+      );
+    } catch (error) {
+      setStatusMessage(
+        error instanceof Error ? error.message : "Could not clear the cache",
+      );
+    } finally {
+      setIsClearingCache(false);
+    }
+  }
+
+  /**
+   * Clears the eBay listing fields this extension fills. The source URL / ID
+   * box is deliberately left alone so the same listing can be re-processed.
+   */
+  async function clearForm(): Promise<void> {
+    setShowClearConfirm(false);
+    setIsClearingForm(true);
+    setIsComplete(false);
+    setStatusMessage("Clearing the fields this extension filled...");
+
+    const fields = new Set<ClearableField>();
+    for (const field of ["title", "images", "specifics", "fitment"] as const) {
+      if (fillOptions[field]) {
+        fields.add(field);
+      }
+    }
+
+    const scrollBefore = captureListingScroll();
+    try {
+      const result = await clearFilledListingFields(fields);
+      const cleared =
+        result.done.length > 0
+          ? `Cleared ${result.done.join(", ")}.`
+          : "";
+      const failed =
+        result.failed.length > 0
+          ? ` Could not clear ${result.failed.join(", ")}.`
+          : "";
+      const untouched =
+        " Item category and condition were left as they are - eBay requires a value for both.";
+      setStatusMessage(
+        result.done.length === 0 && result.failed.length === 0
+          ? "Nothing selected to clear. Pick fields in the options menu first."
+          : `${cleared}${failed}${untouched}`,
+      );
+      setProgress(0);
+    } catch (error) {
+      setStatusMessage(
+        error instanceof Error ? error.message : "Could not clear the listing fields",
+      );
+    } finally {
+      await restoreListingPage();
+      restoreListingScroll(scrollBefore);
+      setIsClearingForm(false);
+    }
   }
 
   function fitmentSummary(result: FillFitmentResult, total: number): string {
@@ -70,10 +203,7 @@ export function SellSimilarAssistant() {
       return `FITMENT_EMPTY. Existing target fitment left unchanged.${existing}`;
     }
     if (!result.sectionFound) {
-      return (
-        result.warnings[0] ??
-        "Could not find the fitment section on this editor."
-      );
+      return result.warnings[0] ?? "Could not find the fitment section on this editor.";
     }
     if (result.sectionFound && result.filled >= total && result.skipped === 0) {
       return `Fitment applied successfully. ${total} source row${total === 1 ? "" : "s"} matched.${existing}`;
@@ -94,6 +224,31 @@ export function SellSimilarAssistant() {
     return `VERIFICATION_FAILED. Did not save fitment; source and target did not match (${result.filled} of ${total} verified). ${failed.replace(/\n/g, " — ")}`;
   }
 
+  /**
+   * The scrape is one blocking request, so the worker's real stage is only
+   * visible by polling it. Runs for the duration of the await and stops as
+   * soon as the scrape returns.
+   */
+  async function withLiveScrapeStatus<T>(run: () => Promise<T>): Promise<T> {
+    let polling = true;
+    const poll = async (): Promise<void> => {
+      while (polling) {
+        const message = await readScrapeProgress();
+        if (polling && message) {
+          setStatusMessage(message);
+        }
+        await new Promise((resolve) => {
+          window.setTimeout(resolve, 1200);
+        });
+      }
+    };
+    void poll();
+    try {
+      return await run();
+    } finally {
+      polling = false;
+    }
+  }
   function advanceProgress(stage: ScrapeProgressStage): void {
     const next = progressForStage(stage);
     setProgress((current) => (next >= current ? next : current));
@@ -127,8 +282,11 @@ export function SellSimilarAssistant() {
     }
 
     setIsProcessing(true);
+    setIsComplete(false);
+    setNeedsReloadForFitment(false);
     setProgress(progressForStage("queued"));
     setStatusMessage("");
+    const scrollBefore = captureListingScroll();
     captureFitmentTargetEditor();
     fitmentLog("1 Process Listing clicked", `mode=${scrapeMode}`);
 
@@ -137,7 +295,9 @@ export function SellSimilarAssistant() {
         case "full-scrape": {
           setStatusMessage("Opening eBay listing...");
           setProgress(progressForStage("source_load"));
-          const listing = await scrapeSourceListing(source, "full-scrape");
+          const listing = await withLiveScrapeStatus(() =>
+            scrapeSourceListing(source, "full-scrape"),
+          );
           setProgress(progressForStage("listing_extract"));
           await new Promise((resolve) => {
             window.setTimeout(resolve, 200);
@@ -149,90 +309,128 @@ export function SellSimilarAssistant() {
             return;
           }
 
-          setStatusMessage("Populating listing editor...");
           setProgress(progressForStage("target_prepare"));
-          const filledTitle = fillEbayListingTitle(listing.title);
-          setProgress(progressForStage("apply_core"));
 
-          setStatusMessage("Adding photos...");
-          const filledImages = await fillEbayListingImages(listing.images);
-          setProgress(progressForStage("apply_core"));
+          let filledTitle = false;
+          if (fillOptions.title) {
+            setStatusMessage("Populating listing editor...");
+            filledTitle = fillEbayListingTitle(listing.title);
+            setProgress(progressForStage("apply_core"));
+          }
 
-          setStatusMessage("Updating item category...");
-          console.log("[SellSimilar][item-category] assistant calling fill", listing.category);
-          const categoryResult = await fillEbayListingCategories(listing.category);
-          console.log("[SellSimilar][item-category] assistant result", categoryResult);
-          setProgress(progressForStage("apply_core"));
-          await new Promise((resolve) => {
-            window.setTimeout(resolve, 700);
-          });
+          let filledImages = 0;
+          if (fillOptions.images) {
+            setStatusMessage("Adding photos...");
+            filledImages = await fillEbayListingImages(listing.images);
+            setProgress(progressForStage("apply_core"));
+          }
 
-          setStatusMessage("Updating item condition...");
-          console.log("[SellSimilar][condition] assistant calling fill", {
-            condition: listing.condition,
-            conditionDescription: listing.conditionDescription,
-          });
-          let conditionResult = await fillEbayListingCondition(
-            listing.condition,
-            listing.conditionDescription,
-          );
-          console.log("[SellSimilar][condition] assistant result", conditionResult);
-          setProgress(progressForStage("apply_core"));
+          let categoryResult = { itemCategory: false };
+          if (fillOptions.category) {
+            setStatusMessage("Updating item category...");
+            categoryResult = await fillEbayListingCategories(listing.category);
+            setProgress(progressForStage("apply_core"));
+            await new Promise((resolve) => {
+              window.setTimeout(resolve, 700);
+            });
+          }
 
-          setStatusMessage("Replacing item specifics...");
-          const specResult = await fillEbayListingSpecifics(listing.itemSpecifics);
-          setProgress(progressForStage("apply_core"));
-
-          if (listing.conditionDescription) {
+          let conditionResult = { condition: false, conditionDescription: false };
+          if (fillOptions.condition) {
+            setStatusMessage("Updating item condition...");
             conditionResult = await fillEbayListingCondition(
               listing.condition,
               listing.conditionDescription,
             );
+            setProgress(progressForStage("apply_core"));
           }
 
-          setStatusMessage(
-            `Applying vehicle compatibility. Found ${listing.compatibility.length} compatible vehicle${listing.compatibility.length === 1 ? "" : "s"}.`,
-          );
-          const fitmentResult = await applyNormalizedFitment(listing.compatibility);
+          let specResult = { filled: 0 };
+          if (fillOptions.specifics) {
+            setStatusMessage("Replacing item specifics...");
+            specResult = await fillEbayListingSpecifics(listing.itemSpecifics);
+            setProgress(progressForStage("apply_core"));
+          }
+
+          // Specifics filling can clear the description, so restore just that.
+          // Re-running the whole condition fill would reopen the picker modal.
+          if (fillOptions.condition && listing.conditionDescription) {
+            conditionResult = {
+              ...conditionResult,
+              conditionDescription: ensureConditionDescription(listing.conditionDescription),
+            };
+          }
+
+          let fitmentText = "Vehicle compatibility skipped";
+          if (fillOptions.fitment) {
+            setStatusMessage(
+              `Applying vehicle compatibility. Found ${listing.compatibility.length} compatible vehicle${listing.compatibility.length === 1 ? "" : "s"}.`,
+            );
+            const fitmentResult = await applyNormalizedFitment(listing.compatibility);
+            fitmentText = fitmentSummary(fitmentResult, listing.compatibility.length);
+            if (fitmentResult.filled > 0) {
+              setNeedsReloadForFitment(true);
+            }
+          }
+
           await restoreListingPage();
           setProgress(progressForStage("complete"));
 
-          const photoSummary =
-            listing.images.length === 0
-              ? "No photos found"
-              : filledImages === 0
-                ? `Found ${listing.images.length} photos, but the photo uploader was not on this page`
-                : `Added ${filledImages} photo${filledImages === 1 ? "" : "s"}`;
-          const specSummary =
-            listing.itemSpecifics.length === 0
-              ? "no item specifics found"
-              : `filled ${specResult.filled} of ${listing.itemSpecifics.length} item specifics`;
-          const categorySummary = categoryResult.itemCategory
-            ? `updated item category (${listing.category.path.join(" > ") || listing.category.name})`
-            : listing.category.path.length || listing.category.name
-              ? `could not update item category (${listing.category.path.join(" > ") || listing.category.name})`
-              : "no item category found";
-
-          const titleSummary = filledTitle
-            ? "Filled title"
-            : "Could not fill the Title field";
-          const conditionSummary = conditionResult.condition
-            ? `updated item condition (${listing.condition})`
-            : listing.condition
-              ? `could not update item condition (${listing.condition})`
-              : "no item condition found";
-          const conditionDescSummary = conditionResult.conditionDescription
-            ? "updated condition description"
-            : listing.conditionDescription
-              ? "could not update condition description"
-              : "no condition description found";
-          setStatusMessage(
-            listing.compatibility.length === 0
-              ? `${titleSummary}. ${photoSummary}. ${specSummary}. ${categorySummary}. ${conditionSummary}. ${conditionDescSummary}. ${fitmentSummary(fitmentResult, listing.compatibility.length)}`
-              : fitmentResult.filled === listing.compatibility.length && fitmentResult.skipped === 0
-                ? `${titleSummary}. ${photoSummary}. ${specSummary}. ${categorySummary}. ${conditionSummary}. ${conditionDescSummary}. Fitment copied exactly. ${fitmentSummary(fitmentResult, listing.compatibility.length)}`
-                : `${titleSummary}. ${photoSummary}. ${specSummary}. ${categorySummary}. ${conditionSummary}. ${conditionDescSummary}. Fitment was not saved. ${fitmentSummary(fitmentResult, listing.compatibility.length)}`,
+          const parts: string[] = [];
+          parts.push(
+            fillOptions.title
+              ? filledTitle
+                ? "Filled title"
+                : "Could not fill the Title field"
+              : "Title skipped",
           );
+          parts.push(
+            !fillOptions.images
+              ? "Photos skipped"
+              : listing.images.length === 0
+                ? "No photos found"
+                : filledImages === 0
+                  ? `Found ${listing.images.length} photos, but the photo uploader was not on this page`
+                  : `Added ${filledImages} photo${filledImages === 1 ? "" : "s"}`,
+          );
+          parts.push(
+            !fillOptions.specifics
+              ? "item specifics skipped"
+              : listing.itemSpecifics.length === 0
+                ? "no item specifics found"
+                : `filled ${specResult.filled} of ${listing.itemSpecifics.length} item specifics`,
+          );
+          parts.push(
+            !fillOptions.category
+              ? "item category skipped"
+              : categoryResult.itemCategory
+                ? `updated item category (${listing.category.path.join(" > ") || listing.category.name})`
+                : listing.category.path.length || listing.category.name
+                  ? `could not update item category (${listing.category.path.join(" > ") || listing.category.name})`
+                  : "no item category found",
+          );
+          parts.push(
+            !fillOptions.condition
+              ? "item condition skipped"
+              : conditionResult.condition
+                ? `updated item condition (${listing.condition})`
+                : listing.condition
+                  ? `could not update item condition (${listing.condition})`
+                  : "no item condition found",
+          );
+          if (fillOptions.condition) {
+            parts.push(
+              conditionResult.conditionDescription
+                ? "updated condition description"
+                : listing.conditionDescription
+                  ? "could not update condition description"
+                  : "no condition description found",
+            );
+          }
+          parts.push(fitmentText);
+
+          setStatusMessage(`${parts.join(". ")}.`);
+          setIsComplete(true);
           return;
         }
         case "only-fitment": {
@@ -240,13 +438,19 @@ export function SellSimilarAssistant() {
           setProgress(progressForStage("queued"));
           setStatusMessage("Opening and validating the source eBay listing.");
           setProgress(progressForStage("source_load"));
-          const listing = await scrapeSourceListing(source, "only-fitment");
+          const listing = await withLiveScrapeStatus(() =>
+            scrapeSourceListing(source, "only-fitment"),
+          );
           setStatusMessage("Extracting vehicle compatibility...");
           setProgress(progressForStage("fitment_extract"));
           const fitmentResult = await applyNormalizedFitment(listing.compatibility);
           await restoreListingPage();
           setProgress(progressForStage("complete"));
           setStatusMessage(fitmentSummary(fitmentResult, listing.compatibility.length));
+          if (fitmentResult.filled > 0) {
+            setNeedsReloadForFitment(true);
+          }
+          setIsComplete(true);
           return;
         }
         default: {
@@ -256,77 +460,135 @@ export function SellSimilarAssistant() {
       }
     } catch (error) {
       setProgress(0);
+      setIsComplete(false);
       setStatusMessage(
         error instanceof Error ? error.message : "Could not scrape listing",
       );
     } finally {
       await restoreListingPage();
+      restoreListingScroll(scrollBefore);
       setIsProcessing(false);
     }
   }
 
   return (
-    <section className="assistant" aria-label="Sell Similar Assistant">
+    <section
+      ref={rootRef}
+      className={isBusy ? "assistant is-busy" : "assistant"}
+      aria-label="Sell Similar Assistant"
+    >
       <form className="assistant-form" onSubmit={handleSubmit}>
         <FieldRow label="Scrape mode" htmlFor="scrape-mode">
-          <div className="mode-select" id="scrape-mode" role="radiogroup" aria-label="Scrape mode">
-            <button
-              type="button"
-              role="radio"
-              aria-checked={scrapeMode === "full-scrape"}
-              className={scrapeMode === "full-scrape" ? "mode-select-option is-selected" : "mode-select-option"}
-              onClick={() => handleScrapeModeChange("full-scrape")}
-            >
-              Full Scrape
-            </button>
-            <button
-              type="button"
-              role="radio"
-              aria-checked={scrapeMode === "only-fitment"}
-              className={scrapeMode === "only-fitment" ? "mode-select-option is-selected" : "mode-select-option"}
-              onClick={() => handleScrapeModeChange("only-fitment")}
-            >
-              Fitment only
-            </button>
+          <div className="control-row">
+            <ScrapeModeSelect
+              id="scrape-mode"
+              value={scrapeMode}
+              disabled={isProcessing}
+              onChange={handleScrapeModeChange}
+            />
+            {scrapeMode === "full-scrape" ? (
+              <FillOptionsMenu
+                value={fillOptions}
+                disabled={isProcessing}
+                onChange={setFillOptions}
+              />
+            ) : null}
           </div>
         </FieldRow>
 
         <FieldRow label="Source URL / ID" htmlFor="source-url">
-          <ControlField>
-            <input
-              id="source-url"
-              name="source"
-              type="text"
-              value={source}
-              placeholder={SAMPLE_SOURCE_URL}
-              onChange={handleSourceChange}
-              autoComplete="off"
-              spellCheck={false}
-            />
-          </ControlField>
+          <div className="control-row">
+            <ControlField>
+              <input
+                id="source-url"
+                name="source"
+                type="text"
+                value={source}
+                placeholder={SAMPLE_SOURCE_URL}
+                onChange={handleSourceChange}
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </ControlField>
+            <button
+              type="button"
+              className="icon-button"
+              onClick={handleClearCache}
+              disabled={isProcessing || isClearingCache || source.trim().length === 0}
+              title="Clear the cached scrape for this listing"
+              aria-label="Clear the cached scrape for this listing"
+            >
+              <TrashIcon />
+            </button>
+          </div>
         </FieldRow>
 
-        <button className="process-button" type="submit" disabled={isProcessing}>
-          <SparkleIcon />
-          {isProcessing ? "Processing..." : "Process Listing"}
-        </button>
+        <div className="form-actions">
+          {isComplete ? null : (
+            <button
+              type="button"
+              className="clear-form-button"
+              onClick={() => setShowClearConfirm(true)}
+              disabled={isProcessing || isClearingForm}
+            >
+              {isClearingForm ? "Clearing..." : "Clear form"}
+            </button>
+          )}
+          <button className="process-button" type="submit" disabled={isProcessing}>
+            <SparkleIcon />
+            {isProcessing ? "Processing..." : "Process Listing"}
+          </button>
+        </div>
       </form>
 
-      <div className="assistant-progress">
-        <div className="progress-meta">
-          <span className="processing-label">
-            <span className="processing-dot" aria-hidden="true" />
-            {isProcessing ? "Processing..." : "Ready"}
-          </span>
-          {isProcessing ? (
-            <span className="running-badge">
-              <span className="running-dot" aria-hidden="true" />
-              Running
-            </span>
-          ) : null}
+      {isProcessing || isComplete ? (
+        <div className="assistant-progress">
+          {isComplete ? (
+            <div className="complete-row">
+              <span className="complete-label">
+                <CheckCircleIcon />
+                Listing filled
+              </span>
+              <div className="complete-actions">
+                {needsReloadForFitment ? (
+                  <button
+                    type="button"
+                    className="reload-button"
+                    onClick={() => {
+                      window.location.reload();
+                    }}
+                    title="eBay only shows saved vehicles after the page reloads"
+                  >
+                    Reload to show vehicles
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="clear-form-button"
+                  onClick={() => setShowClearConfirm(true)}
+                  disabled={isClearingForm}
+                >
+                  {isClearingForm ? "Clearing..." : "Clear form"}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="progress-meta">
+                <span className="processing-label">
+                  <span className="processing-dot" aria-hidden="true" />
+                  Processing...
+                </span>
+                <span className="running-badge">
+                  <span className="running-dot" aria-hidden="true" />
+                  Running
+                </span>
+              </div>
+              <ProgressBar value={progress} />
+            </>
+          )}
         </div>
-        <ProgressBar value={progress} />
-      </div>
+      ) : null}
 
       <div className="activity" aria-live="polite">
         <SparkleIcon />
@@ -340,6 +602,18 @@ export function SellSimilarAssistant() {
           )}
         </p>
       </div>
+
+      {showClearConfirm ? (
+        <ConfirmDialog
+          title="Clear the form?"
+          message="Do you really want to clear the form? This empties the eBay listing fields this extension fills - title, photos, item specifics and vehicle compatibility. Your source URL / ID is kept, and item category and condition are left alone because eBay requires a value for both."
+          confirmLabel="OK"
+          onConfirm={() => {
+            void clearForm();
+          }}
+          onCancel={() => setShowClearConfirm(false)}
+        />
+      ) : null}
     </section>
   );
 }
