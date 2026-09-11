@@ -1,5 +1,7 @@
 import type {
   ApiResponse,
+  ClearScrapeCacheRequest,
+  ClearScrapeCacheResponse,
   CreateScrapeJobRequest,
   CreateScrapeJobResponse,
   GetListingResponse,
@@ -8,10 +10,12 @@ import type {
   ListingId,
   ScrapeListingRequest,
   ScrapeListingResponse,
+  ScrapeProgressSnapshot,
   SellSimilarRequest,
   SellSimilarResponse,
 } from "@sell-similar/contracts";
 import {
+  clearScrapeCacheRequestSchema,
   createScrapeJobRequestSchema,
   scrapeListingRequestSchema,
   sellSimilarRequestSchema,
@@ -81,6 +85,22 @@ export class SellSimilarApiClient {
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(120_000),
     });
+  }
+
+  /** Drop any cached scrape for one item so the next run hits eBay live. */
+  async clearScrapeCache(
+    input: ClearScrapeCacheRequest,
+  ): Promise<ClearScrapeCacheResponse> {
+    const body = clearScrapeCacheRequestSchema.parse(input);
+    return this.request<ClearScrapeCacheResponse>("/listings/scrape-cache/clear", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  }
+
+  /** Best-effort live progress for the scrape currently running. */
+  async getScrapeProgress(): Promise<ApiResponse<ScrapeProgressSnapshot>> {
+    return this.request<ApiResponse<ScrapeProgressSnapshot>>("/listings/scrape/progress");
   }
 
   async createScrapeJob(

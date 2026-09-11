@@ -53,6 +53,8 @@ export type ScrapeJobRecord = {
 export type CreateScrapeJobRequest = {
   listingUrl: string;
   scrapeMode?: ScrapeMode;
+  /** Skip reusing a recent job and force a new scrape. */
+  refresh?: boolean;
 };
 
 export type ScrapeSimilarJobPayload = {

@@ -32,6 +32,62 @@ export function BagIcon({ className }: IconProps) {
   );
 }
 
+export function CheckCircleIcon({ className }: IconProps) {
+  return (
+    <svg
+      {...iconSvgProps(className)}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.9"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="12" cy="12" r="9" />
+      <path d="m8.5 12.2 2.4 2.4 4.6-4.9" />
+    </svg>
+  );
+}
+
+export function ChecklistIcon({ className }: IconProps) {
+  return (
+    <svg
+      {...iconSvgProps(className)}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="m3 7 2 2 3-3" />
+      <path d="m3 15 2 2 3-3" />
+      <path d="M12 8h9" />
+      <path d="M12 16h9" />
+    </svg>
+  );
+}
+
+export function TrashIcon({ className }: IconProps) {
+  return (
+    <svg
+      {...iconSvgProps(className)}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M4 7h16" />
+      <path d="M10 4h4" />
+      <path d="M6 7l1 12h10l1-12" />
+      <path d="M10 11v5" />
+      <path d="M14 11v5" />
+    </svg>
+  );
+}
+
 export function SparkleIcon({ className }: IconProps) {
   return (
     <svg {...iconSvgProps(className)} viewBox="0 0 16 16" fill="currentColor">

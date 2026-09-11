@@ -16,6 +16,7 @@ import {
 } from "../lib/fill-fitment-messages.ts";
 import {
   clearFitmentPicker,
+  clearFitmentViaApi,
   guardFitmentTree,
   inspectFitmentPicker,
   isFitmentMainRequest,
@@ -26,7 +27,13 @@ import {
   type FitmentMainRequest,
   type FitmentMainResponse,
 } from "../lib/fitment-main-world.ts";
-import { isScrapeListingRequest } from "../lib/scrape-messages.ts";
+import {
+  isClearScrapeCacheRequest,
+  isScrapeListingRequest,
+  isScrapeProgressRequest,
+  type ClearScrapeCacheResponseMessage,
+  type ScrapeProgressResponseMessage,
+} from "../lib/scrape-messages.ts";
 
 const apiBaseUrl =
   import.meta.env.WXT_API_BASE_URL?.replace(/\/+$/, "") || "http://127.0.0.1:3001";
@@ -191,6 +198,29 @@ async function handleFitmentMain(
         return { ok: false, error: messageText };
       }
     }
+    case "clear-all": {
+      try {
+        const injected = await browser.scripting.executeScript({
+          target: { tabId },
+          world: "MAIN",
+          func: clearFitmentViaApi,
+          args: [message.meta],
+        });
+        const value = injected[0]?.result;
+        if (!value) {
+          return { ok: false, error: "Clear script did not run" };
+        }
+        if (value.ok) {
+          await showFitmentSummary(tabId);
+        }
+        return { ok: Boolean(value.ok), cleared: value.cleared, error: value.error };
+      } catch (error) {
+        return {
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }
     default: {
       const _exhaustive: never = message;
       return _exhaustive;
@@ -300,6 +330,51 @@ export default defineBackground(() => {
     if (isFillFitmentBroadcast(message)) {
       sendResponse({ handled: false } satisfies FillFitmentFrameResponse);
       return;
+    }
+
+    if (isScrapeProgressRequest(message)) {
+      void api
+        .getScrapeProgress()
+        .then((response) => {
+          sendResponse(
+            response.ok
+              ? {
+                  ok: true,
+                  active: Boolean(response.data.active),
+                  message: String(response.data.message ?? ""),
+                  fitmentPage: Number(response.data.fitmentPage ?? 0),
+                  fitmentRows: Number(response.data.fitmentRows ?? 0),
+                }
+              : { ok: false },
+          );
+        })
+        .catch(() => {
+          sendResponse({ ok: false } satisfies ScrapeProgressResponseMessage);
+        });
+      return true;
+    }
+
+    if (isClearScrapeCacheRequest(message)) {
+      void api
+        .clearScrapeCache({ listingUrl: message.listingUrl })
+        .then((response) => {
+          sendResponse(
+            response.ok
+              ? {
+                  ok: true,
+                  cleared: response.data.cleared,
+                  ebayItemId: response.data.ebayItemId,
+                }
+              : { ok: false, error: response.error.message },
+          );
+        })
+        .catch((error: unknown) => {
+          sendResponse({
+            ok: false,
+            error: apiErrorMessage(error),
+          } satisfies ClearScrapeCacheResponseMessage);
+        });
+      return true;
     }
 
     if (!isScrapeListingRequest(message)) {

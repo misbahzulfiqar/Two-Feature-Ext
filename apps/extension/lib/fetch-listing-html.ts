@@ -106,19 +106,42 @@ async function fetchHtml(
   return response.text();
 }
 
-export async function fetchListingHtml(listingUrl: string): Promise<string> {
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+/**
+ * Best-effort source HTML for the worker.
+ *
+ * eBay commonly answers the first anonymous request with an anti-bot
+ * interstitial, then serves the real page once cookies are warm. Returning
+ * undefined instead of throwing matters: `html` is optional on the scrape
+ * request, and the worker navigates the listing in its own browser anyway, so a
+ * blocked fetch here should degrade to a live scrape rather than fail the run.
+ */
+export async function fetchListingHtml(
+  listingUrl: string,
+): Promise<string | undefined> {
   const anonymous = await fetchHtml(listingUrl, "omit");
   if (looksLikeEbayListing(anonymous)) {
     return anonymous;
   }
 
-  const session = await fetchHtml(listingUrl, "include");
-  if (looksLikeEbayListing(session)) {
-    return session;
+  // Retry with the user's eBay session, which usually clears the interstitial.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    if (attempt > 0) {
+      await sleep(700);
+    }
+    const session = await fetchHtml(listingUrl, "include");
+    if (looksLikeEbayListing(session)) {
+      return session;
+    }
   }
 
-  if (session) {
-    throw new Error("eBay returned an error page for that listing");
-  }
-  throw new Error("Could not load listing");
+  console.warn(
+    "[SellSimilar] could not fetch source HTML (eBay interstitial?); falling back to a live scrape by the worker",
+  );
+  return undefined;
 }

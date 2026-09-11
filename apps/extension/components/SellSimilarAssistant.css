@@ -20,7 +20,8 @@
   border: 0;
   border-radius: 0;
   box-shadow: none;
-  font-family: Inter, "Market Sans", Arial, sans-serif;
+  /* Match the host eBay editor's typography so the panel reads as part of it. */
+  font-family: "Market Sans", Arial, sans-serif;
   font-size: 13px;
   line-height: 1.35;
 }
@@ -49,6 +50,10 @@
   align-items: flex-end;
   gap: 12px 16px;
   width: 100%;
+  /* eBay pins its help (?) and overflow (...) controls to the top-right of this
+     content area, and they paint above the panel. Inset the control row so the
+     action buttons never sit underneath them. */
+  padding-right: 64px;
 }
 
 .field-row {
@@ -129,6 +134,47 @@
   opacity: 1;
 }
 
+/* .field-row stacks its children; this keeps the input and its action inline. */
+.control-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* Small icon-only action sitting beside the source field. */
+.icon-button {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid #c5d4f5;
+  border-radius: 10px;
+  background: #fff;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+
+.icon-button svg {
+  width: 15px;
+  height: 15px;
+}
+
+.icon-button:hover:not(:disabled),
+.icon-button:focus-visible:not(:disabled) {
+  border-color: #e2557a;
+  background: #fff5f7;
+  color: #d8456b;
+}
+
+.icon-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .mode-select {
   display: flex;
   width: 100%;
@@ -158,13 +204,22 @@
   color: #fff;
 }
 
+/* Keeps Clear form and Process Listing together on the right of the form. */
+.form-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
 .process-button {
   display: flex;
   flex: none;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  margin: 0 0 0 auto;
+  margin: 0;
   padding: 8px 14px;
   border: 0;
   border-radius: 10px;
@@ -178,10 +233,10 @@
 }
 
 .process-button svg {
-  width: 10px;
-  height: 10px;
-  max-width: 10px;
-  max-height: 10px;
+  width: 15px;
+  height: 15px;
+  max-width: 15px;
+  max-height: 15px;
 }
 
 .process-button:hover,
@@ -257,7 +312,7 @@
 
 .progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, var(--blue) 0%, var(--purple) 100%);
+  background: #000;
   border-radius: 999px;
   transition: width 180ms ease;
 }
@@ -309,7 +364,266 @@
 }
 
 @media (max-width: 960px) {
-  .process-button {
+  .form-actions {
     margin-left: 0;
   }
+}
+
+/* While pinned the panel floats over the form, so it needs a real surface
+   instead of the transparent background it uses inline. */
+.assistant.is-busy {
+  background: var(--paper);
+  border-bottom: 1px solid var(--track);
+  box-shadow: 0 6px 18px rgb(11 31 74 / 12%);
+}
+
+/* ---- Fill-options menu ---------------------------------------------- */
+.options-menu {
+  position: relative;
+  flex: none;
+}
+
+.icon-button.is-active {
+  border-color: var(--blue);
+  color: var(--blue);
+  background: #f2f6ff;
+}
+
+/* Marks that some fields are switched off. */
+.icon-button-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--purple);
+}
+
+.icon-button {
+  position: relative;
+}
+
+.options-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+}
+
+.options-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 61;
+  min-width: 208px;
+  padding: 8px;
+  background: var(--paper);
+  border: 1px solid #c5d4f5;
+  border-radius: 10px;
+  box-shadow: 0 10px 26px rgb(11 31 74 / 16%);
+}
+
+.options-popover-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 6px 8px;
+  border-bottom: 1px solid var(--track);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.options-popover-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.options-popover-actions button {
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--blue);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.options-popover-actions button:hover {
+  background: #f2f6ff;
+}
+
+.options-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.options-item:hover {
+  background: #f5f8ff;
+}
+
+.options-item input {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--blue);
+  cursor: pointer;
+}
+
+/* ---- Completed state ------------------------------------------------- */
+.complete-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 30px;
+}
+
+.complete-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #0f8a4f;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.complete-label svg {
+  width: 15px;
+  height: 15px;
+}
+
+.clear-form-button {
+  flex: none;
+  padding: 5px 12px;
+  border: 1px solid #e2557a;
+  border-radius: 8px;
+  background: #fff5f7;
+  color: #d8456b;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.clear-form-button:hover:not(:disabled),
+.clear-form-button:focus-visible:not(:disabled) {
+  background: #d8456b;
+  color: #fff;
+}
+
+.clear-form-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ---- Confirmation dialog --------------------------------------------- */
+.confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgb(11 31 74 / 45%);
+}
+
+.confirm-dialog {
+  width: min(360px, 100%);
+  padding: 18px;
+  background: var(--paper);
+  border-radius: 14px;
+  box-shadow: 0 18px 48px rgb(11 31 74 / 30%);
+  color: var(--navy);
+}
+
+.confirm-title {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.confirm-message {
+  margin: 0 0 16px;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.confirm-cancel,
+.confirm-ok {
+  padding: 7px 16px;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.confirm-cancel {
+  border: 1px solid #c5d4f5;
+  background: #fff;
+  color: var(--navy);
+}
+
+.confirm-cancel:hover {
+  background: #f5f8ff;
+}
+
+.confirm-ok {
+  border: 1px solid #d8456b;
+  background: #d8456b;
+  color: #fff;
+}
+
+.confirm-ok:hover {
+  background: #c13a5d;
+}
+
+/* Vehicles saved through eBay's API only appear after the page reloads, so the
+   completed state offers that as an explicit action rather than reloading on
+   its own and risking fields eBay has not saved to the draft yet. */
+.complete-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.reload-button {
+  flex: none;
+  padding: 5px 12px;
+  border: 1px solid var(--blue);
+  border-radius: 8px;
+  background: #f2f6ff;
+  color: var(--blue);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.reload-button:hover,
+.reload-button:focus-visible {
+  background: var(--blue);
+  color: #fff;
 }

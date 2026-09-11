@@ -3,6 +3,13 @@ import { scrapeListingRequestSchema } from "@sell-similar/validation";
 import type { AppLogger } from "@sell-similar/logging";
 import type { ScraperEnv } from "./env.js";
 import { runScrape } from "./run-scrape.js";
+import {
+  beginScrape,
+  endScrape,
+  readScrapeProgress,
+  setFitmentProgress,
+  setScrapeStage,
+} from "./scrape-progress-store.js";
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { "content-type": "application/json" });
@@ -61,6 +68,12 @@ async function handleRequest(
     return;
   }
 
+  // Polled by the extension while the blocking /scrape call is in flight.
+  if (req.method === "GET" && path === "/scrape/progress") {
+    sendJson(res, 200, readScrapeProgress());
+    return;
+  }
+
   if (req.method !== "POST" || path !== "/scrape") {
     sendJson(res, 404, { status: "failed", code: "404", message: "Not found" });
     return;
@@ -81,10 +94,22 @@ async function handleRequest(
       { listingUrl: parsed.data.listingUrl, hasHtml: Boolean(parsed.data.html) },
       "HTTP scrape received",
     );
-    const result = await runScrape(env, parsed.data.listingUrl, {
-      html: parsed.data.html,
-      scrapeMode: parsed.data.scrapeMode,
-    });
+    beginScrape(parsed.data.listingUrl);
+    let result;
+    try {
+      result = await runScrape(env, parsed.data.listingUrl, {
+        html: parsed.data.html,
+        scrapeMode: parsed.data.scrapeMode,
+        onProgress: (stage) => {
+          setScrapeStage(stage);
+        },
+        onFitmentProgress: (page, rows, message) => {
+          setFitmentProgress(page, rows, message);
+        },
+      });
+    } finally {
+      endScrape();
+    }
     const listingData = result.listingData;
     logger.info(
       {

@@ -479,6 +479,124 @@ function selectedDropdownText(field: Element): string {
     .trim();
 }
 
+/** React tracks radio state, so the checked flag must go through its setter. */
+function setNativeChecked(input: HTMLInputElement, checked: boolean): void {
+  const prototype = Object.getPrototypeOf(input) as HTMLInputElement;
+  const descriptor =
+    Object.getOwnPropertyDescriptor(prototype, "checked") ??
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "checked");
+  descriptor?.set?.call(input, checked);
+  if (input.checked !== checked) {
+    input.checked = checked;
+  }
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+  input.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+/**
+ * eBay renders the open dropdown panel outside the attribute row, so its
+ * "Clear" control has to be found document-wide. Our own panel lives in a
+ * shadow root and is invisible to these queries.
+ */
+function visibleClearControl(): HTMLElement | null {
+  const direct = document.querySelector(
+    "button.se-filter-menu-button__clear, button.filter-menu__clear, .se-filter-menu__clear",
+  );
+  if (direct instanceof HTMLElement && isShown(direct)) {
+    return direct;
+  }
+  const candidates = document.querySelectorAll('button, a, [role="button"]');
+  for (const node of candidates) {
+    if (!(node instanceof HTMLElement) || !isShown(node)) continue;
+    if (node.closest("[data-sell-similar-assistant]")) continue;
+    const text = (node.textContent ?? "").replace(/s+/g, " ").trim();
+    if (/^clear( all)?$/i.test(text)) {
+      return node;
+    }
+  }
+  return null;
+}
+
+/** Deselect a Yes/No pill pair. */
+async function clearYesNoField(field: Element): Promise<boolean> {
+  const root = attributeValueRoot(field);
+  const radios = [...root.querySelectorAll('input[type="radio"]')].filter(
+    (node): node is HTMLInputElement => node instanceof HTMLInputElement,
+  );
+  if (radios.length === 0) {
+    return false;
+  }
+  const checked = radios.find((radio) => radio.checked);
+  if (!checked) {
+    return true;
+  }
+
+  // Clicking the selected pill is how a person deselects it.
+  const pill = checked.closest("label") ?? checked.parentElement ?? checked;
+  if (pill instanceof HTMLElement) {
+    fireClick(pill);
+    await delay(140);
+  }
+  if (!radios.some((radio) => radio.checked)) {
+    return true;
+  }
+
+  // Some pills re-select instead of toggling; clear the group directly.
+  for (const radio of radios) {
+    if (radio.checked) {
+      setNativeChecked(radio, false);
+    }
+  }
+  await delay(120);
+  return !radios.some((radio) => radio.checked);
+}
+
+/** Empty a dropdown using eBay's own Clear control. */
+async function clearDropdownField(field: Element): Promise<boolean> {
+  const toggle =
+    field.querySelector('button[name^="attributes."]') ??
+    field.querySelector("button[aria-haspopup], button[aria-expanded]");
+  if (!(toggle instanceof HTMLElement)) {
+    return false;
+  }
+  if (!selectedDropdownText(field)) {
+    return true;
+  }
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    if (toggle.getAttribute("aria-expanded") !== "true") {
+      fireClick(toggle);
+      await delay(220);
+    }
+
+    const clear = visibleClearControl();
+    if (clear) {
+      fireClick(clear);
+      await delay(200);
+    } else {
+      const checkedOptions = document.querySelectorAll(
+        '[role="menuitemradio"][aria-checked="true"], [role="menuitemcheckbox"][aria-checked="true"], [role="option"][aria-selected="true"]',
+      );
+      for (const option of checkedOptions) {
+        if (option instanceof HTMLElement && isShown(option)) {
+          fireClick(option);
+          await delay(120);
+        }
+      }
+    }
+
+    if (toggle.getAttribute("aria-expanded") === "true") {
+      fireClick(toggle);
+      await delay(160);
+    }
+
+    if (!selectedDropdownText(field)) {
+      return true;
+    }
+  }
+  return !selectedDropdownText(field);
+}
+
 async function clearAttributeField(field: Element): Promise<void> {
   const named = field.querySelector(
     'input[name^="attributes."], textarea[name^="attributes."]',
@@ -498,26 +616,8 @@ async function clearAttributeField(field: Element): Promise<void> {
     search.blur();
   }
 
-  const toggle = field.querySelector('button[name^="attributes."]');
-  const selected = selectedDropdownText(field);
-  if (toggle instanceof HTMLElement && selected) {
-    toggle.click();
-    await delay(80);
-    const clearBtn = field.querySelector("button.se-filter-menu-button__clear");
-    if (clearBtn instanceof HTMLElement) {
-      clearBtn.click();
-    } else {
-      field.querySelectorAll('[role="menuitemradio"][aria-checked="true"]').forEach((option) => {
-        if (option instanceof HTMLElement) {
-          option.click();
-        }
-      });
-    }
-    if (toggle.getAttribute("aria-expanded") === "true") {
-      toggle.click();
-    }
-    await delay(50);
-  }
+  await clearYesNoField(field);
+  await clearDropdownField(field);
 
   const fallback = field.querySelector(
     "input.textbox__control, textarea.textbox__control, input[type='text'], textarea",
@@ -534,10 +634,55 @@ async function clearAttributeField(field: Element): Promise<void> {
   }
 }
 
+/** True when the attribute row still shows a value of any kind. */
+function attributeFieldHasValue(field: Element): boolean {
+  if (selectedDropdownText(field)) {
+    return true;
+  }
+  const valueRoot = attributeValueRoot(field);
+  for (const node of valueRoot.querySelectorAll('input[type="radio"]')) {
+    if (node instanceof HTMLInputElement && node.checked) {
+      return true;
+    }
+  }
+  const text = field.querySelector(
+    'input[name^="attributes."], textarea[name^="attributes."]',
+  );
+  if (
+    (text instanceof HTMLInputElement || text instanceof HTMLTextAreaElement) &&
+    text.value.trim()
+  ) {
+    return true;
+  }
+  return false;
+}
+
 async function clearRemainingAttributeFields(root: ParentNode): Promise<void> {
-  const fields = root.querySelectorAll('[data-testid="attribute"]');
-  for (const field of fields) {
+  for (const field of root.querySelectorAll('[data-testid="attribute"]')) {
     await clearAttributeField(field);
+  }
+
+  // eBay re-renders rows as they clear, so sweep again for stragglers.
+  for (let pass = 0; pass < 2; pass += 1) {
+    const remaining = [...root.querySelectorAll('[data-testid="attribute"]')].filter(
+      attributeFieldHasValue,
+    );
+    if (remaining.length === 0) {
+      break;
+    }
+    for (const field of remaining) {
+      await clearAttributeField(field);
+    }
+  }
+
+  const stillSet = [...root.querySelectorAll('[data-testid="attribute"]')].filter(
+    attributeFieldHasValue,
+  );
+  if (stillSet.length > 0) {
+    console.warn(
+      "[SellSimilar][specifics] could not clear " + stillSet.length + " field(s)",
+      stillSet.map((field) => fieldLabelText(field)),
+    );
   }
 
   const upc = root.querySelector('input[name="universalProductCode"]');

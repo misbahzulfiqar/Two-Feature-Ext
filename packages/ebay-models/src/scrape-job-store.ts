@@ -203,6 +203,40 @@ export async function failScrapeJob(
   );
 }
 
+/**
+ * Most recent job for this item+mode that a new request can reuse instead of
+ * queueing another scrape: either a completed job that is still fresh, or one
+ * already queued/processing (so simultaneous requests collapse onto one run).
+ *
+ * Uses the { ebayItemId, createdAt } index.
+ */
+export async function findReusableScrapeJob(
+  mongoUrl: string,
+  input: {
+    ebayItemId: string;
+    scrapeMode: ScrapeMode;
+    withinMs: number;
+  },
+): Promise<ScrapeJobRecord | null> {
+  if (!input.ebayItemId) {
+    return null;
+  }
+  const collection = await getScrapeJobsCollection(mongoUrl);
+  const since = new Date(Date.now() - input.withinMs);
+  const doc = await collection.findOne(
+    {
+      ebayItemId: input.ebayItemId,
+      scrapeMode: input.scrapeMode,
+      $or: [
+        { status: "completed", completedAt: { $gte: since } },
+        { status: { $in: ["queued", "processing"] }, createdAt: { $gte: since } },
+      ],
+    },
+    { sort: { createdAt: -1 } },
+  );
+  return doc ? toScrapeJobRecord(doc) : null;
+}
+
 export async function getScrapeJobById(
   mongoUrl: string,
   jobId: string,

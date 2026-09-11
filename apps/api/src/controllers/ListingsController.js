@@ -1,8 +1,17 @@
 import {
+  clearScrapeCacheRequestSchema,
   scrapeListingRequestSchema,
   scrapedListingDataSchema,
   sellSimilarRequestSchema,
 } from "@sell-similar/validation";
+import {
+  SCRAPE_CACHE_TTL_MS,
+  clearScrapeCache,
+  readScrapeCache,
+  scrapeCacheBackend,
+  scrapeCacheItemId,
+  writeScrapeCache,
+} from "../scrape-cache.js";
 
 const SCRAPE_TIMEOUT_MS = 120_000;
 
@@ -77,6 +86,52 @@ export function sellSimilar(req, res) {
   });
 }
 
+export function createScrapeProgressHandler(scraperWorkerUrl) {
+  const workerBaseUrl = String(scraperWorkerUrl).replace(/[/]+$/, "");
+
+  return async function scrapeProgress(req, res) {
+    try {
+      const response = await fetch(`${workerBaseUrl}/scrape/progress`, {
+        signal: AbortSignal.timeout(4000),
+      });
+      const payload = await response.json();
+      return res.status(200).json({
+        ok: true,
+        data: payload,
+        correlationId: req.correlationId,
+      });
+    } catch {
+      // Progress is best-effort; never fail the caller over it.
+      return res.status(200).json({
+        ok: true,
+        data: { active: false, stage: null, message: "" },
+        correlationId: req.correlationId,
+      });
+    }
+  };
+}
+
+export async function clearScrapeCacheHandler(req, res) {
+  const parsed = clearScrapeCacheRequestSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({
+      ok: false,
+      error: { code: "INVALID_REQUEST", message: parsed.error.message },
+      correlationId: req.correlationId,
+    });
+  }
+
+  const ebayItemId = scrapeCacheItemId(parsed.data.listingUrl);
+  const cleared = await clearScrapeCache(parsed.data.listingUrl);
+  console.log(`[scrape] cache CLEAR ${ebayItemId} removed=${cleared}`);
+
+  return res.status(200).json({
+    ok: true,
+    data: { ebayItemId, cleared },
+    correlationId: req.correlationId,
+  });
+}
+
 export function createScrapeListingHandler(scraperWorkerUrl) {
   const workerBaseUrl = String(scraperWorkerUrl).replace(/\/+$/, "");
 
@@ -89,6 +144,32 @@ export function createScrapeListingHandler(scraperWorkerUrl) {
         correlationId: req.correlationId,
       });
     }
+
+    const scrapeMode = parsed.data.scrapeMode ?? "full-scrape";
+
+    if (!parsed.data.refresh) {
+      const cached = await readScrapeCache(parsed.data.listingUrl, scrapeMode);
+      if (cached) {
+        console.log(
+          `[scrape] cache HIT (${cached.backend}) ${scrapeCacheItemId(parsed.data.listingUrl)} mode=${scrapeMode} age=${Math.round(cached.ageMs / 1000)}s`,
+        );
+        return res.status(200).json({
+          ok: true,
+          data: cached.data,
+          cache: {
+            hit: true,
+            ageMs: cached.ageMs,
+            ttlMs: SCRAPE_CACHE_TTL_MS,
+            backend: cached.backend,
+          },
+          correlationId: req.correlationId,
+        });
+      }
+    }
+
+    console.log(
+      `[scrape] cache ${parsed.data.refresh ? "BYPASS" : "MISS"} ${scrapeCacheItemId(parsed.data.listingUrl)} mode=${scrapeMode}`,
+    );
 
     try {
       const workerResponse = await fetch(`${workerBaseUrl}/scrape`, {
@@ -129,9 +210,17 @@ export function createScrapeListingHandler(scraperWorkerUrl) {
         });
       }
 
+      await writeScrapeCache(parsed.data.listingUrl, scrapeMode, listingData.data);
+
       return res.status(200).json({
         ok: true,
         data: listingData.data,
+        cache: {
+          hit: false,
+          ageMs: 0,
+          ttlMs: SCRAPE_CACHE_TTL_MS,
+          backend: scrapeCacheBackend(),
+        },
         correlationId: req.correlationId,
       });
     } catch (error) {

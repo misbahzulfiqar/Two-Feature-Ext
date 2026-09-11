@@ -135,10 +135,11 @@ async function handlePagination(page, onProgress) {
         tableSelectors.map((selector) => page.waitForSelector(selector, { timeout: 30000 })),
       );
 
+      const pageStartedAt = Date.now();
       const pageData = await extractCompatibilityData(page);
       allCompatibility = allCompatibility.concat(pageData.compatibility);
       console.log(
-        `[FetchFitment] Page ${currentPage}: extracted ${pageData.compatibility.length} rows (total: ${allCompatibility.length})`,
+        `[FetchFitment] Page ${currentPage}: extracted ${pageData.compatibility.length} rows in ${Date.now() - pageStartedAt}ms (total: ${allCompatibility.length})`,
       );
       if (onProgress) {
         await onProgress(
@@ -189,7 +190,7 @@ async function handlePagination(page, onProgress) {
         firstRowTextBefore,
       );
 
-      await sleep(1000);
+      await sleep(250);
       retryCount = 0;
     } catch (error) {
       console.log(`[FetchFitment] Error on page ${currentPage}: ${error.message}`);
@@ -263,7 +264,7 @@ async function openLiveListing(page, listingUrl) {
       timeout: 30000,
       referer: "https://www.google.com/",
     });
-    await sleep(800 + Math.floor(Math.random() * 400));
+    await sleep(300 + Math.floor(Math.random() * 200));
   } catch (error) {
     console.log(`[FetchFitment] homepage warmup failed: ${error.message}`);
   }

@@ -239,49 +239,71 @@ function expandFitmentIframe(): HTMLIFrameElement | null {
   return iframe;
 }
 
-function lockFitmentIframe(): void {
-  const win = window as Window & { __ssFitmentIframeLock?: MutationObserver };
-  fitmentLog("Locking fitment iframe");
-
+/**
+ * Reload the sellfit iframe so eBay re-fetches /sellfit/api/summary and renders
+ * its own vehicle cards.
+ *
+ * We persist straight to eBay's API, which the embedded app never hears about -
+ * it keeps showing the state it loaded with, which is why the card was missing
+ * after applying. Reloading is the only way to tell it something changed.
+ */
+function reloadFitmentIframe(): void {
   const iframe = fitmentIframeElement();
   if (!iframe) {
-    fitmentLog("No iframe found to lock");
+    fitmentLog("No fitment iframe to reload");
     return;
   }
+  // Same origin, so a direct reload works and keeps the URL intact.
+  try {
+    const frameWindow = iframe.contentWindow;
+    if (frameWindow) {
+      frameWindow.location.reload();
+      fitmentLog("Reloaded fitment iframe");
+      return;
+    }
+  } catch {
+    // fall through to re-assigning src
+  }
+  const src = iframe.getAttribute("src");
+  if (src) {
+    iframe.setAttribute("src", src);
+    fitmentLog("Reloaded fitment iframe via src");
+  }
+}
+/**
+ * Undo any forced sizing on the sellfit iframe and let eBay manage it again.
+ *
+ * An earlier version pinned the frame to 400px and installed a MutationObserver
+ * that re-applied that height every time eBay collapsed the frame to its idle
+ * 82px. The observer was never disconnected, so the extension stayed in a
+ * permanent tug-of-war with eBay's own layout and the frame was held open on
+ * its loading view — the spinner that never resolved under the Compatibility
+ * summary. eBay renders the saved-vehicle summary correctly on its own, so the
+ * right behaviour is to stop interfering and clean up after the old lock.
+ */
+function releaseFitmentIframe(): void {
+  const win = window as Window & { __ssFitmentIframeLock?: MutationObserver };
 
-  function applyLock(target: HTMLIFrameElement): void {
-    target.style.minHeight = "400px";
-    target.style.maxHeight = "none";
-    target.style.height = "400px";
+  if (win.__ssFitmentIframeLock) {
+    win.__ssFitmentIframeLock.disconnect();
+    delete win.__ssFitmentIframeLock;
+    fitmentLog("Disconnected stale fitment iframe lock");
   }
 
-  applyLock(iframe);
-
-  if (!win.__ssFitmentIframeLock) {
-    const observer = new MutationObserver(() => {
-      if (
-        iframe.style.maxHeight === "82px" ||
-        iframe.style.minHeight === "82px" ||
-        iframe.style.height === "82px" ||
-        iframe.offsetHeight < 100
-      ) {
-        applyLock(iframe);
+  // Only undo the exact values the old lock wrote. eBay sizes this frame with
+  // inline styles of its own (it sets height 82px when idle), and
+  // style.removeProperty cannot tell its styles from ours - clearing them
+  // blindly leaves the frame unsized.
+  const iframe = fitmentIframeElement();
+  if (iframe) {
+    for (const property of ["height", "min-height", "max-height"]) {
+      if (iframe.style.getPropertyValue(property) === "400px") {
+        iframe.style.removeProperty(property);
       }
-    });
-    observer.observe(iframe, {
-      attributes: true,
-      attributeFilter: ["style", "class"],
-    });
-    win.__ssFitmentIframeLock = observer;
+    }
   }
 
-  const wrapper = document.querySelector(".fitment-wrapper");
-  if (wrapper instanceof HTMLElement) {
-    wrapper.style.maxHeight = "none";
-    wrapper.style.height = "auto";
-  }
-
-  fitmentLog("Fitment iframe locked at 400px");
+  fitmentLog("Released fitment iframe back to eBay");
 }
 
 function isPickerContext(): boolean {
@@ -377,6 +399,22 @@ async function persistScrapedFitment(
 ): Promise<FillFitmentResult> {
   const meta = readFitmentFrameMeta();
   if (!meta) {
+    const host = document.querySelector("[data-testid='fitment-frame']");
+    let draftId = "(unreadable)";
+    try {
+      draftId = new URL(window.location.href).searchParams.get("draftId") || "(none)";
+    } catch {
+      draftId = "(unreadable)";
+    }
+    fitmentWarn(
+      "No fitment session",
+      [
+        `frameHost=${Boolean(host)}`,
+        `data-frame-meta=${host?.getAttribute("data-frame-meta") ?? "(absent)"}`,
+        `draftId=${draftId}`,
+        `url=${window.location.pathname}`,
+      ].join(" "),
+    );
     return fillFitmentResult({
       sectionFound: Boolean(findCompatibilitySection()),
       skipped: validRows.length,
@@ -415,7 +453,8 @@ async function persistScrapedFitment(
   const filled = validRows.length;
   fitmentLog("Sellfit persist succeeded", `filled=${filled} ebayCount=${result.filled || filled}`);
   fitmentLog(`Added ${filled}/${validRows.length} vehicles`);
-  lockFitmentIframe();
+  releaseFitmentIframe();
+  reloadFitmentIframe();
   await callFitmentMain({ type: FITMENT_MAIN_MESSAGE, action: "dismiss" });
   refreshFitmentUI();
   return fillFitmentResult({
@@ -1237,6 +1276,29 @@ async function fillInsidePicker(
   });
 }
 
+/**
+ * Unselect every vehicle currently saved on this listing, via eBay's own
+ * persist API. Returns how many entries were cleared.
+ */
+export async function clearEbayListingFitment(): Promise<{ ok: boolean; cleared: number; error?: string }> {
+  const meta = readFitmentFrameMeta();
+  if (!meta) {
+    return { ok: false, cleared: 0, error: "Could not read fitment session from the listing editor" };
+  }
+  const result = await callFitmentMain({
+    type: FITMENT_MAIN_MESSAGE,
+    action: "clear-all",
+    meta,
+  });
+  if (!result?.ok) {
+    return { ok: false, cleared: 0, error: result?.error ?? "Could not clear fitment" };
+  }
+  releaseFitmentIframe();
+  reloadFitmentIframe();
+  await callFitmentMain({ type: FITMENT_MAIN_MESSAGE, action: "dismiss" });
+  return { ok: true, cleared: result.cleared ?? 0 };
+}
+
 export function captureFitmentTargetEditor(): void {
   capturedExistingCount = getExistingFitmentCount();
   fitmentLog("Captured editor state", `existing=${capturedExistingCount}`);
@@ -1246,7 +1308,18 @@ export async function fillEbayListingFitment(
   rows: VehicleCompatibility[],
 ): Promise<FillFitmentResult> {
   const existingCount = capturedExistingCount || getExistingFitmentCount();
-  fitmentLog("Starting fitment fill", `rows=${rows.length} existing=${existingCount}`);
+  fitmentLog(
+    "Starting fitment fill",
+    [
+      `rows=${rows.length}`,
+      `existing=${existingCount}`,
+      `pickerContext=${isPickerContext()}`,
+      `editorActive=${isListingEditorStillActive()}`,
+      `section=${Boolean(findCompatibilitySection())}`,
+      `path=${window.location.pathname}`,
+    ].join(" "),
+  );
+  console.info("[SellSimilar][fitment] incoming rows", rows);
 
   if (!rows.length) {
     return fillFitmentResult({

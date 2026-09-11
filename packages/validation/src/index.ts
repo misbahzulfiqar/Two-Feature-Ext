@@ -17,6 +17,7 @@ export {
   sellSimilarRequestSchema,
 } from "./listing.js";
 export {
+  clearScrapeCacheRequestSchema,
   itemSpecificSchema,
   listingCategorySchema,
   scrapeListingRequestSchema,
@@ -32,6 +33,7 @@ export type {
   ParsedMoney,
 } from "./listing.js";
 export type {
+  ParsedClearScrapeCacheRequest,
   ParsedItemSpecific,
   ParsedListingCategory,
   ParsedScrapeListingRequest,

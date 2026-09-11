@@ -9,7 +9,8 @@ export type FitmentMainAction =
   | "clear"
   | "select"
   | "save"
-  | "persist";
+  | "persist"
+  | "clear-all";
 
 export type FitmentPersistMeta = {
   session: string;
@@ -42,6 +43,11 @@ export type FitmentMainRequest =
       action: "persist";
       meta: FitmentPersistMeta;
       rows: FitmentPersistRow[];
+    }
+  | {
+      type: typeof FITMENT_MAIN_MESSAGE;
+      action: "clear-all";
+      meta: FitmentPersistMeta;
     };
 
 export type FitmentMainResponse = {
@@ -52,6 +58,7 @@ export type FitmentMainResponse = {
   hasModel?: boolean;
   patched?: number;
   filled?: number;
+  cleared?: number;
   error?: string;
 };
 
@@ -80,6 +87,8 @@ export function isFitmentMainRequest(message: unknown): message is FitmentMainRe
       return isFitmentMainField(message.field) && typeof message.value === "string";
     case "persist":
       return isRecord(message.meta) && Array.isArray(message.rows);
+    case "clear-all":
+      return isRecord(message.meta);
     default:
       return false;
   }
@@ -94,74 +103,27 @@ export function guardFitmentTree(): { ok: boolean; patched: number } {
 }
 
 export function keepFitmentSummaryVisible(): { ok: boolean } {
-  if (window.name === "fitmentFrame" || /\/sellfit/i.test(window.location.pathname)) {
+  if (window.name === "fitmentFrame" || /[/]sellfit/i.test(window.location.pathname)) {
     return { ok: true };
   }
 
-  document.querySelectorAll(".ss-fitment-card-list, .ss-fits-cards").forEach((node) => node.remove());
+  // Only clean up after the old inject-our-own-cards approach. The summary
+  // count is eBay's to render: repainting it from sessionStorage is what made
+  // a stale number survive page loads.
+  document.querySelectorAll(".ss-fitment-card-list, .ss-fits-cards").forEach((node) => {
+    node.remove();
+  });
   document.getElementById("sell-similar-fitment-edit-css")?.remove();
-  document.body?.classList.remove("ss-fitment-editing");
-
-  const overlayKey = "ss-fitment-overlay";
-  const params = new URLSearchParams(window.location.search);
-  const draftId = String(params.get("draftId") || "").trim();
-  const itemId = String(params.get("itemId") || "").trim();
-  let session = "";
-  const host = document.querySelector("[data-testid='fitment-frame']");
-  const rawMeta = host?.getAttribute("data-frame-meta");
-  if (rawMeta) {
-    try {
-      const parsed = JSON.parse(rawMeta) as { session?: unknown };
-      session = String(parsed.session || "").trim();
-    } catch {
-      session = "";
-    }
-  }
-
-  let stored: { session: string; draftId: string; itemId: string; filled: number } | null = null;
+  document.getElementById("fitsCnt")?.removeAttribute("data-ss-fits");
+  document.body?.classList.remove("ss-fitment-applied", "ss-fitment-editing");
   try {
+    sessionStorage.removeItem("ss-fitment-overlay");
     sessionStorage.removeItem("ss-fitment-cards");
-    const raw = sessionStorage.getItem(overlayKey);
-    if (raw) {
-      const parsed = JSON.parse(raw) as {
-        session?: unknown;
-        draftId?: unknown;
-        itemId?: unknown;
-        filled?: unknown;
-        rows?: unknown;
-      };
-      const rowCount = Array.isArray(parsed.rows) ? parsed.rows.length : 0;
-      stored = {
-        session: String(parsed.session ?? ""),
-        draftId: String(parsed.draftId ?? ""),
-        itemId: String(parsed.itemId ?? ""),
-        filled: Number(parsed.filled) || rowCount,
-      };
-    }
+    sessionStorage.removeItem("ss-fitment-editing");
   } catch {
-    stored = null;
+    // sessionStorage may be blocked
   }
 
-  if (!stored) {
-    return { ok: true };
-  }
-  const storedIds = [stored.session, stored.draftId, stored.itemId].filter(Boolean);
-  const currentIds = [session || draftId, draftId, itemId].filter(Boolean);
-  if (!storedIds.some((id) => currentIds.includes(id))) {
-    return { ok: true };
-  }
-
-  const heading = document.querySelector(
-    ".smry.summary--fitments h3.message, .summary--fitments h3.message",
-  );
-  if (heading && stored.filled > 0) {
-    heading.textContent =
-      stored.filled === 1
-        ? "1 compatible vehicle added."
-        : `${stored.filled} compatible vehicles added.`;
-    heading.removeAttribute("role");
-    heading.removeAttribute("tabindex");
-  }
   return { ok: true };
 }
 
@@ -204,6 +166,15 @@ export async function persistFitmentViaApi(
     return { ok: false, error: "No fitment rows to persist" };
   }
 
+  const SS = "[SellSimilar][fitment][persist]";
+  console.info(`${SS} start`, {
+    session,
+    rows: rows.length,
+    meta,
+    firstRow: rows[0],
+    lastRow: rows[rows.length - 1],
+  });
+
   function valueForProp(prop: string, row: FitmentPersistRow): string {
     const name = String(prop || "").toLowerCase();
     if (name === "year") {
@@ -224,11 +195,37 @@ export async function persistFitmentViaApi(
     return "";
   }
 
+  const nestDiagnostics: Array<Record<string, unknown>> = [];
+
   function nestFitments(props: string[]): Record<string, unknown> {
     const tree: Record<string, unknown> = {};
     for (const row of rows) {
-      const path = props.map((prop) => valueForProp(prop, row)).filter(Boolean);
+      const rawPath = props.map((prop) => valueForProp(prop, row));
+
+      // Position in this array IS the tree depth: [Make, Model, Year, Trim,
+      // Engine]. Filtering empties out shifts every later value up a level, so
+      // a row with no Trim but an Engine would file the engine under Trim and
+      // hand eBay a structurally invalid tree. Stop at the first gap instead:
+      // a missing level correctly means "everything below this point".
+      const path: string[] = [];
+      for (const value of rawPath) {
+        if (!value) {
+          break;
+        }
+        path.push(value);
+      }
+
+      if (path.length < rawPath.length) {
+        nestDiagnostics.push({
+          reason: "PATH_TRUNCATED_at_first_empty_level",
+          props,
+          rawPath,
+          path,
+          row,
+        });
+      }
       if (path.length < 3) {
+        nestDiagnostics.push({ reason: "ROW_DROPPED_path_too_short", props, rawPath, path, row });
         continue;
       }
       let cursor: Record<string, unknown> = tree;
@@ -271,6 +268,10 @@ export async function persistFitmentViaApi(
     return { ok: false, error: `CSRF failed (${csrfRes.status})` };
   }
   const csrf = (await csrfRes.json()) as Record<string, string>;
+  console.info(`${SS} csrf ok`, {
+    keys: Object.keys(csrf),
+    hasPersistToken: Boolean(csrf.persist),
+  });
 
   const metaRes = await fetch(`/sellfit/api/metadata?${query.toString()}`, {
     credentials: "include",
@@ -288,8 +289,28 @@ export async function persistFitmentViaApi(
       ?.map((item) => String(item.propertyName || "").trim())
       .filter((name) => name && name.toLowerCase() !== "notes") ?? [];
   const nestProps = props.length >= 3 ? props : ["Make", "Model", "Year", "Trim", "Engine"];
+  const KNOWN_PROPS = ["year", "make", "model", "trim", "submodel", "engine"];
+  console.info(`${SS} metadata ok`, {
+    ebayProps: props,
+    nestPropsUsed: nestProps,
+    usingFallbackProps: props.length < 3,
+    unmappedProps: nestProps.filter(
+      (prop) => !KNOWN_PROPS.includes(String(prop).toLowerCase()),
+    ),
+  });
+
   const fitments = nestFitments(nestProps);
+  console.info(`${SS} tree built`, {
+    topLevelKeys: Object.keys(fitments),
+    rowsIn: rows.length,
+    diagnosticCount: nestDiagnostics.length,
+    diagnosticSample: nestDiagnostics.slice(0, 5),
+  });
   if (Object.keys(fitments).length === 0) {
+    console.warn(`${SS} EMPTY PAYLOAD`, {
+      nestProps,
+      diagnostics: nestDiagnostics.slice(0, 10),
+    });
     return { ok: false, error: "Could not build persist payload from scraped rows" };
   }
 
@@ -357,7 +378,16 @@ export async function persistFitmentViaApi(
     return {};
   }
 
-  const persistPayload = mergeFitmentTrees(await existingUnselectedTree(), fitments);
+  const existingTree = await existingUnselectedTree();
+  console.info(`${SS} existing summary tree`, {
+    topLevelKeys: Object.keys(existingTree),
+    empty: Object.keys(existingTree).length === 0,
+  });
+  const persistPayload = mergeFitmentTrees(existingTree, fitments);
+  console.info(`${SS} persist payload`, {
+    topLevelKeys: Object.keys(persistPayload),
+    json: JSON.stringify(persistPayload).slice(0, 2000),
+  });
 
   async function persistTree(
     token: string,
@@ -381,47 +411,234 @@ export async function persistFitmentViaApi(
   const persistRes = await persistTree(csrf.persist || "", persistPayload);
   if (!persistRes.ok) {
     const body = await persistRes.text();
+    console.warn(`${SS} persist FAILED`, {
+      status: persistRes.status,
+      body: body.slice(0, 1000),
+    });
     return { ok: false, error: `Persist failed (${persistRes.status}) ${body.slice(0, 180)}` };
   }
 
-  await persistRes.json().catch(() => undefined);
+  const persistBody = await persistRes.json().catch(() => undefined);
+  console.info(`${SS} persist ok`, { status: persistRes.status, response: persistBody });
   const filled = rows.length;
 
-  function restoreIdleFitmentUi(): void {
-    const countMessage =
-      filled === 1 ? "1 compatible vehicle added." : `${filled} compatible vehicles added.`;
+  /**
+   * Ask eBay how many vehicles it actually has now, rather than assuming our
+   * row count landed. Selected leaves are [selected, count, notes] tuples.
+   */
+  async function serverVehicleCount(): Promise<number> {
+    try {
+      const response = await fetch(`/sellfit/api/summary?${query.toString()}`, {
+        credentials: "include",
+      });
+      if (!response.ok) {
+        return 0;
+      }
+      const body = (await response.json()) as Record<string, unknown>;
+      let total = 0;
+      const walk = (value: unknown): void => {
+        if (Array.isArray(value)) {
+          if (value[0] === true) {
+            total += Number(value[1]) > 0 ? Number(value[1]) : 1;
+          }
+          return;
+        }
+        if (value && typeof value === "object") {
+          for (const child of Object.values(value as Record<string, unknown>)) {
+            walk(child);
+          }
+        }
+      };
+      for (const key of ["filterTree", "fitmentTree", "tree", "fitments", "selectedTree"]) {
+        const candidate = body[key];
+        if (candidate && typeof candidate === "object") {
+          walk(candidate);
+          break;
+        }
+      }
+      return total;
+    } catch {
+      return 0;
+    }
+  }
+
+  const confirmed = await serverVehicleCount();
+  console.info(`${SS} server confirms ${confirmed} vehicles`);
+
+  // Show the count eBay actually holds, once. Nothing is written to
+  // sessionStorage: a stored count outlives the page and goes stale, which is
+  // how the summary ended up showing an old number over the real one.
+  const shown = confirmed > 0 ? confirmed : filled;
+  const heading = document.querySelector(
+    ".smry.summary--fitments h3.message, .summary--fitments h3.message",
+  );
+  if (heading) {
+    heading.textContent =
+      shown === 1 ? "1 compatible vehicle added." : `${shown} compatible vehicles added.`;
+  }
+
+  // Drop leftovers from the old inject-our-own-cards approach.
+  document.querySelectorAll(".ss-fitment-card-list, .ss-fits-cards").forEach((node) => {
+    node.remove();
+  });
+  document.getElementById("fitsCnt")?.removeAttribute("data-ss-fits");
+  document.body?.classList.remove("ss-fitment-applied", "ss-fitment-editing");
+  try {
+    sessionStorage.removeItem("ss-fitment-overlay");
+    sessionStorage.removeItem("ss-fitment-cards");
+    sessionStorage.removeItem("ss-fitment-editing");
+  } catch {
+    // sessionStorage may be blocked
+  }
+
+  return { ok: true, filled: shown };
+}
+
+/**
+ * Unselect every vehicle on the listing through eBay's own persist API.
+ *
+ * Self-contained because it is injected into the page's MAIN world: it reads
+ * the saved fitment tree, flips every leaf to unselected, and writes it back.
+ */
+export async function clearFitmentViaApi(
+  meta: FitmentPersistMeta,
+): Promise<{ ok: boolean; cleared?: number; error?: string }> {
+  const session = String(meta?.session || "").trim();
+  if (!session) {
+    return { ok: false, error: "Missing listing session / draft id" };
+  }
+
+  const SS = "[SellSimilar][fitment][clear]";
+  const query = new URLSearchParams();
+  query.set("session", session);
+  for (const [key, value] of [
+    ["category", meta.category],
+    ["mode", meta.mode],
+    ["features", meta.features],
+    ["flow", meta.flow],
+    ["page", meta.page],
+  ] as const) {
+    if (value) {
+      query.set(key, value);
+    }
+  }
+
+  let cleared = 0;
+
+  function unselectLeaves(value: unknown): unknown {
+    if (Array.isArray(value)) {
+      if (value[0] === true || Number(value[1]) > 0) {
+        cleared += 1;
+      }
+      return [false, 0, value[2] ?? null];
+    }
+    if (!value || typeof value !== "object") {
+      return value;
+    }
+    const record = value as Record<string, unknown>;
+    if ("selected" in record || "total" in record) {
+      cleared += 1;
+      return [false, 0, record.notes ?? null];
+    }
+    const out: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(record)) {
+      out[key] = unselectLeaves(child);
+    }
+    return out;
+  }
+
+  try {
+    const csrfRes = await fetch(`/sellfit/api/csrf?session=${encodeURIComponent(session)}`, {
+      credentials: "include",
+    });
+    if (!csrfRes.ok) {
+      return { ok: false, error: `CSRF failed (${csrfRes.status})` };
+    }
+    const csrf = (await csrfRes.json()) as Record<string, string>;
+
+    const metaRes = await fetch(`/sellfit/api/metadata?${query.toString()}`, {
+      credentials: "include",
+    });
+    if (!metaRes.ok) {
+      return { ok: false, error: `Metadata failed (${metaRes.status})` };
+    }
+    const metaJson = (await metaRes.json()) as { metadata?: unknown };
+
+    const summaryRes = await fetch(`/sellfit/api/summary?${query.toString()}`, {
+      credentials: "include",
+    });
+    if (!summaryRes.ok) {
+      return { ok: false, error: `Summary failed (${summaryRes.status})` };
+    }
+    const summary = (await summaryRes.json()) as Record<string, unknown>;
+    console.info(`${SS} summary keys`, Object.keys(summary));
+
+    // eBay has used more than one field name for the saved tree; take whichever
+    // is present rather than silently doing nothing.
+    let tree: unknown = null;
+    for (const key of ["filterTree", "fitmentTree", "tree", "fitments", "selectedTree"]) {
+      const candidate = summary[key];
+      if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) {
+        tree = candidate;
+        console.info(`${SS} using summary field "${key}"`);
+        break;
+      }
+    }
+
+    if (!tree) {
+      console.warn(`${SS} no saved tree found in summary`, {
+        keys: Object.keys(summary),
+        body: JSON.stringify(summary).slice(0, 600),
+      });
+      return {
+        ok: false,
+        cleared: 0,
+        error: "eBay returned no saved compatibility tree to clear",
+      };
+    }
+
+    const emptied = unselectLeaves(tree) as Record<string, unknown>;
+    console.info(`${SS} clearing`, { cleared, topLevelKeys: Object.keys(emptied) });
+
+    const persistRes = await fetch("/sellfit/api/persist", {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/json", srt: csrf.persist || "" },
+      body: JSON.stringify({
+        session,
+        metadata: metaJson.metadata ?? [],
+        fitments: emptied,
+      }),
+    });
+    if (!persistRes.ok) {
+      const body = await persistRes.text();
+      console.warn(`${SS} persist FAILED`, { status: persistRes.status, body: body.slice(0, 500) });
+      return { ok: false, error: `Persist failed (${persistRes.status})` };
+    }
+    const persistBody = await persistRes.json().catch(() => undefined);
+    console.info(`${SS} persist ok`, { status: persistRes.status, response: persistBody });
+
     const heading = document.querySelector(
       ".smry.summary--fitments h3.message, .summary--fitments h3.message",
     );
     if (heading) {
-      heading.textContent = countMessage;
+      heading.textContent = "No compatible vehicles added.";
     }
-
-    document.querySelectorAll(".ss-fitment-card-list, .ss-fits-cards").forEach((node) => node.remove());
-    document.getElementById("fitsCnt")?.removeAttribute("data-ss-fits");
-    document.body?.classList.remove("ss-fitment-applied", "ss-fitment-editing");
-
-    const params = new URLSearchParams(window.location.search);
+    // Never leave a stored count behind: it outlives the page and reappears
+    // over eBay's own, correct, server-rendered number.
     try {
+      sessionStorage.removeItem("ss-fitment-overlay");
       sessionStorage.removeItem("ss-fitment-cards");
-      sessionStorage.setItem(
-        "ss-fitment-overlay",
-        JSON.stringify({
-          session,
-          draftId: String(params.get("draftId") || "").trim(),
-          itemId: String(params.get("itemId") || "").trim(),
-          rows,
-          filled,
-        }),
-      );
       sessionStorage.removeItem("ss-fitment-editing");
     } catch {
       // sessionStorage may be blocked
     }
-  }
 
-  restoreIdleFitmentUi();
-  return { ok: true, filled };
+    console.info(`${SS} cleared ${cleared} entries`);
+    return { ok: true, cleared };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 export function inspectFitmentPicker(): {

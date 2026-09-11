@@ -2,6 +2,7 @@ export type {
   ApiFailure,
   ApiResponse,
   ApiSuccess,
+  ClearScrapeCacheResponse,
   CreateScrapeJobRequest,
   CreateScrapeJobResponse,
   GetListingRequest,
@@ -12,11 +13,14 @@ export type {
   SellSimilarResponse,
 } from "./api.js";
 export type {
+  ClearScrapeCacheRequest,
+  ClearScrapeCacheResult,
   ItemSpecific,
   ListingCategory,
   ScrapeListingRequest,
   ScrapeListingResponse,
   ScrapeMode,
+  ScrapeProgressSnapshot,
   ScrapeProgressStage,
   ScrapedListingData,
   StoreCategory,
@@ -24,6 +28,7 @@ export type {
 } from "./scrape.js";
 export {
   ebayItemIdFromListingUrl,
+  SCRAPE_MODES,
   SCRAPE_PROGRESS_STAGES,
   scrapeProgressPercent,
 } from "./scrape.js";
