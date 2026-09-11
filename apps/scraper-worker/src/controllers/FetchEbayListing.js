@@ -1127,6 +1127,250 @@ export function extractListingConditionInPage() {
   };
 }
 
+function decodeDescriptionUrl(src) {
+  return String(src || "")
+    .trim()
+    .replace(/\\u0026/gi, "&")
+    .replace(/\\u002f/gi, "/")
+    .replace(/\\\//g, "/")
+    .replace(/&amp;/g, "&");
+}
+
+function descriptionLooksThin(html) {
+  const raw = String(html || "");
+  if (raw.length > 400 || /<img[\s>]/i.test(raw) || /<table[\s>]/i.test(raw)) {
+    return false;
+  }
+  const text = raw
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return text.length < 20;
+}
+
+function htmlFromDescriptionPage(html) {
+  const cleaned = String(html || "").replace(/<script[\s\S]*?<\/script>/gi, "");
+  const body = cleaned.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+  return String(body?.[1] || cleaned).trim();
+}
+
+function descriptionUrlFromMarkup(source) {
+  const html = String(source || "");
+  const match =
+    html.match(/https:\\\/\\\/[^"'\\\s]*ebaydesc\.com[^"'\\\s]*/i) ||
+    html.match(/https:\/\/[^"'\\\s]*ebaydesc\.com[^"'\\\s]*/i) ||
+    html.match(/\/\/vi\.vipr\.ebaydesc\.com[^"'\\\s]*/i);
+  if (!match?.[0]) return "";
+  const raw = match[0].startsWith("//") ? `https:${match[0]}` : match[0];
+  return decodeDescriptionUrl(raw);
+}
+
+export function extractListingDescriptionInPage() {
+  const thin = (value) => {
+    const raw = String(value || "");
+    if (raw.length > 400 || /<img[\s>]/i.test(raw) || /<table[\s>]/i.test(raw)) {
+      return false;
+    }
+    const text = raw
+      .replace(/<script[\s\S]*?<\/script>/gi, "")
+      .replace(/<style[\s\S]*?<\/style>/gi, "")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    return text.length < 20;
+  };
+
+  const decodeSrc = (src) =>
+    String(src || "")
+      .trim()
+      .replace(/\\u0026/gi, "&")
+      .replace(/\\u002f/gi, "/")
+      .replace(/\\\//g, "/")
+      .replace(/&amp;/g, "&");
+
+  const iframeSrcFrom = (root) => {
+    const iframe = root.querySelector(
+      'iframe[src*="ebaydesc"], iframe[src*="ViewItemDesc"], iframe[srcdoc], iframe#desc_ifr, iframe[id*="desc" i], iframe[title*="description" i]',
+    );
+    if (!(iframe instanceof HTMLIFrameElement)) return "";
+    return (
+      iframe.src ||
+      iframe.getAttribute("src") ||
+      iframe.getAttribute("data-src") ||
+      ""
+    );
+  };
+
+  const urlFromMarkup = (source) => {
+    const match =
+      String(source || "").match(/https:\\\/\\\/[^"'\\\s]*ebaydesc\.com[^"'\\\s]*/i) ||
+      String(source || "").match(/https:\/\/[^"'\\\s]*ebaydesc\.com[^"'\\\s]*/i) ||
+      String(source || "").match(/\/\/vi\.vipr\.ebaydesc\.com[^"'\\\s]*/i);
+    if (!match?.[0]) return "";
+    const raw = match[0].startsWith("//") ? `https:${match[0]}` : match[0];
+    return decodeSrc(raw);
+  };
+
+  let html = "";
+  let iframeSrc = "";
+
+  const hosts = document.querySelectorAll(
+    '[data-testid="x-item-description"], [data-testid="d-item-description"], #desc_wrapper_ctr, #vi-desc-maincntr, .d-item-description, #desc_div, #ds_div, .x-item-description',
+  );
+  for (const host of hosts) {
+    if (!(host instanceof HTMLElement)) continue;
+    iframeSrc = iframeSrc || iframeSrcFrom(host);
+    const iframe = host.querySelector("iframe");
+    if (iframe instanceof HTMLIFrameElement && iframe.srcdoc && !thin(iframe.srcdoc)) {
+      html = iframe.srcdoc;
+      break;
+    }
+    try {
+      const doc = iframe instanceof HTMLIFrameElement ? iframe.contentDocument : null;
+      if (doc?.body && !thin(doc.body.innerHTML)) {
+        html = doc.body.innerHTML;
+        break;
+      }
+    } catch {
+      // cross-origin iframe
+    }
+    if (!host.querySelector("iframe") && !thin(host.innerHTML)) {
+      html = host.innerHTML;
+      break;
+    }
+  }
+
+  if (!iframeSrc) {
+    iframeSrc = iframeSrcFrom(document);
+  }
+  if (!iframeSrc) {
+    iframeSrc = urlFromMarkup(document.documentElement?.innerHTML || "");
+  }
+
+  return {
+    html: String(html || "").trim(),
+    iframeSrc: decodeSrc(iframeSrc),
+  };
+}
+
+async function loadRemoteDescription(page, iframeSrc) {
+  const url = decodeDescriptionUrl(iframeSrc);
+  if (!url) return "";
+
+  try {
+    const descPage = await page.browser().newPage();
+    try {
+      await descPage.goto(url, { waitUntil: "domcontentloaded", timeout: 25000 });
+      const html = await descPage.evaluate(() => {
+        document.querySelectorAll("script").forEach((node) => node.remove());
+        const host = document.querySelector("#ds_div, #desc_div, #vi-desc-maincntr, body");
+        return host?.innerHTML || "";
+      });
+      if (!descriptionLooksThin(html)) return String(html || "").trim();
+    } finally {
+      await descPage.close();
+    }
+  } catch (error) {
+    console.log("[FetchEbayListing] description page failed", String(error?.message || error));
+  }
+
+  try {
+    const response = await fetch(url, {
+      redirect: "follow",
+      headers: {
+        Accept: "text/html",
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+      },
+    });
+    if (response.ok) {
+      return htmlFromDescriptionPage(await response.text());
+    }
+  } catch (error) {
+    console.log("[FetchEbayListing] description fetch failed", String(error?.message || error));
+  }
+
+  return "";
+}
+
+export function extractListingPriceInPage() {
+  const clean = (text) =>
+    String(text || "")
+      .replace(/\u00a0/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const toAmount = (text) => {
+    const raw = clean(text);
+    if (!raw || /^free$/i.test(raw)) return "";
+    const dollar = raw.replace(/,/g, "").match(/\$\s*(\d+(?:\.\d{1,2})?)/);
+    if (dollar) {
+      const amount = Number(dollar[1]);
+      if (!Number.isFinite(amount) || amount <= 0 || amount > 9999999) return "";
+      return amount.toFixed(2);
+    }
+    if (/%/.test(raw)) return "";
+    const match = raw.replace(/,/g, "").match(/(\d+(?:\.\d{1,2})?)/);
+    if (!match) return "";
+    const amount = Number(match[1]);
+    if (!Number.isFinite(amount) || amount <= 0 || amount > 9999999) return "";
+    return amount.toFixed(2);
+  };
+
+  const wasAmount = (text) => {
+    const match = clean(text).match(/\bwas(?:\s+us)?\s*\$?\s*([\d,]+(?:\.\d{1,2})?)/i);
+    return match ? toAmount(match[1]) : "";
+  };
+
+  const strikeAmount = (root) => {
+    if (!(root instanceof HTMLElement)) return "";
+    const strike = root.querySelector("s, del, .ux-textspans--STRIKETHROUGH, [class*='STRIKETHROUGH']");
+    return toAmount(strike?.textContent || "");
+  };
+
+  const priceAnchor = document.querySelector(
+    '[data-testid="x-price-primary"], .x-price-primary, [data-testid="x-bin-price"], .x-bin-price, .vi-price',
+  );
+  const priceRoot =
+    priceAnchor?.closest("section, [data-testid*='price' i], .x-price-section, .x-price") ||
+    priceAnchor?.parentElement ||
+    priceAnchor;
+
+  const originalHost = document.querySelector(
+    '[data-testid="x-price-original"], .x-price-original, .x-price-was, [data-testid="x-price-secondary"], .x-price-secondary',
+  );
+
+  let price =
+    wasAmount(originalHost instanceof HTMLElement ? originalHost.innerText : "") ||
+    strikeAmount(originalHost) ||
+    wasAmount(priceRoot instanceof HTMLElement ? priceRoot.innerText : "") ||
+    strikeAmount(priceRoot);
+
+  if (!price && originalHost instanceof HTMLElement) {
+    price = toAmount(originalHost.innerText);
+  }
+
+  if (!price && priceAnchor instanceof HTMLElement) {
+    const clone = priceAnchor.cloneNode(true);
+    if (clone instanceof HTMLElement) {
+      clone
+        .querySelectorAll("s, del, .ux-textspans--STRIKETHROUGH, [class*='STRIKETHROUGH']")
+        .forEach((node) => node.remove());
+      price = toAmount(clone.innerText || clone.textContent);
+    }
+  }
+
+  if (!price) {
+    const meta = document.querySelector('meta[itemprop="price"], [itemprop="price"][content]');
+    price = toAmount(meta?.getAttribute("content") || meta?.textContent);
+  }
+
+  return price || "";
+}
+
+
 export async function getItemSpecifics(page) {
   return page.evaluate(extractListingSpecificsInPage);
 }
@@ -1187,6 +1431,7 @@ export async function fetchEbayListing(page, listingUrl, options = {}) {
   await prepareListingPage(page, listingUrl, options);
 
   const title = await evaluate(extractListingTitleInPage, PARSER_SELECTORS);
+  const price = await evaluate(extractListingPriceInPage);
   const images = await evaluate(extractListingImagesInPage, EBAY_SELECTORS);
   const itemSpecifics = await evaluate(extractListingSpecificsInPage);
   const categories = await evaluate(extractListingCategoriesInPage);
@@ -1200,6 +1445,38 @@ export async function fetchEbayListing(page, listingUrl, options = {}) {
       ? conditionData.conditionDescription
       : "";
 
+  const descExtract = await evaluate(extractListingDescriptionInPage);
+  const itemId = String(listingUrl).match(/\/itm\/(\d+)/i)?.[1] || "";
+  const iframeSrc =
+    decodeDescriptionUrl(descExtract?.iframeSrc) ||
+    descriptionUrlFromMarkup(typeof options.html === "string" ? options.html : "") ||
+    (itemId ? `https://vi.vipr.ebaydesc.com/ws/eBayISAPI.dll?ViewItemDescV4&item=${itemId}` : "");
+  let description = "";
+
+  if (iframeSrc) {
+    try {
+      const descFrame = page.frames().find((frame) => /ebaydesc|ViewItemDesc/i.test(frame.url()));
+      if (descFrame) {
+        description = await descFrame.evaluate(() => {
+          document.querySelectorAll("script").forEach((node) => node.remove());
+          const host = document.querySelector("#ds_div, #desc_div, body");
+          return host?.innerHTML || "";
+        });
+      }
+    } catch {
+      // frame may not be ready
+    }
+  }
+
+  if (descriptionLooksThin(description) && iframeSrc) {
+    description = await loadRemoteDescription(page, iframeSrc);
+  }
+
+  if (descriptionLooksThin(description) && typeof descExtract?.html === "string") {
+    description = descExtract.html;
+  }
+
+  console.log("[FetchEbayListing] price", { price });
   console.log("[FetchEbayListing] item category", {
     id: category.id,
     name: category.name,
@@ -1207,15 +1484,22 @@ export async function fetchEbayListing(page, listingUrl, options = {}) {
     pathText: Array.isArray(category.path) ? category.path.join(" > ") : "",
   });
   console.log("[FetchEbayListing] condition", { condition, conditionDescription });
+  console.log("[FetchEbayListing] description", {
+    length: description.length,
+    iframeSrc: Boolean(iframeSrc),
+  });
 
   return {
     title: typeof title === "string" ? title.trim() : "",
     sku: "",
-    price: "",
+    price: typeof price === "string" ? price : "",
     images: Array.isArray(images) ? images : [],
     itemSpecifics: Array.isArray(itemSpecifics) ? itemSpecifics : [],
     condition,
     conditionDescription,
+    description: descriptionLooksThin(description)
+      ? ""
+      : String(description).replace(/<script[\s\S]*?<\/script>/gi, "").trim(),
     category: {
       id: typeof category.id === "string" ? category.id : String(category.id || ""),
       name: typeof category.name === "string" ? category.name : "",

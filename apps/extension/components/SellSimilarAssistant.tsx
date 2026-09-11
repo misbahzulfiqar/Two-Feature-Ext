@@ -2,6 +2,8 @@ import { useState, type ChangeEvent, type FormEvent } from "react";
 import type { ScrapeProgressStage, VehicleCompatibility } from "@sell-similar/contracts";
 import { fillEbayListingCategories } from "../lib/fill-ebay-categories.ts";
 import { fillEbayListingCondition } from "../lib/fill-ebay-condition.ts";
+import { fillEbayListingDescription } from "../lib/fill-ebay-description.ts";
+import { fillEbayListingPrice } from "../lib/fill-ebay-price.ts";
 import {
   captureFitmentTargetEditor,
   fillEbayListingFitment,
@@ -154,6 +156,12 @@ export function SellSimilarAssistant() {
           const filledTitle = fillEbayListingTitle(listing.title);
           setProgress(progressForStage("apply_core"));
 
+          setStatusMessage("Updating price...");
+          console.log("[SellSimilar][price] assistant calling fill", listing.price);
+          const priceResult = await fillEbayListingPrice(listing.price);
+          console.log("[SellSimilar][price] assistant result", priceResult);
+          setProgress(progressForStage("apply_core"));
+
           setStatusMessage("Adding photos...");
           const filledImages = await fillEbayListingImages(listing.images);
           setProgress(progressForStage("apply_core"));
@@ -190,6 +198,14 @@ export function SellSimilarAssistant() {
             );
           }
 
+          setStatusMessage("Updating item description...");
+          console.log("[SellSimilar][description] assistant calling fill", {
+            length: listing.description.length,
+          });
+          const descriptionResult = await fillEbayListingDescription(listing.description);
+          console.log("[SellSimilar][description] assistant result", descriptionResult);
+          setProgress(progressForStage("apply_core"));
+
           setStatusMessage(
             `Applying vehicle compatibility. Found ${listing.compatibility.length} compatible vehicle${listing.compatibility.length === 1 ? "" : "s"}.`,
           );
@@ -216,6 +232,11 @@ export function SellSimilarAssistant() {
           const titleSummary = filledTitle
             ? "Filled title"
             : "Could not fill the Title field";
+          const priceSummary = priceResult.price
+            ? `updated price (${listing.price})`
+            : listing.price
+              ? `could not update price (${listing.price})`
+              : "no item price found";
           const conditionSummary = conditionResult.condition
             ? `updated item condition (${listing.condition})`
             : listing.condition
@@ -226,12 +247,17 @@ export function SellSimilarAssistant() {
             : listing.conditionDescription
               ? "could not update condition description"
               : "no condition description found";
+          const descriptionSummary = descriptionResult.description
+            ? "updated item description"
+            : listing.description
+              ? "could not update item description"
+              : "no item description found";
           setStatusMessage(
             listing.compatibility.length === 0
-              ? `${titleSummary}. ${photoSummary}. ${specSummary}. ${categorySummary}. ${conditionSummary}. ${conditionDescSummary}. ${fitmentSummary(fitmentResult, listing.compatibility.length)}`
+              ? `${titleSummary}. ${priceSummary}. ${photoSummary}. ${specSummary}. ${categorySummary}. ${conditionSummary}. ${conditionDescSummary}. ${descriptionSummary}. ${fitmentSummary(fitmentResult, listing.compatibility.length)}`
               : fitmentResult.filled === listing.compatibility.length && fitmentResult.skipped === 0
-                ? `${titleSummary}. ${photoSummary}. ${specSummary}. ${categorySummary}. ${conditionSummary}. ${conditionDescSummary}. Fitment copied exactly. ${fitmentSummary(fitmentResult, listing.compatibility.length)}`
-                : `${titleSummary}. ${photoSummary}. ${specSummary}. ${categorySummary}. ${conditionSummary}. ${conditionDescSummary}. Fitment was not saved. ${fitmentSummary(fitmentResult, listing.compatibility.length)}`,
+                ? `${titleSummary}. ${priceSummary}. ${photoSummary}. ${specSummary}. ${categorySummary}. ${conditionSummary}. ${conditionDescSummary}. ${descriptionSummary}. Fitment copied exactly. ${fitmentSummary(fitmentResult, listing.compatibility.length)}`
+                : `${titleSummary}. ${priceSummary}. ${photoSummary}. ${specSummary}. ${categorySummary}. ${conditionSummary}. ${conditionDescSummary}. ${descriptionSummary}. Fitment was not saved. ${fitmentSummary(fitmentResult, listing.compatibility.length)}`,
           );
           return;
         }

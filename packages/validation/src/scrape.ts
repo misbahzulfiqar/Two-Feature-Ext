@@ -65,6 +65,7 @@ export const scrapedListingDataSchema = z.object({
   itemSpecifics: z.array(itemSpecificSchema).default([]),
   condition: z.string().default(""),
   conditionDescription: z.string().default(""),
+  description: z.string().default(""),
   category: listingCategorySchema.default({ id: "", name: "", path: [] }),
   storeCategories: z.array(storeCategorySchema).default([]),
   fitment: z.array(vehicleCompatibilitySchema).default([]),

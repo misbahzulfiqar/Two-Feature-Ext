@@ -10,6 +10,7 @@ function emptyListingData() {
     itemSpecifics: [],
     condition: "",
     conditionDescription: "",
+    description: "",
     category: { id: "", name: "", path: [] },
     storeCategories: [],
     fitment: [],
@@ -42,6 +43,7 @@ function applyFetchedListing(listingData, fetched) {
   listingData.itemSpecifics = fetched.itemSpecifics || [];
   listingData.condition = fetched.condition || "";
   listingData.conditionDescription = fetched.conditionDescription || "";
+  listingData.description = fetched.description || "";
   listingData.category = fetched.category || { id: "", name: "", path: [] };
   listingData.storeCategories = [];
   applyFitment(listingData, fetched);
