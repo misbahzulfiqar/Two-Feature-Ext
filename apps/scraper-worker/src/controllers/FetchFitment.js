@@ -257,21 +257,19 @@ async function extractRowsFromHtmlChunks(page, html) {
   return rows;
 }
 
-async function openLiveListing(page, listingUrl) {
-  try {
-    await page.goto("https://www.ebay.com/", {
-      waitUntil: "domcontentloaded",
-      timeout: 30000,
-      referer: "https://www.google.com/",
-    });
-    await sleep(300 + Math.floor(Math.random() * 200));
-  } catch (error) {
-    console.log(`[FetchFitment] homepage warmup failed: ${error.message}`);
+function listingHasFitmentMarkup(html) {
+  if (!html || typeof html !== "string") {
+    return false;
   }
+  return /motors-compatibility-table|d-motors-compatibility-table|d-item-compatibility|compatible vehicles/i.test(
+    html,
+  );
+}
 
+async function openLiveListing(page, listingUrl) {
   await page.goto(listingUrl, {
     waitUntil: "domcontentloaded",
-    timeout: 60000,
+    timeout: 20000,
     referer: "https://www.ebay.com/",
   });
 
@@ -307,16 +305,37 @@ export async function fetchFitment(page, listingUrl, options = {}) {
       };
     }
 
+    if (html && !listingHasFitmentMarkup(html)) {
+      console.log("[FetchFitment] Listing HTML has no compatibility table; skipping live navigation");
+      return {
+        success: true,
+        compatibility: [],
+        compatibilityCount: 0,
+      };
+    }
+
     let tableFound = false;
     try {
-      tableFound = await openLiveListing(page, listingUrl);
+      tableFound = await hasCompatibilityTable(page);
     } catch (error) {
-      console.log(`[FetchFitment] live navigation failed: ${error.message}`);
+      console.log(`[FetchFitment] current page check failed: ${error.message}`);
     }
 
     if (!tableFound && html) {
-      await page.setContent(html, { waitUntil: "domcontentloaded", timeout: 30000 });
-      tableFound = await hasCompatibilityTable(page);
+      try {
+        await page.setContent(html, { waitUntil: "domcontentloaded", timeout: 10000 });
+        tableFound = await hasCompatibilityTable(page);
+      } catch (error) {
+        console.log(`[FetchFitment] HTML load failed: ${error.message}`);
+      }
+    }
+
+    if (!tableFound) {
+      try {
+        tableFound = await openLiveListing(page, listingUrl);
+      } catch (error) {
+        console.log(`[FetchFitment] live navigation failed: ${error.message}`);
+      }
     }
 
     if (!tableFound) {

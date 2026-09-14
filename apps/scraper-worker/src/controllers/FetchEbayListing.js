@@ -786,8 +786,76 @@ export function extractListingCategoriesInPage() {
     return unique;
   };
 
+  const stripSeeMore = (name) =>
+    cleanText(name)
+      .replace(/^(see more|show more|read more|see all)\b[:\s-]*/i, "")
+      .replace(/\b(see more|show more|read more|see all)\b/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const compactText = (text) =>
+    cleanText(text).replace(/[^a-z0-9]/gi, "").toLowerCase();
+
+  const listingTitle = (() => {
+    const selectors = [
+      'h1[data-testid="x-item-title-label"]',
+      "h1#x-item-title-label",
+      ".x-item-title__mainTitle",
+      "h1.x-item-title__mainTitle",
+      'h1[itemprop="name"]',
+      "h1.it-ttl",
+    ];
+    for (const selector of selectors) {
+      const el = document.querySelector(selector);
+      const text = cleanText(el?.innerText || el?.textContent);
+      if (text) return text;
+    }
+    return "";
+  })();
+
+  const isSeeMoreCrumb = (name) =>
+    /^(see more|show more|read more|see all)\b/i.test(cleanText(name));
+
+  const isItemHref = (href) => /\/itm\//i.test(href) || /\/p\/\d+/i.test(href);
+
+  const isListingTitleName = (name) => {
+    const n = compactText(name);
+    const t = compactText(listingTitle);
+    if (!n || n.length < 10) return false;
+    if (n.length > 70) return true;
+    if (/\b[A-Z]{3,}(?:\s+[A-Z]{2,})+\b/.test(cleanText(name)) && /\d/.test(name)) {
+      return true;
+    }
+    if (!t || t.length < 10) return false;
+    if (n === t) return true;
+    if (t.startsWith(n) && n.length >= 12) return true;
+    if (n.startsWith(t) && t.length >= 12) return true;
+    if (t.includes(n) && n.length >= 16) return true;
+    return false;
+  };
+
+  const acceptCategoryName = (raw) => {
+    const original = cleanText(raw);
+    if (!original || isSeeMoreCrumb(original) || isRejectedMarketplaceName(original)) {
+      return "";
+    }
+    const name = stripSeeMore(original);
+    if (
+      !name ||
+      isRejectedMarketplaceName(name) ||
+      isSeeMoreCrumb(name) ||
+      isListingTitleName(original) ||
+      isListingTitleName(name)
+    ) {
+      return "";
+    }
+    return name;
+  };
+
   const isRejectedMarketplaceName = (name) =>
-    /^(home|ebay|back to search|all categories|see all|shop by category)$/i.test(name);
+    /^(home|ebay|back to search|all categories|see all|see more|show more|read more|shop by category)$/i.test(
+      name,
+    );
 
   const isStoreHref = (href) =>
     /\/str\//i.test(href) ||
@@ -831,9 +899,9 @@ export function extractListingCategoriesInPage() {
     const links = document.querySelectorAll(selector);
     if (!links.length) continue;
     links.forEach((link) => {
-      const name = cleanText(link.innerText || link.textContent);
+      const name = acceptCategoryName(link.innerText || link.textContent);
       const href = link.href || link.getAttribute("href") || "";
-      if (!name || isRejectedMarketplaceName(name) || isStoreHref(href)) return;
+      if (!name || isStoreHref(href) || isItemHref(href)) return;
       pathEntries.push({ name, href });
     });
     if (pathEntries.length) break;
@@ -855,9 +923,9 @@ export function extractListingCategoriesInPage() {
     const fromBrowse = [];
     breadcrumbRoots.forEach((root) => {
       root.querySelectorAll('a[href*="/b/"]').forEach((link) => {
-        const name = cleanText(link.innerText || link.textContent);
+        const name = acceptCategoryName(link.innerText || link.textContent);
         const href = link.href || link.getAttribute("href") || "";
-        if (!name || isRejectedMarketplaceName(name) || isStoreHref(href)) return;
+        if (!name || isStoreHref(href) || isItemHref(href)) return;
         fromBrowse.push({ name, href });
       });
     });
@@ -896,13 +964,13 @@ export function extractListingCategoriesInPage() {
             typeof item.item === "string"
               ? item.item
               : item.item?.["@id"] || item.item?.id || item.item?.url || "";
-          return { name: cleanText(item.name), href: String(href || "") };
+          return { name: acceptCategoryName(item.name), href: String(href || "") };
         })
         .filter(
           (entry) =>
             entry.name &&
-            !isRejectedMarketplaceName(entry.name) &&
-            !isStoreHref(entry.href),
+            !isStoreHref(entry.href) &&
+            !isItemHref(entry.href),
         );
       if (names.length > category.path.length) {
         category.path = names.map((entry) => entry.name);
@@ -917,8 +985,8 @@ export function extractListingCategoriesInPage() {
     if (typeof obj.category === "string" && !parent.includes("store")) {
       const parts = obj.category
         .split(/>|\/|\|/)
-        .map(cleanText)
-        .filter((part) => part && !isRejectedMarketplaceName(part));
+        .map(acceptCategoryName)
+        .filter(Boolean);
       if (parts.length > category.path.length) {
         category.path = uniqueNames(parts);
         category.name = category.path[category.path.length - 1] || category.name;
@@ -934,7 +1002,7 @@ export function extractListingCategoriesInPage() {
         (obj.primaryCategory.categoryId || obj.primaryCategory.id) &&
         String(obj.primaryCategory.categoryId || obj.primaryCategory.id)) ||
       "";
-    const maybeName = cleanText(
+    const maybeName = acceptCategoryName(
       obj.categoryName ||
         obj.primaryCategoryName ||
         obj.primaryCategory?.categoryName ||
@@ -942,9 +1010,9 @@ export function extractListingCategoriesInPage() {
         "",
     );
     const maybePath = Array.isArray(obj.categoryPath)
-      ? obj.categoryPath.map(cleanText).filter(Boolean)
+      ? obj.categoryPath.map(acceptCategoryName).filter(Boolean)
       : typeof obj.categoryPath === "string"
-        ? obj.categoryPath.split(/>|\/|\|/).map(cleanText).filter(Boolean)
+        ? obj.categoryPath.split(/>|\/|\|/).map(acceptCategoryName).filter(Boolean)
         : [];
 
     if (!parent.includes("store") && (maybeId || maybeName || maybePath.length)) {
@@ -996,6 +1064,11 @@ export function extractListingCategoriesInPage() {
   if (!category.name && category.path.length) {
     category.name = category.path[category.path.length - 1] || "";
   }
+  category.path = uniqueNames(category.path.map(acceptCategoryName).filter(Boolean));
+  category.name = acceptCategoryName(category.name);
+  if (!category.name) {
+    category.name = category.path[category.path.length - 1] || "";
+  }
   if (category.name && !category.path.length) {
     category.path = [category.name];
   }
@@ -1003,7 +1076,9 @@ export function extractListingCategoriesInPage() {
   return { category, storeCategories: [] };
 }
 
-export function extractListingConditionInPage() {
+export async function extractListingConditionInPage() {
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
   const cleanText = (text) =>
     String(text || "")
       .replace(/\u00a0/g, " ")
@@ -1011,119 +1086,115 @@ export function extractListingConditionInPage() {
       .replace(/\s+/g, " ")
       .trim();
 
-  const normalizeCondition = (text) =>
-    cleanText(text)
-      .replace(/[–—]/g, "-")
-      .replace(/\s*-\s*/g, " - ")
-      .replace(/^condition:\s*/i, "");
-
   const stripQuotes = (text) => cleanText(text).replace(/^["']+|["']+$/g, "").trim();
 
-  const isJunkLine = (text) =>
-    /^(condition|item condition|see details|price details|learn more|sale ends in)/i.test(text);
+  const stripChrome = (text) =>
+    stripQuotes(text)
+      .replace(/\s*read\s+(more|less)(?:\s*about condition)?/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim();
 
-  let condition = "";
-  let conditionDescription = "";
+  const root = document.querySelector(
+    '[data-testid="x-item-condition"], .x-item-condition, [data-testid="d-item-condition"]',
+  );
 
-  const takeFromBlock = (el) => {
-    if (!(el instanceof HTMLElement) || (condition && conditionDescription)) return;
-    const lines = String(el.innerText || el.textContent || "")
-      .split("\n")
-      .map((line) => cleanText(line))
-      .filter(Boolean)
-      .filter((line) => !isJunkLine(line));
-    if (!lines.length) return;
-    if (!condition) {
-      condition = normalizeCondition(lines[0]);
+  const conditionSpan =
+    root?.querySelector(
+      '.x-item-condition-text [data-testid="ux-textual-display"] .ux-textspans',
+    ) ||
+    root?.querySelector(
+      '.x-item-condition-text .ux-icon-text__text [aria-hidden="true"] .ux-textspans',
+    ) ||
+    root?.querySelector(".x-item-condition-text .ux-textspans");
+  const condition = cleanText(conditionSpan?.textContent || "");
+
+  const collapsed = stripQuotes(
+    [...(root?.querySelectorAll(".x-item-condition-desc .ux-textspans--ITALIC") ?? [])]
+      .map((node) => node.textContent || "")
+      .join(" "),
+  );
+
+  const sellerNotesValue = () => {
+    let best = "";
+
+    for (const row of document.querySelectorAll(".ux-labels-values, [data-testid='ux-labels-values']")) {
+      if (!(row instanceof HTMLElement)) continue;
+      const label = cleanText(
+        row.querySelector(".ux-labels-values__labels, .ux-labels-values--labels")?.textContent || "",
+      );
+      if (!/^seller notes$/i.test(label)) continue;
+      const values = row.querySelector(".ux-labels-values__values, .ux-labels-values--values") || row;
+      const expandable = values.querySelector(
+        '[data-testid="text"], .ux-expandable-textual-display [data-testid="text"], [data-testid="ux-expandable-textual-display-block-inline"]',
+      );
+      const raw = expandable?.textContent || values.textContent || "";
+      const text = stripChrome(raw);
+      if (text.length > best.length) best = text;
     }
-    const rest = lines
-      .slice(1)
-      .map(stripQuotes)
-      .filter(Boolean)
-      .join(" ");
-    if (!conditionDescription && rest) {
-      conditionDescription = rest;
+
+    for (const node of document.querySelectorAll(
+      '[data-testid="ux-expandable-textual-display-block-inline"] [data-testid="text"] .ux-textspans, .ux-expandable-textual-display [data-testid="text"] .ux-textspans',
+    )) {
+      const text = stripChrome(node.textContent || "");
+      if (!text) continue;
+      if (collapsed && !text.startsWith(collapsed.slice(0, 32)) && !text.includes(collapsed.slice(0, 32))) {
+        continue;
+      }
+      if (text.length > best.length) best = text;
     }
+
+    return best;
   };
 
-  const dedicated = document.querySelector(
-    '[data-testid="x-item-condition"], [data-testid="d-item-condition"], .x-item-condition, .d-item-condition',
-  );
-  if (dedicated instanceof HTMLElement) {
-    const valueEl = dedicated.querySelector(
-      ".x-item-condition-text, [class*='condition-text'], .ux-textspans",
+  const clickConditionReadMore = () => {
+    const link = root?.querySelector(
+      '.x-item-condition-desc a[href="#ABOUT_THIS_ITEM"], .x-item-condition-desc a.ux-action',
     );
-    const descEl = dedicated.querySelector(
-      ".x-item-condition-desc, [class*='condition-desc'], .ux-textspans--SECONDARY",
-    );
-    if (valueEl && !condition) {
-      condition = normalizeCondition(valueEl.textContent || "");
+    if (link instanceof HTMLElement) {
+      link.click();
+      return true;
     }
-    if (descEl && !conditionDescription) {
-      conditionDescription = stripQuotes(descEl.textContent || "");
-    }
-    takeFromBlock(dedicated);
-  }
+    return false;
+  };
 
-  document.querySelectorAll(".ux-labels-values, [data-testid='ux-labels-values']").forEach((row) => {
-    if (!(row instanceof HTMLElement) || (condition && conditionDescription)) return;
-    const label = cleanText(
-      row.querySelector(".ux-labels-values__labels, .ux-labels-values--labels")?.textContent || "",
-    );
-    if (!/^condition$/i.test(label)) return;
-    const values = row.querySelector(".ux-labels-values__values, .ux-labels-values--values") || row;
-    takeFromBlock(values instanceof HTMLElement ? values : row);
-  });
-
-  if (!condition) {
-    document.querySelectorAll("dt, th, .ux-textspans--BOLD").forEach((label) => {
-      if (condition) return;
-      if (!/^condition:?$/i.test(cleanText(label.textContent || ""))) return;
-      const value =
-        label.nextElementSibling ||
-        label.parentElement?.querySelector("dd, td, .ux-textspans");
-      if (value instanceof HTMLElement) takeFromBlock(value);
-    });
-  }
-
-  if (!condition) {
-    document.querySelectorAll('script[type="application/ld+json"]').forEach((script) => {
-      if (condition) return;
-      try {
-        const data = JSON.parse(script.textContent || "");
-        const visit = (obj) => {
-          if (!obj || typeof obj !== "object" || condition) return;
-          if (Array.isArray(obj)) {
-            obj.forEach(visit);
-            return;
-          }
-          const raw = obj.itemCondition || obj.condition;
-          if (typeof raw === "string" && !/^https?:/i.test(raw)) {
-            condition = normalizeCondition(raw);
-          } else if (raw && typeof raw === "object" && raw.name) {
-            condition = normalizeCondition(raw.name);
-          }
-          Object.values(obj).forEach(visit);
-        };
-        visit(data);
-      } catch {
-        // ignore
+  const clickSellerNotesReadMore = () => {
+    for (const row of document.querySelectorAll(".ux-labels-values, [data-testid='ux-labels-values']")) {
+      const label = cleanText(
+        row.querySelector(".ux-labels-values__labels, .ux-labels-values--labels")?.textContent || "",
+      );
+      if (!/^seller notes$/i.test(label)) continue;
+      const more = [...row.querySelectorAll("a, button, [role='button'], .ux-expandable-textual-display")].find(
+        (el) => /read more/i.test(cleanText(el.textContent || "")),
+      );
+      if (more instanceof HTMLElement) {
+        more.click();
+        return true;
       }
-    });
+    }
+    return false;
+  };
+
+  let notes = sellerNotesValue();
+  if (notes.length <= collapsed.length + 8) {
+    clickConditionReadMore();
+    const started = Date.now();
+    while (Date.now() - started < 3000) {
+      notes = sellerNotesValue();
+      if (notes.length > collapsed.length + 20) break;
+      clickSellerNotesReadMore();
+      await wait(200);
+      notes = sellerNotesValue();
+      if (notes.length > collapsed.length + 20 || /read less/i.test(document.body.innerText || "")) {
+        break;
+      }
+    }
   }
 
-  if (conditionDescription && compactSame(condition, conditionDescription)) {
-    conditionDescription = "";
-  }
-
-  function compactSame(left, right) {
-    const compact = (text) => text.replace(/[^a-z0-9]/gi, "").toLowerCase();
-    return Boolean(left) && compact(left) === compact(right);
-  }
+  const conditionDescription = notes.length >= collapsed.length ? notes : collapsed;
 
   return {
-    condition: normalizeCondition(condition),
-    conditionDescription: stripQuotes(conditionDescription).slice(0, 1000),
+    condition,
+    conditionDescription: conditionDescription.slice(0, 1000),
   };
 }
 

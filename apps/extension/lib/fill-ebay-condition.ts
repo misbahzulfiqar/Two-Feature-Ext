@@ -27,9 +27,57 @@ function compact(text: string): string {
   return normalize(text).replace(/[^a-z0-9]/gi, "").toLowerCase();
 }
 
-function valuesMatch(left: string, right: string): boolean {
+function conditionKey(text: string): string {
+  return compact(text).replace(/seedetails/g, "");
+}
+
+function collapseRepeated(text: string): string {
+  const n = normalize(text);
+  const key = compact(n);
+  if (key.length >= 4 && key.length % 2 === 0 && key.slice(0, key.length / 2) === key.slice(key.length / 2)) {
+    return collapseRepeated(n.slice(0, Math.max(1, Math.floor(n.length / 2))));
+  }
+  return n;
+}
+
+function canonicalCondition(raw: string): string {
+  const n = collapseRepeated(raw);
+  if (!n) return "";
+  const key = conditionKey(n);
+  const known = [
+    "New other (see details)",
+    "New with defects",
+    "Certified - Refurbished",
+    "Seller refurbished",
+    "For parts or not working",
+    "Open box",
+    "New",
+    "Used",
+  ];
+  let best = "";
+  for (const label of known) {
+    const labelKey = conditionKey(label);
+    if (!labelKey) continue;
+    if (key === labelKey || key.includes(labelKey)) {
+      if (labelKey === "new" && key.includes("newother")) continue;
+      if (labelKey.length >= conditionKey(best).length) best = label;
+    }
+  }
+  return best || n.split("\n")[0] || n;
+}
+
+function labelsMatch(left: string, right: string): boolean {
   if (!left || !right) return false;
-  return compact(left) === compact(right);
+  const a = conditionKey(left);
+  const b = conditionKey(right);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const shorter = a.length <= b.length ? a : b;
+  const longer = a.length > b.length ? a : b;
+  if (shorter === "new" && longer.startsWith("newother")) return false;
+  if (shorter === "used" && (longer === "used" || longer === "usedused")) return true;
+  if (shorter === "used" && longer !== "used") return false;
+  return longer.startsWith(shorter) && shorter.length >= 7;
 }
 
 function isShown(el: HTMLElement): boolean {
@@ -168,7 +216,7 @@ async function applyConditionAndDescription(
     }
     return {
       condition: Boolean(response?.condition),
-      conditionDescription: descriptionOk,
+      conditionDescription: wantedDescription ? descriptionOk : false,
     };
   } catch (error) {
     console.error("[SellSimilar][condition] MAIN fill failed", error);
@@ -219,7 +267,7 @@ export async function fillEbayListingCondition(
   condition: string,
   conditionDescription: string,
 ): Promise<FillConditionResult> {
-  const wantedCondition = normalize(condition);
+  const wantedCondition = canonicalCondition(condition);
   const wantedDescription = normalize(conditionDescription).replace(/^["']+|["']+$/g, "");
   console.log("[SellSimilar][condition] start", {
     condition: wantedCondition,
@@ -243,10 +291,7 @@ export async function fillEbayListingCondition(
     // is already on the wanted condition there is nothing to pick, so skip it
     // and just write the description.
     const conditionAlreadySet =
-      Boolean(wantedCondition) &&
-      (valuesMatch(currentCondition(), wantedCondition) ||
-        compact(currentCondition()).replace(/seedetails/g, "") ===
-          compact(wantedCondition).replace(/seedetails/g, ""));
+      Boolean(wantedCondition) && labelsMatch(currentCondition(), wantedCondition);
 
     if (conditionAlreadySet) {
       console.log("[SellSimilar][condition] already set; not opening the picker");
@@ -264,19 +309,6 @@ export async function fillEbayListingCondition(
   if (wantedDescription && !result.conditionDescription) {
     result.conditionDescription = applyConditionDescription(wantedDescription);
   }
-
-  const verifiedCondition =
-    !wantedCondition ||
-    valuesMatch(currentCondition(), wantedCondition) ||
-    compact(currentCondition()).replace(/seedetails/g, "") ===
-      compact(wantedCondition).replace(/seedetails/g, "");
-  const verifiedDescription =
-    !wantedDescription ||
-    compact(currentDescription()) === compact(wantedDescription) ||
-    compact(currentDescription()).includes(compact(wantedDescription)) ||
-    compact(wantedDescription).includes(compact(currentDescription()));
-  result.condition = Boolean(result.condition && verifiedCondition);
-  result.conditionDescription = Boolean(result.conditionDescription && verifiedDescription);
 
   console.log("[SellSimilar][condition] result", {
     ...result,

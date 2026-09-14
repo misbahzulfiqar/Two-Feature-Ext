@@ -19,7 +19,14 @@ import { fillItemCategoryInPage } from "../lib/fill-item-category-main.ts";
 import { fillItemConditionInPage } from "../lib/fill-ebay-condition-main.ts";
 import { fillItemDescriptionInPage } from "../lib/fill-ebay-description-main.ts";
 import { fillItemPriceInPage } from "../lib/fill-ebay-price-main.ts";
+import { addCustomItemSpecificInPage, fillItemYesNoInPage } from "../lib/fill-ebay-specifics-main.ts";
 import { restoreListingPageInPage } from "../lib/restore-listing-page-main.ts";
+import {
+  isFillItemCustomRequest,
+  isFillItemYesNoRequest,
+  type FillItemCustomResponse,
+  type FillItemYesNoResponse,
+} from "../lib/specifics-messages.ts";
 import {
   isRestoreListingPageRequest,
   type RestoreListingPageResponse,
@@ -365,6 +372,58 @@ export default defineBackground(() => {
             conditionDescription: false,
             reason: error instanceof Error ? error.message : String(error),
           } satisfies FillItemConditionResponse);
+        });
+      return true;
+    }
+
+    if (isFillItemYesNoRequest(message)) {
+      const tabId = sender.tab?.id;
+      if (tabId == null) {
+        sendResponse({ ok: false, reason: "No tab" } satisfies FillItemYesNoResponse);
+        return;
+      }
+      void browser.scripting
+        .executeScript({
+          target: { tabId },
+          world: "MAIN",
+          func: fillItemYesNoInPage,
+          args: [{ key: message.key, value: message.value }],
+        })
+        .then((injected) => {
+          const result = injected[0]?.result;
+          sendResponse(result ?? { ok: false, reason: "Yes/No fill script did not run" });
+        })
+        .catch((error: unknown) => {
+          sendResponse({
+            ok: false,
+            reason: error instanceof Error ? error.message : String(error),
+          } satisfies FillItemYesNoResponse);
+        });
+      return true;
+    }
+
+    if (isFillItemCustomRequest(message)) {
+      const tabId = sender.tab?.id;
+      if (tabId == null) {
+        sendResponse({ ok: false, reason: "No tab" } satisfies FillItemCustomResponse);
+        return;
+      }
+      void browser.scripting
+        .executeScript({
+          target: { tabId },
+          world: "MAIN",
+          func: addCustomItemSpecificInPage,
+          args: [{ key: message.key, value: message.value }],
+        })
+        .then((injected) => {
+          const result = injected[0]?.result;
+          sendResponse(result ?? { ok: false, reason: "Custom specific script did not run" });
+        })
+        .catch((error: unknown) => {
+          sendResponse({
+            ok: false,
+            reason: error instanceof Error ? error.message : String(error),
+          } satisfies FillItemCustomResponse);
         });
       return true;
     }

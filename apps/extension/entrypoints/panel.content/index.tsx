@@ -53,13 +53,13 @@ function injectHostPageStyles(): void {
 }
 
 function applyShadowCss(shadow: ShadowRoot): void {
-  if (shadow.querySelector("style[data-sell-similar-css]")) {
-    return;
+  let style = shadow.querySelector("style[data-sell-similar-css]");
+  if (!(style instanceof HTMLStyleElement)) {
+    style = document.createElement("style");
+    style.setAttribute("data-sell-similar-css", "");
+    shadow.append(style);
   }
-  const style = document.createElement("style");
-  style.setAttribute("data-sell-similar-css", "");
   style.textContent = SHADOW_CSS;
-  shadow.append(style);
 }
 
 function applyInFlowHostStyles(shadowHost: HTMLElement, container: HTMLElement): void {

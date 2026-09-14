@@ -130,9 +130,16 @@ function toScrapedListing(data: ScrapedListingData): ScrapedListing {
     price: data.price ?? "",
     images: Array.isArray(data.images) ? data.images : [],
     itemSpecifics: Array.isArray(data.itemSpecifics) ? data.itemSpecifics : [],
-    condition: data.condition ?? "",
+    condition: (data.condition ?? "")
+      .replace(/^(used)(\s*\1)+$/i, "Used")
+      .replace(/^(new other \(see details\))\1+$/i, "New other (see details)"),
     conditionDescription:
-      (data.conditionDescription ?? "").replace(/^["']+|["']+$/g, "").trim() ||
+      (data.conditionDescription ?? "")
+        .replace(/^["']+|["']+$/g, "")
+        .replace(/\s*(read|view|see|show)\s+more(?:\s*about\s+condition)?/gi, " ")
+        .replace(/\s*about condition\s*/gi, " ")
+        .replace(/\s+/g, " ")
+        .trim() ||
       sellerNotesDescription(Array.isArray(data.itemSpecifics) ? data.itemSpecifics : []),
     description: data.description ?? "",
     category: data.category ?? { id: "", name: "", path: [] },
