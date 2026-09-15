@@ -55,9 +55,7 @@ export function SellSimilarAssistant() {
   const [isComplete, setIsComplete] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [isClearingForm, setIsClearingForm] = useState(false);
-  // eBay's Compatibility section is rendered from server state at page load, so
-  // vehicles saved through its API only appear after the page reloads.
-  const [needsReloadForFitment, setNeedsReloadForFitment] = useState(false);
+  const [showFitmentReload, setShowFitmentReload] = useState(false);
 
   const rootRef = useRef<HTMLElement | null>(null);
   const isBusy = isProcessing || isClearingForm;
@@ -208,7 +206,7 @@ export function SellSimilarAssistant() {
       return result.warnings[0] ?? "Could not find the fitment section on this editor.";
     }
     if (result.sectionFound && result.filled >= total && result.skipped === 0) {
-      return `Fitment applied successfully. ${total} source row${total === 1 ? "" : "s"} matched.${existing}`;
+      return `✅ Fitment saved: ${total} vehicle${total === 1 ? "" : "s"}`;
     }
     const pickerFailed = result.warnings.find(
       (warning) =>
@@ -285,7 +283,7 @@ export function SellSimilarAssistant() {
 
     setIsProcessing(true);
     setIsComplete(false);
-    setNeedsReloadForFitment(false);
+    setShowFitmentReload(false);
     setProgress(progressForStage("queued"));
     setStatusMessage("");
     const scrollBefore = captureListingScroll();
@@ -385,7 +383,7 @@ export function SellSimilarAssistant() {
             const fitmentResult = await applyNormalizedFitment(listing.compatibility);
             fitmentText = fitmentSummary(fitmentResult, listing.compatibility.length);
             if (fitmentResult.filled > 0) {
-              setNeedsReloadForFitment(true);
+              setShowFitmentReload(true);
             }
           }
 
@@ -443,13 +441,11 @@ export function SellSimilarAssistant() {
                   ? `could not update item condition (${listing.condition})`
                   : "no item condition found",
           );
-          if (fillOptions.condition) {
+          if (fillOptions.condition && listing.conditionDescription) {
             parts.push(
               conditionResult.conditionDescription
                 ? "updated condition description"
-                : listing.conditionDescription
-                  ? "could not update condition description"
-                  : "no condition description found",
+                : "could not update condition description",
             );
           }
           parts.push(
@@ -482,7 +478,7 @@ export function SellSimilarAssistant() {
           setProgress(progressForStage("complete"));
           setStatusMessage(fitmentSummary(fitmentResult, listing.compatibility.length));
           if (fitmentResult.filled > 0) {
-            setNeedsReloadForFitment(true);
+            setShowFitmentReload(true);
           }
           setIsComplete(true);
           return;
@@ -577,36 +573,7 @@ export function SellSimilarAssistant() {
 
       {isProcessing || isComplete ? (
         <div className="assistant-progress">
-          {isComplete ? (
-            <div className="complete-row">
-              <span className="complete-label">
-                <CheckCircleIcon />
-                Listing filled
-              </span>
-              <div className="complete-actions">
-                {needsReloadForFitment ? (
-                  <button
-                    type="button"
-                    className="reload-button"
-                    onClick={() => {
-                      window.location.reload();
-                    }}
-                    title="eBay only shows saved vehicles after the page reloads"
-                  >
-                    Reload to show vehicles
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  className="clear-form-button"
-                  onClick={() => setShowClearConfirm(true)}
-                  disabled={isClearingForm}
-                >
-                  {isClearingForm ? "Clearing..." : "Clear form"}
-                </button>
-              </div>
-            </div>
-          ) : (
+          {isProcessing ? (
             <>
               <div className="progress-meta">
                 <span className="processing-label">
@@ -620,6 +587,27 @@ export function SellSimilarAssistant() {
               </div>
               <ProgressBar value={progress} />
             </>
+          ) : (
+            <div className="complete-row">
+              <span className="complete-label">
+                <CheckCircleIcon />
+                Listing filled
+              </span>
+              <div className="complete-actions">
+                {showFitmentReload ? (
+                  <button
+                    type="button"
+                    className="reload-button"
+                    onClick={() => {
+                      window.location.reload();
+                    }}
+                    title="Reload the listing page so eBay can show saved vehicles and Edit works"
+                  >
+                    Reload to view & edit
+                  </button>
+                ) : null}
+              </div>
+            </div>
           )}
         </div>
       ) : null}

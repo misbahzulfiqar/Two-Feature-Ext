@@ -54,16 +54,27 @@ function canonicalCondition(raw: string): string {
     "New",
     "Used",
   ];
-  let best = "";
   for (const label of known) {
     const labelKey = conditionKey(label);
     if (!labelKey) continue;
-    if (key === labelKey || key.includes(labelKey)) {
-      if (labelKey === "new" && key.includes("newother")) continue;
-      if (labelKey.length >= conditionKey(best).length) best = label;
+    if (key === labelKey || key.startsWith(labelKey)) {
+      if (labelKey === "new" && (key.startsWith("newother") || key.startsWith("newwithdefects"))) {
+        continue;
+      }
+      return label;
     }
   }
-  return best || n.split("\n")[0] || n;
+  return n.split(/[:\n]/)[0]?.trim() || n;
+}
+
+function isEbayStandardConditionBlurb(text: string): boolean {
+  const compactText = compact(text);
+  if (!compactText) return true;
+  if (compactText.includes("seethesellerslistingforfulldetails")) return true;
+  if (compactText.includes("abrandnewunusedunopenedundamaged")) return true;
+  if (compactText.includes("initsoriginalpackagingwherepackagingisapplicable")) return true;
+  if (compactText.includes("anitemthathasbeenusedpreviously")) return true;
+  return false;
 }
 
 function labelsMatch(left: string, right: string): boolean {
@@ -251,7 +262,9 @@ function applyConditionDescription(wanted: string): boolean {
  * condition modal, so this is safe to call as a follow-up pass.
  */
 export function ensureConditionDescription(conditionDescription: string): boolean {
-  const wanted = normalize(conditionDescription).replace(/^["']+|["']+$/g, "");
+  const wanted = isEbayStandardConditionBlurb(conditionDescription)
+    ? ""
+    : normalize(conditionDescription).replace(/^["']+|["']+$/g, "");
   if (!wanted) {
     return false;
   }
@@ -268,7 +281,9 @@ export async function fillEbayListingCondition(
   conditionDescription: string,
 ): Promise<FillConditionResult> {
   const wantedCondition = canonicalCondition(condition);
-  const wantedDescription = normalize(conditionDescription).replace(/^["']+|["']+$/g, "");
+  const wantedDescription = isEbayStandardConditionBlurb(conditionDescription)
+    ? ""
+    : normalize(conditionDescription).replace(/^["']+|["']+$/g, "");
   console.log("[SellSimilar][condition] start", {
     condition: wantedCondition,
     conditionDescription: wantedDescription,
@@ -290,8 +305,18 @@ export async function fillEbayListingCondition(
     // Opening the picker is the only thing that shows a modal. If the listing
     // is already on the wanted condition there is nothing to pick, so skip it
     // and just write the description.
+    const chooserShowing = (() => {
+      const section = conditionSection();
+      if (!section) return false;
+      const labels = [...section.querySelectorAll("button, [role='button'], .filter-button")].map(
+        (el) => normalize(el.textContent ?? "").split("\n")[0] ?? "",
+      );
+      return labels.some((label) => /^new$/i.test(label)) && labels.some((label) => /^used$/i.test(label));
+    })();
     const conditionAlreadySet =
-      Boolean(wantedCondition) && labelsMatch(currentCondition(), wantedCondition);
+      Boolean(wantedCondition) &&
+      !chooserShowing &&
+      labelsMatch(currentCondition(), wantedCondition);
 
     if (conditionAlreadySet) {
       console.log("[SellSimilar][condition] already set; not opening the picker");

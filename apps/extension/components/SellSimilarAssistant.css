@@ -50,10 +50,9 @@
   align-items: flex-end;
   gap: 12px 16px;
   width: 100%;
-  /* eBay pins its help (?) and overflow (...) controls to the top-right of this
-     content area, and they paint above the panel. Inset the control row so the
-     action buttons never sit underneath them. */
-  padding-right: 64px;
+  /* eBay pins an overflow (...) control to the top-right of this content area.
+     Inset the action row so Process Listing is not covered by it. */
+  padding-right: 40px;
 }
 
 .field-row {
@@ -701,9 +700,8 @@
   background: #c13a5d;
 }
 
-/* Vehicles saved through eBay's API only appear after the page reloads, so the
-   completed state offers that as an explicit action rather than reloading on
-   its own and risking fields eBay has not saved to the draft yet. */
+/* After a successful persist, Verify Fitment reads the parent Compatibility
+   heading. Reload page is offered only when that count does not match. */
 .complete-actions {
   display: flex;
   align-items: center;

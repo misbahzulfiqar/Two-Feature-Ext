@@ -71,16 +71,17 @@ export async function fillItemConditionInPage(
       "New",
       "Used",
     ];
-    let best = "";
     for (const label of known) {
       const labelKey = conditionKey(label);
       if (!labelKey) continue;
-      if (key === labelKey || key.includes(labelKey)) {
-        if (labelKey === "new" && key.includes("newother")) continue;
-        if (labelKey.length >= conditionKey(best).length) best = label;
+      if (key === labelKey || key.startsWith(labelKey)) {
+        if (labelKey === "new" && (key.startsWith("newother") || key.startsWith("newwithdefects"))) {
+          continue;
+        }
+        return label;
       }
     }
-    return best || n.split("\n")[0] || n;
+    return n.split(/[:\n]/)[0]?.trim() || n;
   };
 
   const labelsMatch = (left: string, right: string): boolean => {
@@ -469,8 +470,20 @@ export async function fillItemConditionInPage(
     }
   };
 
+  const isEbayConditionBlurb = (text: string): boolean => {
+    const compactText = compact(text);
+    if (!compactText) return true;
+    if (compactText.includes("seethesellerslistingforfulldetails")) return true;
+    if (compactText.includes("abrandnewunusedunopenedundamaged")) return true;
+    if (compactText.includes("initsoriginalpackagingwherepackagingisapplicable")) return true;
+    if (compactText.includes("anitemthathasbeenusedpreviously")) return true;
+    return false;
+  };
+
   const wanted = canonicalCondition(payload.condition);
-  const wantedDescription = normalize(payload.conditionDescription).replace(/^["']+|["']+$/g, "");
+  const wantedDescription = isEbayConditionBlurb(payload.conditionDescription)
+    ? ""
+    : normalize(payload.conditionDescription).replace(/^["']+|["']+$/g, "");
   if (!wanted && !wantedDescription) {
     return { ok: false, condition: false, conditionDescription: false, reason: "No condition" };
   }
@@ -488,26 +501,95 @@ export async function fillItemConditionInPage(
       pills: card ? siblingPills(card).map(visibleText) : [],
     });
 
+    const chooserVisible = (): boolean => {
+      const host = conditionCard();
+      if (!host) return false;
+      const labels = siblingPills(host).map(visibleText);
+      return labels.some((label) => /^new$/i.test(label)) && labels.some((label) => /^used$/i.test(label));
+    };
+
+    const clickLabeledCondition = (wanted: string): HTMLElement | null => {
+      const want = conditionKey(wanted);
+      const roots: ParentNode[] = [];
+      const host = conditionCard();
+      const menu = overflowMenu();
+      const panel = conditionPanel();
+      if (menu) roots.push(menu);
+      if (panel) roots.push(panel);
+      if (host) roots.push(host);
+      roots.push(document);
+
+      for (const root of roots) {
+        for (const textEl of root.querySelectorAll(
+          ".filter-button__text, .btn__text, .radio__label, button, [role='button'], [role='radio'], label, .filter-button",
+        )) {
+          if (!(textEl instanceof HTMLElement)) continue;
+          const title = visibleText(textEl);
+          if (conditionKey(title) !== want) continue;
+          if (/undo|access key|read more|more information/i.test(title)) continue;
+          const hostEl =
+            textEl.closest("button, [role='button'], .filter-button, label, [role='radio']") ?? textEl;
+          if (!(hostEl instanceof HTMLElement)) continue;
+          if (isEllipsisPill(hostEl)) continue;
+          if (!isShown(hostEl) && !(hostEl instanceof HTMLInputElement)) continue;
+          selectChoice(hostEl);
+          return hostEl;
+        }
+      }
+
+      const ids = new Set(wantedIds(wanted));
+      if (ids.size === 0) return null;
+      for (const input of document.querySelectorAll('input[type="radio"]')) {
+        if (!(input instanceof HTMLInputElement) || !ids.has(input.value)) continue;
+        const hostEl =
+          (input.closest("label, .filter-button, .radio, button, .field") as HTMLElement | null) ?? input;
+        selectChoice(hostEl);
+        return hostEl;
+      }
+      return null;
+    };
+
+    const openChooser = async (): Promise<void> => {
+      if (chooserVisible()) return;
+      const host = conditionCard();
+      if (!host) return;
+      const valueBtn =
+        host.querySelector<HTMLElement>(
+          'button[name="condition"], button[aria-label*="Item condition" i], a.fake-link, button.listbox-button__control, button.value',
+        ) ??
+        [...host.querySelectorAll("button, a, [role='button']")].find((el): el is HTMLElement => {
+          if (!(el instanceof HTMLElement) || !isShown(el)) return false;
+          const title = visibleText(el);
+          return /^(new|used|new other)/i.test(title) && !isEllipsisPill(el);
+        }) ??
+        null;
+      if (!valueBtn) return;
+      fireClick(valueBtn, "reopen condition chooser");
+      await waitUntil(() => chooserVisible() || Boolean(conditionPanel()), 2500);
+    };
+
     let conditionOk = Boolean(wanted) && labelsMatch(selectedCondition(), wanted);
 
     if (wanted && !conditionOk) {
-      let choice = findWantedChoice(wanted);
-      if (!choice && card) {
-        clickEllipsis(card);
-        await waitUntil(() => Boolean(findWantedChoice(wanted) || overflowMenu() || conditionPanel()), 2500);
-        choice = findWantedChoice(wanted);
-      }
-
-      if (!choice && card) {
-        clickEllipsis(card);
-        await delay(400);
-        choice = findWantedChoice(wanted);
+      await openChooser();
+      let choice = findWantedChoice(wanted) ?? clickLabeledCondition(wanted);
+      const primary = conditionKey(wanted) === "new" || conditionKey(wanted) === "used";
+      if (!choice && !primary) {
+        const host = conditionCard();
+        if (host) {
+          clickEllipsis(host);
+          await waitUntil(
+            () => Boolean(findWantedChoice(wanted) || overflowMenu() || conditionPanel()),
+            2500,
+          );
+          choice = findWantedChoice(wanted) ?? clickLabeledCondition(wanted);
+        }
       }
 
       if (!choice) {
         log("no matching option", {
           wanted,
-          pills: card ? siblingPills(card).map(visibleText) : [],
+          pills: conditionCard() ? siblingPills(conditionCard() as HTMLElement).map(visibleText) : [],
           menu: overflowMenu() ? normalize(overflowMenu()?.innerText ?? "").slice(0, 300) : "",
         });
         return {
@@ -518,9 +600,15 @@ export async function fillItemConditionInPage(
         };
       }
 
-      selectChoice(choice);
-      await delay(400);
-      conditionOk = labelsMatch(selectedCondition(), wanted) || labelsMatch(visibleText(choice), wanted);
+      if (!labelsMatch(selectedCondition(), wanted)) {
+        selectChoice(choice);
+      }
+      await waitUntil(
+        () => labelsMatch(selectedCondition(), wanted) || labelsMatch(visibleText(choice), wanted),
+        2000,
+      );
+      conditionOk =
+        labelsMatch(selectedCondition(), wanted) || labelsMatch(visibleText(choice), wanted);
     }
 
     let descriptionOk = false;

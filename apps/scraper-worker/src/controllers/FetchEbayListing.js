@@ -927,8 +927,8 @@ export function extractListingCategoriesInPage() {
         const href = link.href || link.getAttribute("href") || "";
         if (!name || isStoreHref(href) || isItemHref(href)) return;
         fromBrowse.push({ name, href });
-      });
     });
+  });
     if (fromBrowse.length > category.path.length) {
       category.path = uniqueNames(fromBrowse.map((entry) => entry.name));
       category.name = category.path[category.path.length - 1] || category.name;
@@ -1114,6 +1114,16 @@ export async function extractListingConditionInPage() {
       .join(" "),
   );
 
+  const isEbayConditionBlurb = (text) => {
+    const compact = stripChrome(text).replace(/[^a-z0-9]/gi, "").toLowerCase();
+    if (!compact) return true;
+    if (compact.includes("seethesellerslistingforfulldetails")) return true;
+    if (compact.includes("abrandnewunusedunopenedundamaged")) return true;
+    if (compact.includes("initsoriginalpackagingwherepackagingisapplicable")) return true;
+    if (compact.includes("anitemthathasbeenusedpreviously")) return true;
+    return false;
+  };
+
   const sellerNotesValue = () => {
     let best = "";
 
@@ -1129,32 +1139,11 @@ export async function extractListingConditionInPage() {
       );
       const raw = expandable?.textContent || values.textContent || "";
       const text = stripChrome(raw);
-      if (text.length > best.length) best = text;
-    }
-
-    for (const node of document.querySelectorAll(
-      '[data-testid="ux-expandable-textual-display-block-inline"] [data-testid="text"] .ux-textspans, .ux-expandable-textual-display [data-testid="text"] .ux-textspans',
-    )) {
-      const text = stripChrome(node.textContent || "");
-      if (!text) continue;
-      if (collapsed && !text.startsWith(collapsed.slice(0, 32)) && !text.includes(collapsed.slice(0, 32))) {
-        continue;
-      }
+      if (isEbayConditionBlurb(text)) continue;
       if (text.length > best.length) best = text;
     }
 
     return best;
-  };
-
-  const clickConditionReadMore = () => {
-    const link = root?.querySelector(
-      '.x-item-condition-desc a[href="#ABOUT_THIS_ITEM"], .x-item-condition-desc a.ux-action',
-    );
-    if (link instanceof HTMLElement) {
-      link.click();
-      return true;
-    }
-    return false;
   };
 
   const clickSellerNotesReadMore = () => {
@@ -1174,23 +1163,30 @@ export async function extractListingConditionInPage() {
     return false;
   };
 
+  const hasSellerNotesRow = () => {
+    for (const row of document.querySelectorAll(".ux-labels-values, [data-testid='ux-labels-values']")) {
+      const label = cleanText(
+        row.querySelector(".ux-labels-values__labels, .ux-labels-values--labels")?.textContent || "",
+      );
+      if (/^seller notes$/i.test(label)) return true;
+    }
+    return false;
+  };
+
   let notes = sellerNotesValue();
-  if (notes.length <= collapsed.length + 8) {
-    clickConditionReadMore();
+  if (!notes && hasSellerNotesRow()) {
+    clickSellerNotesReadMore();
     const started = Date.now();
-    while (Date.now() - started < 3000) {
+    while (Date.now() - started < 2500) {
       notes = sellerNotesValue();
-      if (notes.length > collapsed.length + 20) break;
+      if (notes) break;
       clickSellerNotesReadMore();
       await wait(200);
-      notes = sellerNotesValue();
-      if (notes.length > collapsed.length + 20 || /read less/i.test(document.body.innerText || "")) {
-        break;
-      }
     }
   }
 
-  const conditionDescription = notes.length >= collapsed.length ? notes : collapsed;
+  const fromTeaser = isEbayConditionBlurb(collapsed) ? "" : collapsed;
+  const conditionDescription = notes || fromTeaser;
 
   return {
     condition,

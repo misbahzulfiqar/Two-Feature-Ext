@@ -184,7 +184,8 @@ export async function fillItemYesNoInPage(payload: {
 }
 
 /**
- * Adds a source item specific that has no matching editor field.
+ * Adds a source item specific that has no matching editor field via
+ * eBay's "Add custom item specific" Name/Value modal.
  * Do not close over module scope — Chrome serializes this into the page.
  */
 export async function addCustomItemSpecificInPage(payload: {
@@ -236,7 +237,7 @@ export async function addCustomItemSpecificInPage(payload: {
     if (input.value !== value) {
       input.value = value;
     }
-    input.dispatchEvent(new InputEvent("input", { bubbles: true, composed: true }));
+    input.dispatchEvent(new InputEvent("input", { bubbles: true, composed: true, data: value }));
     input.dispatchEvent(new Event("change", { bubbles: true }));
   };
 
@@ -252,50 +253,20 @@ export async function addCustomItemSpecificInPage(payload: {
   const attributeRoot = (): ParentNode =>
     document.querySelector(".summary__attributes") ?? document;
 
-  const findField = (key: string): HTMLElement | null => {
-    const wanted = compact(key);
-    for (const node of attributeRoot().querySelectorAll('[data-testid="attribute"]')) {
-      if (!(node instanceof HTMLElement)) continue;
-      if (compact(fieldLabel(node)) === wanted) return node;
-    }
-    return null;
-  };
-
-  const findAddInput = (): HTMLInputElement | null => {
-    const inputs = attributeRoot().querySelectorAll(
-      "input[type='text'], input:not([type]), input.textbox__control",
-    );
-    for (const input of inputs) {
-      if (!(input instanceof HTMLInputElement) || !isShown(input)) continue;
-      const haystack = `${input.name} ${input.placeholder} ${input.getAttribute("aria-label") ?? ""}`.toLowerCase();
-      if (
-        /unused/.test(haystack) ||
-        /add( an)?( your own)? item specific/.test(haystack) ||
-        /search (for )?(an )?item specific/.test(haystack) ||
-        /select item specific/.test(haystack) ||
-        /custom item specific/.test(haystack) ||
-        /select or add/.test(haystack)
-      ) {
-        return input;
-      }
-    }
-    return null;
-  };
-
-  const fillFieldValue = (field: HTMLElement, value: string): boolean => {
+  const fillFieldValue = (field: HTMLElement, nextValue: string): boolean => {
     const named = field.querySelector(
       'input[name^="attributes."]:not([type="radio"]):not([type="checkbox"]):not([type="hidden"]), textarea[name^="attributes."]',
     );
     if (named instanceof HTMLInputElement || named instanceof HTMLTextAreaElement) {
       named.focus();
-      setNativeValue(named, value);
+      setNativeValue(named, nextValue);
       named.blur();
       return true;
     }
     const search = field.querySelector('input[name^="search-box-attributes"], input.textbox__control');
     if (search instanceof HTMLInputElement && isShown(search)) {
       search.focus();
-      setNativeValue(search, value);
+      setNativeValue(search, nextValue);
       search.dispatchEvent(
         new KeyboardEvent("keydown", { key: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true }),
       );
@@ -305,100 +276,250 @@ export async function addCustomItemSpecificInPage(payload: {
     const fallback = field.querySelector("input[type='text'], textarea");
     if (fallback instanceof HTMLInputElement || fallback instanceof HTMLTextAreaElement) {
       fallback.focus();
-      setNativeValue(fallback, value);
+      setNativeValue(fallback, nextValue);
       fallback.blur();
       return true;
     }
     return false;
   };
 
-  const clickCreateOption = (key: string): boolean => {
+  const findField = (key: string): HTMLElement | null => {
     const wanted = compact(key);
-    const options = [
-      ...document.querySelectorAll(
-        '[role="option"], [role="menuitem"], [role="menuitemradio"], .listbox__option, .menu__item, .listbox-button__option',
-      ),
-    ];
-    let create: HTMLElement | null = null;
-    let exact: HTMLElement | null = null;
-    for (const option of options) {
-      if (!(option instanceof HTMLElement) || !isShown(option)) continue;
-      const text = normalize(option.textContent ?? "");
-      const label = text.replace(/~\s*[\d.,]+\s*[kmb]?\s*searches/gi, "").split("\n")[0] ?? "";
-      const optionKey = compact(label);
-      if (optionKey === wanted || (wanted.length >= 8 && optionKey.startsWith(wanted))) {
-        exact = option;
-      }
+    for (const node of attributeRoot().querySelectorAll('[data-testid="attribute"]')) {
+      if (!(node instanceof HTMLElement)) continue;
+      if (compact(fieldLabel(node)) === wanted) return node;
+    }
+    for (const label of attributeRoot().querySelectorAll(".summary__attributes--label, label")) {
+      const text = compact(
+        normalize(label.textContent ?? "").replace(/~\s*[\d.,]+\s*[kmb]?\s*searches/gi, ""),
+      );
+      if (text !== wanted) continue;
+      const field = label.closest('[data-testid="attribute"], .field, li');
+      if (field instanceof HTMLElement) return field;
+    }
+    return null;
+  };
+
+  const customDialog = (): HTMLElement | null => {
+    for (const node of document.querySelectorAll(
+      '.lightbox-dialog, [role="dialog"], .drawer, .lightbox-dialog__window',
+    )) {
+      if (!(node instanceof HTMLElement) || !isShown(node)) continue;
+      const heading = normalize(
+        node.querySelector("h1, h2, .lightbox-dialog__header, .dialog__header")?.textContent ??
+          node.innerText ??
+          "",
+      ).slice(0, 240);
+      if (/add custom item specific/i.test(heading)) return node;
+    }
+    return null;
+  };
+
+  const associatedInput = (
+    dialog: HTMLElement,
+    label: Element,
+  ): HTMLInputElement | HTMLTextAreaElement | null => {
+    if (label instanceof HTMLLabelElement) {
+      const control = label.control;
       if (
-        /^(add|use|create)\b/i.test(text) &&
-        optionKey.includes(wanted) &&
-        !/add item specific$/i.test(text)
+        (control instanceof HTMLInputElement || control instanceof HTMLTextAreaElement) &&
+        isShown(control)
       ) {
-        create = option;
-      }
-      if (/add custom|your own item specific|use this (text|value)/i.test(text)) {
-        create = option;
+        return control;
       }
     }
-    const pick = create ?? exact;
-    if (!pick) return false;
-    fireClick(pick);
-    return true;
+    const forId = label.getAttribute("for");
+    if (forId) {
+      const byId = dialog.querySelector(`#${CSS.escape(forId)}`);
+      if (
+        (byId instanceof HTMLInputElement || byId instanceof HTMLTextAreaElement) &&
+        isShown(byId)
+      ) {
+        return byId;
+      }
+    }
+    const nested = label.querySelector("input, textarea");
+    if (
+      (nested instanceof HTMLInputElement || nested instanceof HTMLTextAreaElement) &&
+      isShown(nested)
+    ) {
+      return nested;
+    }
+    let next = label.nextElementSibling;
+    while (next) {
+      if (
+        (next instanceof HTMLInputElement || next instanceof HTMLTextAreaElement) &&
+        isShown(next)
+      ) {
+        return next;
+      }
+      const inner = next.querySelector("input, textarea");
+      if (
+        (inner instanceof HTMLInputElement || inner instanceof HTMLTextAreaElement) &&
+        isShown(inner)
+      ) {
+        return inner;
+      }
+      if (next.matches("label, .field__label")) break;
+      next = next.nextElementSibling;
+    }
+    const field = label.closest(".field, .textbox, .floating-label");
+    const inField = field?.querySelector("input, textarea");
+    if (
+      (inField instanceof HTMLInputElement || inField instanceof HTMLTextAreaElement) &&
+      isShown(inField)
+    ) {
+      return inField;
+    }
+    return null;
+  };
+
+  const labeledInput = (
+    dialog: HTMLElement,
+    kind: "name" | "value",
+  ): HTMLInputElement | HTMLTextAreaElement | null => {
+    const want = kind === "name" ? /^name$/i : /^value$/i;
+    const placeholder = kind === "name" ? /example:\s*year/i : /example:\s*2017/i;
+    for (const label of dialog.querySelectorAll("label, .field__label, .textbox__label, legend")) {
+      if (!want.test(normalize(label.textContent ?? ""))) continue;
+      const input = associatedInput(dialog, label);
+      if (input) return input;
+    }
+    const inputs = [...dialog.querySelectorAll("input[type='text'], input:not([type]), textarea")].filter(
+      (el): el is HTMLInputElement | HTMLTextAreaElement =>
+        (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) && isShown(el),
+    );
+    for (const input of inputs) {
+      if (placeholder.test(`${input.placeholder} ${input.getAttribute("aria-label") ?? ""}`)) {
+        return input;
+      }
+    }
+    return kind === "name" ? (inputs[0] ?? null) : (inputs[1] ?? null);
+  };
+
+  const saveButton = (dialog: HTMLElement): HTMLElement | null => {
+    for (const el of dialog.querySelectorAll("button, [role='button']")) {
+      if (!(el instanceof HTMLElement) || !isShown(el)) continue;
+      if (!/^save$/i.test(normalize(el.textContent ?? ""))) continue;
+      return el;
+    }
+    return null;
+  };
+
+  const isDisabled = (el: HTMLElement): boolean =>
+    (el instanceof HTMLButtonElement && el.disabled) ||
+    el.getAttribute("aria-disabled") === "true" ||
+    el.className.toLowerCase().includes("disabled");
+
+  const closeDialog = (dialog: HTMLElement): void => {
+    const closeBtn = dialog.querySelector<HTMLElement>(
+      'button.lightbox-dialog__close, button[aria-label*="Close" i]',
+    );
+    if (closeBtn && isShown(closeBtn)) {
+      fireClick(closeBtn);
+      return;
+    }
+    for (const el of dialog.querySelectorAll("button, [role='button']")) {
+      if (!(el instanceof HTMLElement) || !isShown(el)) continue;
+      if (/^(close|cancel)$/i.test(normalize(el.textContent ?? ""))) {
+        fireClick(el);
+        return;
+      }
+    }
   };
 
   const key = normalize(payload.key);
-  const value = normalize(payload.value);
+  const value = normalize(payload.value.replace(/<[^>]+>/g, " "));
   if (!key || !value) {
     return { ok: false, reason: "Empty custom specific" };
   }
 
-  let field = findField(key);
-  if (field) {
-    return fillFieldValue(field, value)
+  const existing = findField(key);
+  if (existing) {
+    return fillFieldValue(existing, value)
       ? { ok: true, reason: "filled existing" }
       : { ok: false, reason: "Existing field would not accept value" };
   }
 
-  const root = attributeRoot();
-  for (const el of root.querySelectorAll("button, a, [role='button']")) {
+  const leftover = customDialog();
+  if (leftover) {
+    closeDialog(leftover);
+    await delay(200);
+  }
+
+  let opened = false;
+  const addRoot = attributeRoot();
+  for (const el of addRoot.querySelectorAll("button, a, [role='button']")) {
     if (!(el instanceof HTMLElement) || !isShown(el)) continue;
-    const text = normalize(el.textContent ?? "");
-    if (/^add( your own)?( an)? item specific$/i.test(text)) {
-      fireClick(el);
-      await delay(200);
-      break;
-    }
+    if (!/add custom item specific/i.test(normalize(el.textContent ?? ""))) continue;
+    fireClick(el);
+    opened = true;
+    break;
+  }
+  if (!opened) {
+    return { ok: false, reason: "Add custom item specific button not found" };
   }
 
-  const addInput = findAddInput();
-  if (!addInput) {
-    return { ok: false, reason: "Add item specific input not found" };
+  const startedOpen = Date.now();
+  let dialog = customDialog();
+  while (!dialog && Date.now() - startedOpen < 3000) {
+    await delay(120);
+    dialog = customDialog();
+  }
+  if (!dialog) {
+    return { ok: false, reason: "Custom specific dialog did not open" };
   }
 
-  addInput.focus();
-  setNativeValue(addInput, key);
-  await delay(250);
-  if (!clickCreateOption(key)) {
-    addInput.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true }),
-    );
-    addInput.dispatchEvent(
-      new KeyboardEvent("keyup", { key: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true }),
-    );
+  const nameInput = labeledInput(dialog, "name");
+  if (!nameInput) {
+    closeDialog(dialog);
+    return { ok: false, reason: "Name input missing in custom dialog" };
   }
-  await delay(350);
+  nameInput.focus();
+  setNativeValue(nameInput, key);
+  await delay(150);
+
+  const valueWait = Date.now();
+  let valueInput = labeledInput(dialog, "value");
+  while (
+    (!valueInput || valueInput.disabled || valueInput.getAttribute("aria-disabled") === "true") &&
+    Date.now() - valueWait < 2000
+  ) {
+    await delay(100);
+    valueInput = labeledInput(dialog, "value");
+  }
+  if (!valueInput) {
+    closeDialog(dialog);
+    return { ok: false, reason: "Value input missing in custom dialog" };
+  }
+  valueInput.focus();
+  setNativeValue(valueInput, value);
+  await delay(150);
+
+  const saveWait = Date.now();
+  let save = saveButton(dialog);
+  while (save && isDisabled(save) && Date.now() - saveWait < 2000) {
+    await delay(100);
+    save = saveButton(dialog);
+  }
+  if (!save || isDisabled(save)) {
+    closeDialog(dialog);
+    return { ok: false, reason: "Save button not ready" };
+  }
+  fireClick(save);
 
   const started = Date.now();
-  while (!findField(key) && Date.now() - started < 2000) {
+  while (customDialog() && Date.now() - started < 3000) {
+    await delay(120);
+  }
+  while (!findField(key) && Date.now() - started < 4000) {
     await delay(120);
   }
 
-  field = findField(key);
-  if (!field) {
+  if (!findField(key)) {
+    const leftoverDialog = customDialog();
+    if (leftoverDialog) closeDialog(leftoverDialog);
     return { ok: false, reason: `Custom field "${key}" did not appear` };
-  }
-  if (!fillFieldValue(field, value)) {
-    return { ok: false, reason: `Could not fill custom value for "${key}"` };
   }
   return { ok: true, reason: "added custom" };
 }

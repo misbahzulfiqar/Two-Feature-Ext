@@ -782,7 +782,16 @@ function shouldSkipSpecific(spec: ItemSpecific): boolean {
     key === "sellernotes" ||
     key === "category" ||
     key === "itemcategory" ||
-    key === "itemspecifics"
+    key === "itemspecifics" ||
+    key === "listprice" ||
+    key === "compatibility" ||
+    key === "seecompatiblevehicles" ||
+    key === "freeshipping" ||
+    key === "returnsaccepted" ||
+    key === "freereturns" ||
+    key === "count" ||
+    key === "shipping" ||
+    key === "delivery"
   ) {
     return true;
   }
@@ -812,75 +821,6 @@ async function expandHiddenAttributes(root: ParentNode): Promise<void> {
     fireClick(more);
     await delay(250);
   }
-}
-
-function findAddSpecificInput(root: ParentNode): HTMLInputElement | null {
-  const inputs = root.querySelectorAll("input[type='text'], input:not([type]), input.textbox__control");
-  for (const input of inputs) {
-    if (!(input instanceof HTMLInputElement)) continue;
-    const name = input.name || "";
-    const placeholder = input.placeholder || "";
-    const aria = input.getAttribute("aria-label") || "";
-    const haystack = `${name} ${placeholder} ${aria}`.toLowerCase();
-    if (
-      /unused/.test(haystack) ||
-      /add( an)?( your own)? item specific/.test(haystack) ||
-      /search (for )?(an )?item specific/.test(haystack) ||
-      /select item specific/.test(haystack) ||
-      /custom item specific/.test(haystack) ||
-      /select or add/.test(haystack)
-    ) {
-      return input;
-    }
-  }
-  return null;
-}
-
-function clickAddSpecificButton(root: ParentNode): boolean {
-  const controls = root.querySelectorAll("button, a, [role='button']");
-  for (const el of controls) {
-    const text = (el.textContent ?? "").replace(/\s+/g, " ").trim();
-    if (/^add( your own)?( an)? item specific/i.test(text) && el instanceof HTMLElement) {
-      el.click();
-      return true;
-    }
-  }
-  return false;
-}
-
-async function addAndFillMissingSpecific(spec: ItemSpecific): Promise<boolean> {
-  const root = attributeRoot();
-  clickAddSpecificButton(root);
-  await delay(200);
-
-  const addInput = findAddSpecificInput(root);
-  if (!addInput) {
-    return false;
-  }
-
-  addInput.focus();
-  setNativeValue(addInput, spec.key);
-  addInput.dispatchEvent(
-    new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
-  );
-  const optionRoot =
-    addInput.closest(".fake-menu-button") ??
-    addInput.closest('[data-testid="menu-container"]') ??
-    (root instanceof Element ? root : document.body);
-  clickMatchingOption(optionRoot, spec.key);
-  await delay(350);
-
-  const fields = findAttributeFields(spec.key);
-  if (fields.length === 0) {
-    return false;
-  }
-
-  for (const field of fields) {
-    if (await fillAttributeField(field, spec.value)) {
-      return true;
-    }
-  }
-  return false;
 }
 
 async function fillExistingSpecific(spec: ItemSpecific): Promise<boolean> {
@@ -922,6 +862,9 @@ async function requestMainCustom(key: string, value: string): Promise<boolean> {
       key,
       value,
     })) as FillItemCustomResponse | undefined;
+    if (!response?.ok) {
+      console.log("[SellSimilar][specifics] custom failed", key, response?.reason ?? "no response");
+    }
     return Boolean(response?.ok);
   } catch {
     return false;
@@ -985,11 +928,10 @@ export async function fillEbayListingSpecifics(
         break;
       }
 
-      const added =
-        (await addAndFillMissingSpecific(toFill)) ||
-        (await requestMainCustom(toFill.key, toFill.value));
+      const added = await requestMainCustom(toFill.key, toFill.value);
       if (added) {
         filledThis = true;
+        await delay(250);
         break;
       }
     }

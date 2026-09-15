@@ -151,8 +151,9 @@ export function showNativeFitmentCards(_filled: number): { ok: boolean } {
 }
 
 /**
- * Apply vehicles through eBay's sellfit persist API, then load the native
- * fitment-cards view so Edit can open the real vehicle modal.
+ * Apply vehicles through eBay's sellfit persist API. Do not reload or
+ * inspect the Compatibility iframe afterward; persist fitmentCount is the
+ * saved listing count.
  */
 export async function persistFitmentViaApi(
   meta: FitmentPersistMeta,
@@ -281,19 +282,107 @@ export async function persistFitmentViaApi(
   }
   const metaJson = (await metaRes.json()) as {
     metadata?: unknown;
-    treeDisplay?: { props?: Array<{ propertyName?: string }> };
+    searchProps?: Array<{ propertyName?: string }>;
+    treeDisplay?: {
+      props?: Array<{ propertyName?: string }>;
+      child?: unknown;
+    };
   };
 
-  const props =
-    metaJson.treeDisplay?.props
-      ?.map((item) => String(item.propertyName || "").trim())
-      .filter((name) => name && name.toLowerCase() !== "notes") ?? [];
-  const nestProps = props.length >= 3 ? props : ["Make", "Model", "Year", "Trim", "Engine"];
+  function isNotesProp(name: string): boolean {
+    return /^notes$/i.test(name);
+  }
+
+  function propertyNameFromUnknown(item: unknown): string {
+    if (typeof item === "string") {
+      return item.trim();
+    }
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      return "";
+    }
+    const record = item as Record<string, unknown>;
+    return String(record.propertyName || record.name || "").trim();
+  }
+
+  /**
+   * Native persist metadata is an array of property names, ending in either
+   * "Notes" or the [selected, total, notes] tuple. countProps (Trim/Engine)
+   * live here, not on the L1 treeDisplay.props list.
+   */
+  function propertyNamesFromMetadata(metadata: unknown): string[] {
+    if (!Array.isArray(metadata)) {
+      return [];
+    }
+    const names: string[] = [];
+    for (const item of metadata) {
+      const name = propertyNameFromUnknown(item);
+      if (name && !isNotesProp(name)) {
+        names.push(name);
+      }
+    }
+    return names;
+  }
+
+  /**
+   * Native getTreeLeaves flattens treeDisplay including nested `child`
+   * (Trim/Engine). Reading only `.props` is what collapsed 20 rows into
+   * Dodge → Dakota → 2004.
+   */
+  function propertyNamesFromTreeDisplay(treeDisplay: unknown): string[] {
+    const names: string[] = [];
+    let node: unknown = treeDisplay;
+    while (node && typeof node === "object") {
+      const record = node as { props?: unknown; child?: unknown };
+      if (Array.isArray(record.props)) {
+        for (const prop of record.props) {
+          const name = propertyNameFromUnknown(prop);
+          if (name && !isNotesProp(name)) {
+            names.push(name);
+          }
+        }
+      }
+      node = record.child;
+    }
+    return names;
+  }
+
+  const metadataProps = propertyNamesFromMetadata(metaJson.metadata);
+  const treeDisplayProps = propertyNamesFromTreeDisplay(metaJson.treeDisplay);
+  const searchProps =
+    metaJson.searchProps
+      ?.map((item) => propertyNameFromUnknown(item))
+      .filter((name) => name && !isNotesProp(name)) ?? [];
+
+  let nestProps = metadataProps;
+  if (treeDisplayProps.length > nestProps.length) {
+    nestProps = treeDisplayProps;
+  }
+  if (searchProps.length > nestProps.length) {
+    nestProps = searchProps;
+  }
+  const sourceHasTrimOrEngine = rows.some(
+    (row) => String(row.trim || "").trim() || String(row.engine || "").trim(),
+  );
+  if (nestProps.length <= 3 && sourceHasTrimOrEngine) {
+    nestProps = ["Make", "Model", "Year", "Trim", "Engine"];
+  }
+  const usingFallbackProps = nestProps.length < 3;
+  if (usingFallbackProps) {
+    nestProps = ["Make", "Model", "Year", "Trim", "Engine"];
+  }
   const KNOWN_PROPS = ["year", "make", "model", "trim", "submodel", "engine"];
   console.info(`${SS} metadata ok`, {
-    ebayProps: props,
+    metadataProps,
+    treeDisplayProps,
+    searchProps,
     nestPropsUsed: nestProps,
-    usingFallbackProps: props.length < 3,
+    usingFallbackProps,
+    treeDisplayHasChild: Boolean(
+      metaJson.treeDisplay &&
+        typeof metaJson.treeDisplay === "object" &&
+        "child" in metaJson.treeDisplay &&
+        metaJson.treeDisplay.child,
+    ),
     unmappedProps: nestProps.filter(
       (prop) => !KNOWN_PROPS.includes(String(prop).toLowerCase()),
     ),
@@ -314,7 +403,52 @@ export async function persistFitmentViaApi(
     return { ok: false, error: "Could not build persist payload from scraped rows" };
   }
 
+  function countSelectedLeaves(value: unknown): number {
+    let total = 0;
+    const walk = (node: unknown): void => {
+      if (typeof node === "number" && Number.isFinite(node)) {
+        total += node;
+        return;
+      }
+      if (Array.isArray(node)) {
+        // Native summary collapses a year/make node to a number, then filter-db
+        // rewrites it as [0, count, null]. Selected leaves are [true, n, notes].
+        // Unselected leaves are [false, 0, notes]. Count from slot 1 when > 0.
+        const flag = node[0];
+        const count = Number(node[1]);
+        if (count > 0 && Number.isFinite(count)) {
+          total += count;
+          return;
+        }
+        if (flag === true || flag === 1) {
+          total += 1;
+        }
+        return;
+      }
+      if (node && typeof node === "object") {
+        const record = node as Record<string, unknown>;
+        if ("selected" in record || "total" in record) {
+          const selected = record.selected;
+          if (selected === true) {
+            total += Number(record.total) > 0 ? Number(record.total) : 1;
+          } else if (typeof selected === "number" && selected > 0) {
+            total += selected;
+          }
+          return;
+        }
+        for (const child of Object.values(record)) {
+          walk(child);
+        }
+      }
+    };
+    walk(value);
+    return total;
+  }
+
   function unselectFitmentLeaves(value: unknown): unknown {
+    if (typeof value === "number") {
+      return [false, 0, null];
+    }
     if (Array.isArray(value)) {
       return [false, 0, value[2] ?? null];
     }
@@ -332,68 +466,122 @@ export async function persistFitmentViaApi(
     return out;
   }
 
-  function mergeFitmentTrees(
-    base: Record<string, unknown>,
-    overlay: Record<string, unknown>,
-  ): Record<string, unknown> {
-    const result: Record<string, unknown> = { ...base };
-    for (const [key, value] of Object.entries(overlay)) {
-      const existing = result[key];
-      const overlayIsLeaf = Array.isArray(value);
-      const existingIsBranch =
-        existing && typeof existing === "object" && !Array.isArray(existing);
-      const overlayIsBranch = value && typeof value === "object" && !Array.isArray(value);
-      if (overlayIsLeaf || !overlayIsBranch || !existingIsBranch) {
-        result[key] = value;
-        continue;
-      }
-      result[key] = mergeFitmentTrees(
-        existing as Record<string, unknown>,
-        value as Record<string, unknown>,
-      );
-    }
-    return result;
-  }
-
-  async function existingUnselectedTree(): Promise<Record<string, unknown>> {
+  async function fetchSummaryState(): Promise<{
+    tree: Record<string, unknown> | null;
+    treeSelected: number;
+    fitmentCount: number | null;
+    keys: string[];
+    sample: string;
+  }> {
     try {
       const response = await fetch(`/sellfit/api/summary?${query.toString()}`, {
         credentials: "include",
       });
       if (!response.ok) {
-        return {};
+        return { tree: null, treeSelected: 0, fitmentCount: null, keys: [], sample: "" };
       }
-      const body = (await response.json()) as { filterTree?: unknown };
-      const tree = body.filterTree;
-      if (!tree || typeof tree !== "object" || Array.isArray(tree)) {
-        return {};
+      const body = (await response.json()) as Record<string, unknown>;
+      const nested =
+        body.summary && typeof body.summary === "object" && !Array.isArray(body.summary)
+          ? (body.summary as Record<string, unknown>)
+          : body.data && typeof body.data === "object" && !Array.isArray(body.data)
+            ? (body.data as Record<string, unknown>)
+            : body;
+      const rawCount = Number(nested.fitmentCount ?? body.fitmentCount);
+      const fitmentCount = Number.isFinite(rawCount) ? rawCount : null;
+      let tree: Record<string, unknown> | null = null;
+      let treeKey = "";
+      for (const key of ["filterTree", "fitmentTree", "tree", "fitments", "selectedTree"]) {
+        const candidate = nested[key] ?? body[key];
+        if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) {
+          tree = candidate as Record<string, unknown>;
+          treeKey = key;
+          break;
+        }
       }
-      const cleared = unselectFitmentLeaves(tree);
-      if (cleared && typeof cleared === "object" && !Array.isArray(cleared)) {
-        return cleared as Record<string, unknown>;
-      }
+      return {
+        tree,
+        treeSelected: tree ? countSelectedLeaves(tree) : 0,
+        fitmentCount,
+        keys: Object.keys(body),
+        sample: JSON.stringify({
+          fitmentCount,
+          treeKey,
+          tree,
+        }).slice(0, 1200),
+      };
     } catch {
-      return {};
+      return { tree: null, treeSelected: 0, fitmentCount: null, keys: [], sample: "" };
     }
-    return {};
   }
 
-  const existingTree = await existingUnselectedTree();
-  console.info(`${SS} existing summary tree`, {
-    topLevelKeys: Object.keys(existingTree),
-    empty: Object.keys(existingTree).length === 0,
-  });
-  const persistPayload = mergeFitmentTrees(existingTree, fitments);
-  console.info(`${SS} persist payload`, {
-    topLevelKeys: Object.keys(persistPayload),
-    json: JSON.stringify(persistPayload).slice(0, 2000),
-  });
+  function countFromCompatibilityHeading(): number {
+    const heading = document.querySelector(
+      ".smry.summary--fitments h3.message, .summary--fitments h3.message",
+    );
+    const match = heading?.textContent?.match(/(\d+)\s+vehicle/i);
+    if (!match?.[1]) {
+      return 0;
+    }
+    const count = Number.parseInt(match[1], 10);
+    return Number.isNaN(count) ? 0 : count;
+  }
+
+  function persistBodyError(body: unknown): string | null {
+    if (!body || typeof body !== "object") {
+      return null;
+    }
+    const record = body as Record<string, unknown>;
+    if (record.success === false || record.ok === false) {
+      return String(record.error || record.message || record.errorMsg || "Persist response indicated failure");
+    }
+    if (typeof record.error === "string" && record.error.trim()) {
+      return record.error;
+    }
+    if (typeof record.errorMsg === "string" && record.errorMsg.trim()) {
+      return record.errorMsg;
+    }
+    if (typeof record.status === "string" && record.status && !/^success$/i.test(record.status)) {
+      return `Persist status ${record.status}`;
+    }
+    if (typeof record.ack === "string" && /fail/i.test(record.ack)) {
+      return `Persist ack ${record.ack}`;
+    }
+    return null;
+  }
+
+  function persistCountFromBody(body: unknown): number | null {
+    if (!body || typeof body !== "object") {
+      return null;
+    }
+    const count = Number((body as Record<string, unknown>).fitmentCount);
+    return Number.isFinite(count) ? count : null;
+  }
+
+  async function persistToken(): Promise<string> {
+    const csrfRes = await fetch(`/sellfit/api/csrf?session=${encodeURIComponent(session)}`, {
+      credentials: "include",
+    });
+    if (!csrfRes.ok) {
+      return "";
+    }
+    const csrfJson = (await csrfRes.json()) as Record<string, string>;
+    return csrfJson.persist || "";
+  }
 
   async function persistTree(
     token: string,
     tree: Record<string, unknown>,
-  ): Promise<Response> {
-    return fetch("/sellfit/api/persist", {
+  ): Promise<{
+    ok: boolean;
+    error?: string;
+    fitmentCount: number | null;
+    status: string;
+    httpStatus: number;
+    errorMsg: string | null;
+    body: unknown;
+  }> {
+    const persistRes = await fetch("/sellfit/api/persist", {
       method: "POST",
       credentials: "include",
       headers: {
@@ -406,78 +594,163 @@ export async function persistFitmentViaApi(
         fitments: tree,
       }),
     });
-  }
-
-  const persistRes = await persistTree(csrf.persist || "", persistPayload);
-  if (!persistRes.ok) {
-    const body = await persistRes.text();
-    console.warn(`${SS} persist FAILED`, {
-      status: persistRes.status,
-      body: body.slice(0, 1000),
-    });
-    return { ok: false, error: `Persist failed (${persistRes.status}) ${body.slice(0, 180)}` };
-  }
-
-  const persistBody = await persistRes.json().catch(() => undefined);
-  console.info(`${SS} persist ok`, { status: persistRes.status, response: persistBody });
-  const filled = rows.length;
-
-  /**
-   * Ask eBay how many vehicles it actually has now, rather than assuming our
-   * row count landed. Selected leaves are [selected, count, notes] tuples.
-   */
-  async function serverVehicleCount(): Promise<number> {
-    try {
-      const response = await fetch(`/sellfit/api/summary?${query.toString()}`, {
-        credentials: "include",
+    if (!persistRes.ok) {
+      const body = await persistRes.text();
+      console.warn(`${SS} persist FAILED`, {
+        httpStatus: persistRes.status,
+        body: body.slice(0, 1000),
       });
-      if (!response.ok) {
-        return 0;
-      }
-      const body = (await response.json()) as Record<string, unknown>;
-      let total = 0;
-      const walk = (value: unknown): void => {
-        if (Array.isArray(value)) {
-          if (value[0] === true) {
-            total += Number(value[1]) > 0 ? Number(value[1]) : 1;
-          }
-          return;
-        }
-        if (value && typeof value === "object") {
-          for (const child of Object.values(value as Record<string, unknown>)) {
-            walk(child);
-          }
-        }
+      return {
+        ok: false,
+        error: `Persist failed (${persistRes.status}) ${body.slice(0, 180)}`,
+        fitmentCount: null,
+        status: String(persistRes.status),
+        httpStatus: persistRes.status,
+        errorMsg: body.slice(0, 180) || null,
+        body,
       };
-      for (const key of ["filterTree", "fitmentTree", "tree", "fitments", "selectedTree"]) {
-        const candidate = body[key];
-        if (candidate && typeof candidate === "object") {
-          walk(candidate);
-          break;
-        }
-      }
-      return total;
-    } catch {
-      return 0;
+    }
+    const persistBody = await persistRes.json().catch(() => undefined);
+    const bodyError = persistBodyError(persistBody);
+    const fitmentCount = persistCountFromBody(persistBody);
+    const errorMsg =
+      persistBody && typeof persistBody === "object"
+        ? typeof (persistBody as Record<string, unknown>).errorMsg === "string"
+          ? String((persistBody as Record<string, unknown>).errorMsg)
+          : null
+        : null;
+    const status =
+      persistBody && typeof persistBody === "object"
+        ? String((persistBody as Record<string, unknown>).status || persistRes.status)
+        : String(persistRes.status);
+    if (bodyError) {
+      console.warn(`${SS} persist REJECTED`, { httpStatus: persistRes.status, response: persistBody });
+      return {
+        ok: false,
+        error: bodyError,
+        fitmentCount,
+        status,
+        httpStatus: persistRes.status,
+        errorMsg: errorMsg || bodyError,
+        body: persistBody,
+      };
+    }
+    console.info(`${SS} persist ok`, { httpStatus: persistRes.status, response: persistBody });
+    return {
+      ok: true,
+      fitmentCount,
+      status,
+      httpStatus: persistRes.status,
+      errorMsg,
+      body: persistBody,
+    };
+  }
+
+  const existing = await fetchSummaryState();
+  const headingCount = countFromCompatibilityHeading();
+  const existingCount = [existing.fitmentCount, existing.treeSelected, headingCount].find(
+    (count) => typeof count === "number" && count > 0,
+  ) ?? 0;
+  console.info("[fitment][target] target existing count =", existingCount);
+  console.info("[fitment][target] target existing tree/sample =", existing.sample);
+  console.info("[fitment][persist] source rows =", rows.length);
+  console.info("[fitment][persist] existing rows =", existingCount);
+  console.info("[fitment][persist] operation = REPLACE");
+  console.info(`${SS} existing target`, {
+    summaryFitmentCount: existing.fitmentCount,
+    treeSelected: existing.treeSelected,
+    headingCount,
+    summaryKeys: existing.keys,
+  });
+
+  const emptied = existing.tree
+    ? (unselectFitmentLeaves(existing.tree) as Record<string, unknown>)
+    : {};
+  console.info("[fitment][persist] unselect payload =", JSON.stringify(emptied).slice(0, 1200));
+  console.info("[fitment][persist] payload =", JSON.stringify(fitments).slice(0, 2000));
+
+  if (existingCount > 0 && Object.keys(emptied).length === 0) {
+    console.warn(`${SS} cannot REPLACE: eBay reports ${existingCount} vehicles but summary tree was empty`);
+    return {
+      ok: false,
+      filled: 0,
+      error: `Could not read existing target fitment tree to replace (${existingCount} vehicles). Target left unchanged.`,
+    };
+  }
+
+  if (existingCount > 0 && Object.keys(emptied).length > 0) {
+    const clearToken = csrf.persist || "";
+    const cleared = await persistTree(clearToken, emptied);
+    console.info("[fitment][persist] unselect status =", cleared.status);
+    console.info("[fitment][persist] unselect fitmentCount =", cleared.fitmentCount);
+    if (!cleared.ok) {
+      return { ok: false, error: cleared.error || "Could not clear existing fitment before replace" };
+    }
+    const remaining =
+      cleared.fitmentCount ?? (await fetchSummaryState()).fitmentCount;
+    if (remaining == null) {
+      console.warn(`${SS} unselect response had no fitmentCount`);
+      return {
+        ok: false,
+        filled: 0,
+        error: "Could not confirm existing vehicles were cleared before replace. Target left unchanged.",
+      };
+    }
+    if (remaining > 0) {
+      console.warn(`${SS} unselect did not clear target`, {
+        remaining,
+        existingCount,
+      });
+      return {
+        ok: false,
+        filled: remaining,
+        error: `Could not clear existing vehicles before replace (server ${remaining}, expected 0). Target left unchanged.`,
+      };
     }
   }
 
-  const confirmed = await serverVehicleCount();
-  console.info(`${SS} server confirms ${confirmed} vehicles`);
-
-  // Show the count eBay actually holds, once. Nothing is written to
-  // sessionStorage: a stored count outlives the page and goes stale, which is
-  // how the summary ended up showing an old number over the real one.
-  const shown = confirmed > 0 ? confirmed : filled;
-  const heading = document.querySelector(
-    ".smry.summary--fitments h3.message, .summary--fitments h3.message",
-  );
-  if (heading) {
-    heading.textContent =
-      shown === 1 ? "1 compatible vehicle added." : `${shown} compatible vehicles added.`;
+  const saveToken = existingCount > 0 ? (await persistToken()) || csrf.persist || "" : csrf.persist || "";
+  const saved = await persistTree(saveToken, fitments);
+  console.info("[fitment][persist] HTTP status =", saved.httpStatus);
+  console.info("[fitment][persist] response status =", saved.status);
+  console.info("[fitment][persist] response fitmentCount =", saved.fitmentCount);
+  console.info("[fitment][persist] response errorMsg =", saved.errorMsg);
+  console.info("[fitment][persist] expected source row count =", rows.length);
+  if (!saved.ok) {
+    if (existingCount > 0 && existing.tree) {
+      const restoreToken = (await persistToken()) || csrf.persist || "";
+      await persistTree(restoreToken, existing.tree);
+    }
+    return { ok: false, error: saved.error };
   }
 
-  // Drop leftovers from the old inject-our-own-cards approach.
+  // Native sellfit assigns summary.fitmentCount from this persist body. That is
+  // the saved listing count, not the Compatibility iframe's displayed text.
+  const persistedCount = saved.fitmentCount;
+  const passed =
+    saved.httpStatus === 200 &&
+    /^success$/i.test(saved.status) &&
+    !saved.errorMsg &&
+    persistedCount === rows.length;
+  console.info("[fitment][verify] persist fitmentCount =", persistedCount);
+  console.info("[fitment][verify] expected count =", rows.length);
+  console.info("[fitment][verify] result =", passed ? "PASS" : "FAIL");
+
+  if (!passed) {
+    console.warn(`${SS} REPLACE MISMATCH`, {
+      httpStatus: saved.httpStatus,
+      responseStatus: saved.status,
+      persistFitmentCount: saved.fitmentCount,
+      errorMsg: saved.errorMsg,
+      expected: rows.length,
+    });
+    return {
+      ok: false,
+      filled: persistedCount ?? 0,
+      error: `Fitment save did not replace existing vehicles (server ${persistedCount}, expected ${rows.length})`,
+    };
+  }
+
   document.querySelectorAll(".ss-fitment-card-list, .ss-fits-cards").forEach((node) => {
     node.remove();
   });
@@ -491,8 +764,9 @@ export async function persistFitmentViaApi(
     // sessionStorage may be blocked
   }
 
-  return { ok: true, filled: shown };
+  return { ok: true, filled: persistedCount };
 }
+
 
 /**
  * Unselect every vehicle on the listing through eBay's own persist API.
@@ -526,9 +800,16 @@ export async function clearFitmentViaApi(
   let cleared = 0;
 
   function unselectLeaves(value: unknown): unknown {
+    if (typeof value === "number") {
+      if (value > 0) {
+        cleared += value;
+      }
+      return [false, 0, null];
+    }
     if (Array.isArray(value)) {
-      if (value[0] === true || Number(value[1]) > 0) {
-        cleared += 1;
+      const count = Number(value[1]);
+      if (value[0] === true || count > 0) {
+        cleared += count > 0 ? count : 1;
       }
       return [false, 0, value[2] ?? null];
     }
@@ -618,14 +899,6 @@ export async function clearFitmentViaApi(
     const persistBody = await persistRes.json().catch(() => undefined);
     console.info(`${SS} persist ok`, { status: persistRes.status, response: persistBody });
 
-    const heading = document.querySelector(
-      ".smry.summary--fitments h3.message, .summary--fitments h3.message",
-    );
-    if (heading) {
-      heading.textContent = "No compatible vehicles added.";
-    }
-    // Never leave a stored count behind: it outlives the page and reappears
-    // over eBay's own, correct, server-rendered number.
     try {
       sessionStorage.removeItem("ss-fitment-overlay");
       sessionStorage.removeItem("ss-fitment-cards");

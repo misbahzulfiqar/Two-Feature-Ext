@@ -39,7 +39,7 @@ export function restoreListingScroll(position: ListingScrollPosition): void {
 function isProtected(el: HTMLElement): boolean {
   return Boolean(
     el.closest(
-      "[data-sell-similar-assistant], .assistant, #sell-similar-root, [data-sell-similar], .summary__description, [inflow*='description' i], [inflow*='itemDescription' i], .summary__photos, [inflow*='photo' i]",
+      "[data-sell-similar-assistant], .assistant, #sell-similar-root, [data-sell-similar], .summary__description, [inflow*='description' i], [inflow*='itemDescription' i], .summary__photos, [inflow*='photo' i], .summary--fitments, .smry.summary--fitments, .fitment-wrapper, [data-testid='fitment-frame']",
     ),
   );
 }

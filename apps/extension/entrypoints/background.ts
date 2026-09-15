@@ -42,7 +42,6 @@ import {
   guardFitmentTree,
   inspectFitmentPicker,
   isFitmentMainRequest,
-  keepFitmentSummaryVisible,
   persistFitmentViaApi,
   saveFitmentPicker,
   selectFitmentControl,
@@ -87,18 +86,6 @@ async function sellfitFrameIds(tabId: number): Promise<number[]> {
   return (frames ?? [])
     .filter((frame) => frame.frameId !== 0 && /\/sellfit/i.test(frame.url))
     .map((frame) => frame.frameId);
-}
-
-async function showFitmentSummary(tabId: number): Promise<void> {
-  try {
-    await browser.scripting.executeScript({
-      target: { tabId },
-      world: "MAIN",
-      func: keepFitmentSummaryVisible,
-    });
-  } catch {
-    // listing frame may have been replaced
-  }
 }
 
 async function runInFrames<T>(
@@ -153,7 +140,6 @@ async function handleFitmentMain(
       return { ok: ok || frameIds.length === 0, patched };
     }
     case "dismiss": {
-      await showFitmentSummary(tabId);
       return { ok: true };
     }
     case "ready": {
@@ -207,9 +193,6 @@ async function handleFitmentMain(
         if (!value) {
           return { ok: false, error: "Persist script did not run" };
         }
-        if (value.ok) {
-          await showFitmentSummary(tabId);
-        }
         return {
           ok: Boolean(value.ok),
           filled: value.filled,
@@ -232,9 +215,6 @@ async function handleFitmentMain(
         if (!value) {
           return { ok: false, error: "Clear script did not run" };
         }
-        if (value.ok) {
-          await showFitmentSummary(tabId);
-        }
         return { ok: Boolean(value.ok), cleared: value.cleared, error: value.error };
       } catch (error) {
         return {
@@ -250,7 +230,29 @@ async function handleFitmentMain(
   }
 }
 
+async function unregisterStaleFitmentScripts(): Promise<void> {
+  try {
+    const scripts = await browser.scripting.getRegisteredContentScripts();
+    const staleIds = scripts
+      .filter((script) => {
+        const hay = [script.id, ...(script.js ?? []), ...(script.matches ?? [])].join(" ");
+        return /fitment-frame|hide-fitment|sellfit/i.test(hay);
+      })
+      .map((script) => script.id);
+    if (staleIds.length > 0) {
+      await browser.scripting.unregisterContentScripts({ ids: staleIds });
+    }
+  } catch {
+    // Older Chrome or missing permission — ignore.
+  }
+}
+
 export default defineBackground(() => {
+  void unregisterStaleFitmentScripts();
+  browser.runtime.onInstalled.addListener(() => {
+    void unregisterStaleFitmentScripts();
+  });
+
   const api = new SellSimilarApiClient({
     baseUrl: apiBaseUrl,
     fetch: (input, init) => fetch(input, init),

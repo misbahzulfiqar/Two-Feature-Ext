@@ -23,14 +23,14 @@ export function restoreListingPageInPage(): RestoreListingPageMainResult {
     if (!(el instanceof HTMLElement)) return true;
     return Boolean(
       el.closest(
-        "[data-sell-similar-assistant], .assistant, #sell-similar-root, [data-sell-similar], .summary__description, [inflow*='description' i], [inflow*='itemDescription' i], .summary__photos, [inflow*='photo' i], .ux-image-grid, .x-photos",
+        "[data-sell-similar-assistant], .assistant, #sell-similar-root, [data-sell-similar], .summary__description, [inflow*='description' i], [inflow*='itemDescription' i], .summary__photos, [inflow*='photo' i], .ux-image-grid, .x-photos, .summary--fitments, .smry.summary--fitments, .fitment-wrapper, [data-testid='fitment-frame']",
       ),
     );
   };
 
   const isMask = (el: HTMLElement): boolean => {
     const hay = `${el.className} ${el.id}`.toLowerCase();
-    return /mask|keyboard-trap/.test(hay) && !/image|photo|picture/.test(hay);
+    return /mask|keyboard-trap/.test(hay) && !/image|photo|picture|fitment|sellfit|compat/.test(hay);
   };
 
   const unlockPage = (el: HTMLElement): void => {
