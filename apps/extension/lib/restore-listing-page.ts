@@ -39,7 +39,7 @@ export function restoreListingScroll(position: ListingScrollPosition): void {
 function isProtected(el: HTMLElement): boolean {
   return Boolean(
     el.closest(
-      "[data-sell-similar-assistant], .assistant, #sell-similar-root, [data-sell-similar], .summary__description, [inflow*='description' i], [inflow*='itemDescription' i], .summary__photos, [inflow*='photo' i]",
+      "[data-sell-similar-assistant], .assistant, #sell-similar-root, [data-sell-similar], .summary__description, [inflow*='description' i], [inflow*='itemDescription' i], .summary__photos, [inflow*='photo' i], .summary--fitments, .smry.summary--fitments, .fitment-wrapper, [data-testid='fitment-frame']",
     ),
   );
 }
@@ -78,20 +78,22 @@ async function restoreIsolated(): Promise<void> {
   }
 
   for (const el of [document.body, document.documentElement]) {
-    el.style.removeProperty("overflow");
-    el.style.removeProperty("position");
-    el.style.removeProperty("height");
-    el.style.removeProperty("touch-action");
+    el.classList.remove("no-touch");
     el.classList.remove("keyboard-trap--active");
-    el.removeAttribute("inert");
+    el.style.removeProperty("position");
+    el.style.removeProperty("overflow");
+    el.style.removeProperty("overflow-y");
+    el.style.removeProperty("overflow-x");
+    el.style.removeProperty("height");
+    el.style.removeProperty("width");
+    el.style.removeProperty("margin-top");
+    el.style.removeProperty("touch-action");
   }
 
   document.querySelectorAll("#mainContent, .main__container, .main__container--form").forEach((node) => {
     if (!(node instanceof HTMLElement)) return;
     node.removeAttribute("aria-hidden");
     node.removeAttribute("inert");
-    node.style.setProperty("overflow", "auto", "important");
-    node.scrollTop = 0;
   });
 
   document.body.style.setProperty("overflow", "auto", "important");

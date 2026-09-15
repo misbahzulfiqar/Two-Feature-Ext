@@ -1,4 +1,10 @@
 import type { ItemSpecific } from "@sell-similar/contracts";
+import {
+  FILL_ITEM_CUSTOM,
+  FILL_ITEM_YES_NO,
+  type FillItemCustomResponse,
+  type FillItemYesNoResponse,
+} from "./specifics-messages.ts";
 
 export type FillSpecificsResult = {
   filled: number;
@@ -7,6 +13,17 @@ export type FillSpecificsResult = {
 
 function compactKey(key: string): string {
   return key.replace(/[^a-z0-9]/gi, "").toLowerCase();
+}
+
+const ALWAYS_NO_SPECIFICS: ItemSpecific[] = [
+  { key: "Performance Part", value: "No" },
+  { key: "Vintage Part", value: "No" },
+  { key: "Universal Fitment", value: "No" },
+];
+
+function isAlwaysNoSpecific(key: string): boolean {
+  const wanted = compactKey(key);
+  return ALWAYS_NO_SPECIFICS.some((spec) => compactKey(spec.key) === wanted);
 }
 
 function isSchemaClassValue(value: string): boolean {
@@ -89,47 +106,30 @@ function clippedValue(
   return value.slice(0, maxLength);
 }
 
-function splitForInputLimit(value: string, maxLength: number): string[] {
+function specificValues(value: string): string[] {
+  return value
+    .split(/\s*,\s*/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function splitSearchBoxValues(value: string, maxLength: number): string[] {
   const trimmed = value.trim();
   if (!trimmed) {
     return [];
   }
-  if (trimmed.length <= maxLength) {
-    return [trimmed];
-  }
 
-  const parts = trimmed
-    .split(/\s*,\s*/)
-    .map((part) => part.trim())
-    .filter(Boolean);
+  const parts = specificValues(trimmed);
   const chunks: string[] = [];
-  let current = "";
 
   for (const part of parts) {
-    if (part.length > maxLength) {
-      if (current) {
-        chunks.push(current);
-        current = "";
-      }
-      for (let index = 0; index < part.length; index += maxLength) {
-        chunks.push(part.slice(index, index + maxLength));
-      }
+    if (part.length <= maxLength) {
+      chunks.push(part);
       continue;
     }
-
-    const next = current ? `${current}, ${part}` : part;
-    if (next.length <= maxLength) {
-      current = next;
-    } else {
-      if (current) {
-        chunks.push(current);
-      }
-      current = part;
+    for (let index = 0; index < part.length; index += maxLength) {
+      chunks.push(part.slice(index, index + maxLength));
     }
-  }
-
-  if (current) {
-    chunks.push(current);
   }
   return chunks;
 }
@@ -185,6 +185,13 @@ function clickMatchingOption(field: Element, value: string): boolean {
     }
   }
   if (!best) return false;
+  if (
+    best.getAttribute("aria-selected") === "true" ||
+    best.getAttribute("aria-checked") === "true" ||
+    best.querySelector("input:checked")
+  ) {
+    return true;
+  }
   fireClick(best);
   return true;
 }
@@ -213,6 +220,20 @@ function attributeValueRoot(field: Element): Element {
   return field.querySelector(".summary__attributes--value") ?? field;
 }
 
+function yesNoPillSelected(pill: HTMLElement): boolean {
+  const radio = pill.querySelector("input[type='radio']");
+  if (radio instanceof HTMLInputElement && radio.checked) {
+    return true;
+  }
+  return (
+    pill.getAttribute("aria-pressed") === "true" ||
+    pill.getAttribute("aria-checked") === "true" ||
+    pill.getAttribute("aria-selected") === "true" ||
+    pill.className.toLowerCase().includes("selected") ||
+    pill.className.toLowerCase().includes("pressed")
+  );
+}
+
 function clickYesNo(field: Element, value: string): boolean {
   const wanted = normalizeYesNo(value);
   if (!wanted) {
@@ -220,6 +241,26 @@ function clickYesNo(field: Element, value: string): boolean {
   }
 
   const root = attributeValueRoot(field);
+
+  const pills = root.querySelectorAll(".filter-button, button.filter-button, label.filter-button");
+  for (const pill of pills) {
+    if (!(pill instanceof HTMLElement) || !isShown(pill)) {
+      continue;
+    }
+    const labeled = (pill.querySelector(".filter-button__text")?.textContent ?? "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .toLowerCase();
+    const text = labeled || (pill.textContent ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+    if (text !== wanted && !new RegExp(`^${wanted}$`).test(labeled)) {
+      continue;
+    }
+    if (yesNoPillSelected(pill)) {
+      return true;
+    }
+    fireClick(pill);
+    return true;
+  }
 
   const radios = root.querySelectorAll('input[type="radio"]');
   for (const radio of radios) {
@@ -239,6 +280,9 @@ function clickYesNo(field: Element, value: string): boolean {
       .toLowerCase();
     if (normalizeYesNo(haystack) !== wanted && radio.value.trim().toLowerCase() !== wanted) {
       continue;
+    }
+    if (radio.checked) {
+      return true;
     }
     fireClick(radio);
     radio.checked = true;
@@ -289,14 +333,19 @@ async function fillSearchBoxValues(
   }
 
   const limit = searchInput.maxLength > 0 ? searchInput.maxLength : 65;
-  const chunks = splitForInputLimit(value, limit);
+  const chunks = splitSearchBoxValues(value, limit);
   if (chunks.length === 0) {
     return false;
   }
 
   let any = false;
   for (const chunk of chunks) {
+    if (fieldHasValue(field, chunk)) {
+      any = true;
+      continue;
+    }
     searchInput.focus();
+    setNativeValue(searchInput, "");
     setNativeValue(searchInput, chunk);
     searchInput.dispatchEvent(
       new KeyboardEvent("keydown", { key: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true }),
@@ -305,12 +354,10 @@ async function fillSearchBoxValues(
       new KeyboardEvent("keyup", { key: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true }),
     );
     await delay(180);
-    if (clickMatchingOption(field, chunk)) {
-      any = true;
-    } else {
-      any = true;
-    }
+    clickMatchingOption(field, chunk);
+    any = true;
     await delay(120);
+    setNativeValue(searchInput, "");
   }
 
   if (toggle instanceof HTMLElement && toggle.getAttribute("aria-expanded") === "true") {
@@ -443,7 +490,10 @@ async function confirmAttributeDialogIfNeeded(): Promise<void> {
 
 async function removeOptionalAttributes(root: ParentNode): Promise<void> {
   for (let guard = 0; guard < 40; guard += 1) {
-    const buttons = existingRemoveAttributeButtons(root);
+    const buttons = existingRemoveAttributeButtons(root).filter((button) => {
+      const field = button.closest('[data-testid="attribute"]');
+      return !(field && isAlwaysNoSpecific(fieldLabelText(field)));
+    });
     const last = buttons[buttons.length - 1];
     if (!last) {
       break;
@@ -455,22 +505,28 @@ async function removeOptionalAttributes(root: ParentNode): Promise<void> {
 }
 
 function fieldHasValue(field: Element, value: string): boolean {
-  const wanted = canonicalKey(value);
-  if (!wanted) return false;
-  const selected = selectedDropdownText(field);
-  if (selected && (canonicalKey(selected) === wanted || canonicalKey(selected).includes(wanted))) {
-    return true;
-  }
-  for (const input of field.querySelectorAll("input, textarea")) {
-    if (
-      (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement) &&
-      canonicalKey(input.value) === wanted
-    ) {
-      return true;
-    }
-  }
+  const parts = specificValues(value);
+  if (parts.length === 0) return false;
+  const selected = canonicalKey(selectedDropdownText(field));
   const chips = canonicalKey(field.textContent ?? "");
-  return Boolean(wanted.length >= 3 && chips.includes(wanted));
+  const inputValues = [...field.querySelectorAll("input, textarea")]
+    .map((input) =>
+      input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement
+        ? canonicalKey(input.value)
+        : "",
+    )
+    .join("");
+  const haystack = `${selected}${chips}${inputValues}`;
+  return parts.every((part) => {
+    const wanted = canonicalKey(part);
+    if (!wanted) return false;
+    return (
+      selected === wanted ||
+      selected.includes(wanted) ||
+      inputValues === wanted ||
+      (wanted.length >= 2 && haystack.includes(wanted))
+    );
+  });
 }
 
 function selectedDropdownText(field: Element): string {
@@ -659,13 +715,16 @@ function attributeFieldHasValue(field: Element): boolean {
 
 async function clearRemainingAttributeFields(root: ParentNode): Promise<void> {
   for (const field of root.querySelectorAll('[data-testid="attribute"]')) {
+    if (isAlwaysNoSpecific(fieldLabelText(field))) {
+      continue;
+    }
     await clearAttributeField(field);
   }
 
   // eBay re-renders rows as they clear, so sweep again for stragglers.
   for (let pass = 0; pass < 2; pass += 1) {
     const remaining = [...root.querySelectorAll('[data-testid="attribute"]')].filter(
-      attributeFieldHasValue,
+      (field) => attributeFieldHasValue(field) && !isAlwaysNoSpecific(fieldLabelText(field)),
     );
     if (remaining.length === 0) {
       break;
@@ -676,7 +735,7 @@ async function clearRemainingAttributeFields(root: ParentNode): Promise<void> {
   }
 
   const stillSet = [...root.querySelectorAll('[data-testid="attribute"]')].filter(
-    attributeFieldHasValue,
+    (field) => attributeFieldHasValue(field) && !isAlwaysNoSpecific(fieldLabelText(field)),
   );
   if (stillSet.length > 0) {
     console.warn(
@@ -706,6 +765,16 @@ export async function clearEbayListingSpecifics(): Promise<void> {
   await replaceExistingSpecifics();
 }
 
+function specificKeysToFill(spec: ItemSpecific): string[] {
+  const key = spec.key.trim();
+  if (!key) return [];
+  const compact = compactKey(key);
+  if (compact === "brand" || compact === "partbrand") {
+    return ["Part Brand", "Brand"];
+  }
+  return [key];
+}
+
 function shouldSkipSpecific(spec: ItemSpecific): boolean {
   const key = compactKey(spec.key);
   if (
@@ -713,7 +782,16 @@ function shouldSkipSpecific(spec: ItemSpecific): boolean {
     key === "sellernotes" ||
     key === "category" ||
     key === "itemcategory" ||
-    key === "itemspecifics"
+    key === "itemspecifics" ||
+    key === "listprice" ||
+    key === "compatibility" ||
+    key === "seecompatiblevehicles" ||
+    key === "freeshipping" ||
+    key === "returnsaccepted" ||
+    key === "freereturns" ||
+    key === "count" ||
+    key === "shipping" ||
+    key === "delivery"
   ) {
     return true;
   }
@@ -745,84 +823,71 @@ async function expandHiddenAttributes(root: ParentNode): Promise<void> {
   }
 }
 
-function findAddSpecificInput(root: ParentNode): HTMLInputElement | null {
-  const inputs = root.querySelectorAll("input[type='text'], input:not([type]), input.textbox__control");
-  for (const input of inputs) {
-    if (!(input instanceof HTMLInputElement)) continue;
-    const name = input.name || "";
-    const placeholder = input.placeholder || "";
-    const aria = input.getAttribute("aria-label") || "";
-    const haystack = `${name} ${placeholder} ${aria}`.toLowerCase();
-    if (
-      /unused/.test(haystack) ||
-      /add( an)?( your own)? item specific/.test(haystack) ||
-      /search (for )?(an )?item specific/.test(haystack) ||
-      /select item specific/.test(haystack)
-    ) {
-      return input;
-    }
-  }
-  return null;
-}
-
-function clickAddSpecificButton(root: ParentNode): boolean {
-  const controls = root.querySelectorAll("button, a, [role='button']");
-  for (const el of controls) {
-    const text = (el.textContent ?? "").replace(/\s+/g, " ").trim();
-    if (/^add( your own)?( an)? item specific/i.test(text) && el instanceof HTMLElement) {
-      el.click();
-      return true;
-    }
-  }
-  return false;
-}
-
-async function addAndFillMissingSpecific(spec: ItemSpecific): Promise<boolean> {
-  const root = attributeRoot();
-  clickAddSpecificButton(root);
-  await delay(200);
-
-  const addInput = findAddSpecificInput(root);
-  if (!addInput) {
-    return false;
-  }
-
-  addInput.focus();
-  setNativeValue(addInput, spec.key);
-  addInput.dispatchEvent(
-    new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
-  );
-  const optionRoot =
-    addInput.closest(".fake-menu-button") ??
-    addInput.closest('[data-testid="menu-container"]') ??
-    (root instanceof Element ? root : document.body);
-  clickMatchingOption(optionRoot, spec.key);
-  await delay(350);
-
-  const fields = findAttributeFields(spec.key);
-  if (fields.length === 0) {
-    return false;
-  }
-
-  for (const field of fields) {
-    if (await fillAttributeField(field, spec.value)) {
-      return true;
-    }
-  }
-  return false;
-}
-
 async function fillExistingSpecific(spec: ItemSpecific): Promise<boolean> {
   const fields = findAttributeFields(spec.key);
   if (fields.length === 0) {
     return false;
   }
   for (const field of fields) {
-    if ((await fillAttributeField(field, spec.value)) && fieldHasValue(field, spec.value)) {
+    const filled = await fillAttributeField(field, spec.value);
+    if (
+      filled &&
+      (normalizeYesNo(spec.value) ||
+        fieldHasValue(field, spec.value) ||
+        specificValues(spec.value).length > 1)
+    ) {
       return true;
     }
   }
   return false;
+}
+
+async function requestMainYesNo(key: string, value: string): Promise<boolean> {
+  try {
+    const response = (await browser.runtime.sendMessage({
+      type: FILL_ITEM_YES_NO,
+      key,
+      value,
+    })) as FillItemYesNoResponse | undefined;
+    return Boolean(response?.ok);
+  } catch {
+    return false;
+  }
+}
+
+async function requestMainCustom(key: string, value: string): Promise<boolean> {
+  try {
+    const response = (await browser.runtime.sendMessage({
+      type: FILL_ITEM_CUSTOM,
+      key,
+      value,
+    })) as FillItemCustomResponse | undefined;
+    if (!response?.ok) {
+      console.log("[SellSimilar][specifics] custom failed", key, response?.reason ?? "no response");
+    }
+    return Boolean(response?.ok);
+  } catch {
+    return false;
+  }
+}
+
+export async function fillForcedNoSpecifics(): Promise<void> {
+  await waitForAttributeFields();
+  await expandHiddenAttributes(attributeRoot());
+  for (const spec of ALWAYS_NO_SPECIFICS) {
+    let ok = false;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      if (await requestMainYesNo(spec.key, spec.value)) {
+        ok = true;
+        break;
+      }
+      await expandHiddenAttributes(attributeRoot());
+      await delay(200);
+    }
+    if (!ok) {
+      await fillExistingSpecific(spec);
+    }
+  }
 }
 
 export async function fillEbayListingSpecifics(
@@ -830,6 +895,9 @@ export async function fillEbayListingSpecifics(
 ): Promise<FillSpecificsResult> {
   await waitForAttributeFields();
   await replaceExistingSpecifics();
+  await expandHiddenAttributes(attributeRoot());
+  await fillForcedNoSpecifics();
+  await delay(400);
   await expandHiddenAttributes(attributeRoot());
   await delay(200);
 
@@ -841,25 +909,41 @@ export async function fillEbayListingSpecifics(
       skipped.push(spec.key);
       continue;
     }
-    if (await fillExistingSpecific(spec)) {
+    if (isAlwaysNoSpecific(spec.key)) {
       filled += 1;
       continue;
     }
+    const toFillValues = specificKeysToFill(spec);
+    let filledThis = false;
+    for (const key of toFillValues) {
+      const toFill = { key, value: spec.value };
+      if (await fillExistingSpecific(toFill)) {
+        filledThis = true;
+        break;
+      }
 
-    await expandHiddenAttributes(attributeRoot());
-    if (await fillExistingSpecific(spec)) {
-      filled += 1;
-      continue;
+      await expandHiddenAttributes(attributeRoot());
+      if (await fillExistingSpecific(toFill)) {
+        filledThis = true;
+        break;
+      }
+
+      const added = await requestMainCustom(toFill.key, toFill.value);
+      if (added) {
+        filledThis = true;
+        await delay(250);
+        break;
+      }
     }
-
-    const added = await addAndFillMissingSpecific(spec);
-    if (added) {
+    if (filledThis) {
       filled += 1;
     } else {
       console.log("[SellSimilar][specifics] skipped", spec.key, spec.value);
       skipped.push(spec.key);
     }
   }
+
+  await fillForcedNoSpecifics();
 
   console.log("[SellSimilar][specifics] result", { filled, skipped, total: specifics.length });
   return { filled, skipped };

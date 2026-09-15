@@ -81,7 +81,7 @@ export function FillOptionsMenu({
                   checked={value[option.id]}
                   onChange={() => toggleOption(option.id)}
                 />
-                <span>{option.label}</span>
+                <span className="options-item-label">{option.label}</span>
               </label>
             ))}
           </div>

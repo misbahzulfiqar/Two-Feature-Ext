@@ -19,6 +19,38 @@ import panelCss from "./panel.css?inline";
 const HOST_PAGE_STYLE_ID = "sell-similar-assistant-host-styles";
 const SHADOW_CSS = `${panelCss}\n${assistantCss}`;
 
+function hideEbayHelpControl(): void {
+  const isHelpControl = (el: HTMLElement): boolean => {
+    if (el.closest(PANEL_HOST_SELECTOR)) return false;
+    if (el.closest(".smry, .summary--fitments, .fitment-wrapper, [data-testid='fitment-frame']")) {
+      return false;
+    }
+    const aria = (el.getAttribute("aria-label") ?? "").trim();
+    const title = (el.getAttribute("title") ?? "").trim();
+    const text = (el.textContent ?? "").replace(/\s+/g, " ").trim();
+    if (/^(help|\?|get help|listing help)$/i.test(aria)) return true;
+    if (/^(help|\?)$/i.test(title)) return true;
+    if (text === "?" || text === "？") return true;
+    return false;
+  };
+
+  const hide = (el: HTMLElement): void => {
+    el.setAttribute("hidden", "");
+    el.setAttribute("aria-hidden", "true");
+    el.style.setProperty("display", "none", "important");
+    el.style.setProperty("visibility", "hidden", "important");
+    el.style.setProperty("pointer-events", "none", "important");
+  };
+
+  const header = document.querySelector(".se-page-header, .page-header, header");
+  if (!(header instanceof HTMLElement)) return;
+  for (const el of header.querySelectorAll("button, a, [role='button']")) {
+    if (el instanceof HTMLElement && isHelpControl(el)) {
+      hide(el);
+    }
+  }
+}
+
 type MountedAssistant = {
   root: Root;
   heightSync: ResizeObserver;
@@ -48,18 +80,19 @@ function injectHostPageStyles(): void {
   background: transparent !important;
   border: none !important;
   box-shadow: none !important;
-}`;
+}
+`;
   (document.head ?? document.documentElement).append(style);
 }
 
 function applyShadowCss(shadow: ShadowRoot): void {
-  if (shadow.querySelector("style[data-sell-similar-css]")) {
-    return;
+  let style = shadow.querySelector("style[data-sell-similar-css]");
+  if (!(style instanceof HTMLStyleElement)) {
+    style = document.createElement("style");
+    style.setAttribute("data-sell-similar-css", "");
+    shadow.append(style);
   }
-  const style = document.createElement("style");
-  style.setAttribute("data-sell-similar-css", "");
   style.textContent = SHADOW_CSS;
-  shadow.append(style);
 }
 
 function applyInFlowHostStyles(shadowHost: HTMLElement, container: HTMLElement): void {
@@ -148,16 +181,19 @@ export default defineContentScript({
       if (!container) {
         return;
       }
+      hideEbayHelpControl();
       try {
         if (!didMount) {
           ui.mount();
           didMount = true;
           insertBeforeListingHeading(container, ui.shadowHost);
+          hideEbayHelpControl();
           return;
         }
         if (!ui.shadowHost.isConnected) {
           insertBeforeListingHeading(container, ui.shadowHost);
         }
+        hideEbayHelpControl();
       } catch (error) {
         didMount = false;
         console.warn("Sell Similar: failed to mount assistant", error);

@@ -37,6 +37,20 @@ export async function fillItemCategoryInPage(
   const normalize = (text: string): string =>
     text.replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
 
+  const isJunkCategorySegment = (text: string): boolean => {
+    const n = normalize(text);
+    if (!n) return true;
+    if (
+      /^(see more|show more|read more|see all|home|ebay|back to search|all categories|shop by category)\b/i.test(
+        n,
+      )
+    ) {
+      return true;
+    }
+    if (n.length > 70) return true;
+    return /\b[A-Z]{3,}(?:\s+[A-Z]{2,})+\b/.test(n) && /\d/.test(n);
+  };
+
   const segmentMatch = (left: string, right: string): boolean => {
     if (!left || !right) return false;
     const a = compact(left);
@@ -430,8 +444,8 @@ export async function fillItemCategoryInPage(
   try {
     const sourcePath = (category.path.length ? category.path : [category.name])
       .map(normalize)
-      .filter(Boolean);
-    const leaf = normalize(category.name || sourcePath[sourcePath.length - 1] || "");
+      .filter((seg) => !isJunkCategorySegment(seg));
+    const leaf = sourcePath[sourcePath.length - 1] || "";
     const pathText = sourcePath.join(" > ");
     log("MAIN-world start", {
       id: category.id,
@@ -489,11 +503,9 @@ export async function fillItemCategoryInPage(
       return fail("Item category picker did not open");
     }
 
-    const queries = [
-      ...new Set([leaf, sourcePath.slice(-2).join(" "), category.id, pathText]),
-    ]
-      .map((query) => normalize(query))
-      .filter(Boolean);
+    const queries = [...new Set([leaf, category.id])].filter(
+      (query) => query && !isJunkCategorySegment(query),
+    );
 
     let picked = false;
     for (const query of queries) {

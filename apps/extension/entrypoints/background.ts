@@ -19,7 +19,14 @@ import { fillItemCategoryInPage } from "../lib/fill-item-category-main.ts";
 import { fillItemConditionInPage } from "../lib/fill-ebay-condition-main.ts";
 import { fillItemDescriptionInPage } from "../lib/fill-ebay-description-main.ts";
 import { fillItemPriceInPage } from "../lib/fill-ebay-price-main.ts";
+import { addCustomItemSpecificInPage, fillItemYesNoInPage } from "../lib/fill-ebay-specifics-main.ts";
 import { restoreListingPageInPage } from "../lib/restore-listing-page-main.ts";
+import {
+  isFillItemCustomRequest,
+  isFillItemYesNoRequest,
+  type FillItemCustomResponse,
+  type FillItemYesNoResponse,
+} from "../lib/specifics-messages.ts";
 import {
   isRestoreListingPageRequest,
   type RestoreListingPageResponse,
@@ -35,7 +42,6 @@ import {
   guardFitmentTree,
   inspectFitmentPicker,
   isFitmentMainRequest,
-  keepFitmentSummaryVisible,
   persistFitmentViaApi,
   saveFitmentPicker,
   selectFitmentControl,
@@ -80,18 +86,6 @@ async function sellfitFrameIds(tabId: number): Promise<number[]> {
   return (frames ?? [])
     .filter((frame) => frame.frameId !== 0 && /\/sellfit/i.test(frame.url))
     .map((frame) => frame.frameId);
-}
-
-async function showFitmentSummary(tabId: number): Promise<void> {
-  try {
-    await browser.scripting.executeScript({
-      target: { tabId },
-      world: "MAIN",
-      func: keepFitmentSummaryVisible,
-    });
-  } catch {
-    // listing frame may have been replaced
-  }
 }
 
 async function runInFrames<T>(
@@ -146,7 +140,6 @@ async function handleFitmentMain(
       return { ok: ok || frameIds.length === 0, patched };
     }
     case "dismiss": {
-      await showFitmentSummary(tabId);
       return { ok: true };
     }
     case "ready": {
@@ -200,9 +193,6 @@ async function handleFitmentMain(
         if (!value) {
           return { ok: false, error: "Persist script did not run" };
         }
-        if (value.ok) {
-          await showFitmentSummary(tabId);
-        }
         return {
           ok: Boolean(value.ok),
           filled: value.filled,
@@ -225,9 +215,6 @@ async function handleFitmentMain(
         if (!value) {
           return { ok: false, error: "Clear script did not run" };
         }
-        if (value.ok) {
-          await showFitmentSummary(tabId);
-        }
         return { ok: Boolean(value.ok), cleared: value.cleared, error: value.error };
       } catch (error) {
         return {
@@ -243,7 +230,29 @@ async function handleFitmentMain(
   }
 }
 
+async function unregisterStaleFitmentScripts(): Promise<void> {
+  try {
+    const scripts = await browser.scripting.getRegisteredContentScripts();
+    const staleIds = scripts
+      .filter((script) => {
+        const hay = [script.id, ...(script.js ?? []), ...(script.matches ?? [])].join(" ");
+        return /fitment-frame|hide-fitment|sellfit/i.test(hay);
+      })
+      .map((script) => script.id);
+    if (staleIds.length > 0) {
+      await browser.scripting.unregisterContentScripts({ ids: staleIds });
+    }
+  } catch {
+    // Older Chrome or missing permission — ignore.
+  }
+}
+
 export default defineBackground(() => {
+  void unregisterStaleFitmentScripts();
+  browser.runtime.onInstalled.addListener(() => {
+    void unregisterStaleFitmentScripts();
+  });
+
   const api = new SellSimilarApiClient({
     baseUrl: apiBaseUrl,
     fetch: (input, init) => fetch(input, init),
@@ -365,6 +374,58 @@ export default defineBackground(() => {
             conditionDescription: false,
             reason: error instanceof Error ? error.message : String(error),
           } satisfies FillItemConditionResponse);
+        });
+      return true;
+    }
+
+    if (isFillItemYesNoRequest(message)) {
+      const tabId = sender.tab?.id;
+      if (tabId == null) {
+        sendResponse({ ok: false, reason: "No tab" } satisfies FillItemYesNoResponse);
+        return;
+      }
+      void browser.scripting
+        .executeScript({
+          target: { tabId },
+          world: "MAIN",
+          func: fillItemYesNoInPage,
+          args: [{ key: message.key, value: message.value }],
+        })
+        .then((injected) => {
+          const result = injected[0]?.result;
+          sendResponse(result ?? { ok: false, reason: "Yes/No fill script did not run" });
+        })
+        .catch((error: unknown) => {
+          sendResponse({
+            ok: false,
+            reason: error instanceof Error ? error.message : String(error),
+          } satisfies FillItemYesNoResponse);
+        });
+      return true;
+    }
+
+    if (isFillItemCustomRequest(message)) {
+      const tabId = sender.tab?.id;
+      if (tabId == null) {
+        sendResponse({ ok: false, reason: "No tab" } satisfies FillItemCustomResponse);
+        return;
+      }
+      void browser.scripting
+        .executeScript({
+          target: { tabId },
+          world: "MAIN",
+          func: addCustomItemSpecificInPage,
+          args: [{ key: message.key, value: message.value }],
+        })
+        .then((injected) => {
+          const result = injected[0]?.result;
+          sendResponse(result ?? { ok: false, reason: "Custom specific script did not run" });
+        })
+        .catch((error: unknown) => {
+          sendResponse({
+            ok: false,
+            reason: error instanceof Error ? error.message : String(error),
+          } satisfies FillItemCustomResponse);
         });
       return true;
     }

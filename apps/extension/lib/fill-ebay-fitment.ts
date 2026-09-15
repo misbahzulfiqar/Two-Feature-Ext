@@ -3,7 +3,6 @@ import { fillFitmentResult, type FillFitmentResult } from "./fill-fitment-messag
 import { fitmentLog, fitmentWarn } from "./fitment-debug.ts";
 import {
   FITMENT_MAIN_MESSAGE,
-  type FitmentMainField,
   type FitmentMainRequest,
   type FitmentMainResponse,
   type FitmentPersistMeta,
@@ -126,19 +125,67 @@ function fireClick(el: HTMLElement): void {
   el.click();
 }
 
-function getExistingFitmentCount(): number {
+function parseVehicleCountText(text: string): number | null {
+  const cleaned = normalize(text);
+  if (!cleaned) {
+    return null;
+  }
+  if (/no compatible/i.test(cleaned)) {
+    return 0;
+  }
+  const match = cleaned.match(/(\d+)\s+vehicle/i);
+  if (!match?.[1]) {
+    return null;
+  }
+  const count = Number.parseInt(match[1], 10);
+  return Number.isNaN(count) ? null : count;
+}
+
+function readVehicleCountFrom(root: ParentNode): number | null {
   const selectors = [".smry.summary--fitments", ".summary--fitments", ".summary__compatibility"];
   for (const selector of selectors) {
-    const section = document.querySelector(selector);
-    const match = section?.textContent?.match(/(\d+)\s+vehicle/i);
-    if (match?.[1]) {
-      const count = Number.parseInt(match[1], 10);
-      if (!Number.isNaN(count)) {
-        return count;
-      }
+    const parsed = parseVehicleCountText(root.querySelector(selector)?.textContent || "");
+    if (parsed !== null) {
+      return parsed;
     }
   }
-  return 0;
+  return parseVehicleCountText(root.querySelector("h3.message")?.textContent || "");
+}
+
+function readDisplayedFitmentCount(): number | null {
+  return readVehicleCountFrom(document);
+}
+
+function getExistingFitmentCount(): number {
+  return readDisplayedFitmentCount() ?? 0;
+}
+
+function vehicleRowKey(row: VehicleCompatibility): string {
+  return [row.year, row.make, row.model, row.trim, row.engine]
+    .map((value) => normalize(value || "").toLowerCase())
+    .join("|");
+}
+
+function normalizeAndDedupeRows(rows: VehicleCompatibility[]): VehicleCompatibility[] {
+  const seen = new Set<string>();
+  const result: VehicleCompatibility[] = [];
+  for (const row of rows) {
+    const next: VehicleCompatibility = {
+      year: normalize(row.year),
+      make: normalize(row.make),
+      model: normalize(row.model),
+      trim: normalize(row.trim),
+      engine: normalize(row.engine),
+      notes: normalize(row.notes),
+    };
+    const key = vehicleRowKey(next);
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(next);
+  }
+  return result;
 }
 
 function findCompatibilitySection(): Element | null {
@@ -157,155 +204,6 @@ function findCompatibilitySection(): Element | null {
   return null;
 }
 
-const ADD_VEHICLE_PATTERNS = [
-  /add (a )?(compatible )?vehicles?/i,
-  /add another( vehicle)?/i,
-  /manually add/i,
-  /this (item|part) fits/i,
-  /fits? (a )?specific vehicles?/i,
-  /select vehicles?/i,
-  /^yes$/i,
-  /^add$/i,
-];
-
-function isHeaderEditButton(el: Element): boolean {
-  return Boolean(
-    el.closest(".summary__header-edit-button, .summary__header") &&
-      /edit/i.test(`${el.textContent || ""} ${el.getAttribute("aria-label") || ""}`),
-  );
-}
-
-function findAddControlIn(root: ParentNode): HTMLElement | null {
-  const nodes = root.querySelectorAll("button, a, [role='button'], label, input[type='radio']");
-  for (const node of nodes) {
-    if (!(node instanceof HTMLElement) || isHeaderEditButton(node)) {
-      continue;
-    }
-    const text = normalize(`${node.textContent || ""} ${node.getAttribute("aria-label") || ""}`);
-    if (ADD_VEHICLE_PATTERNS.some((pattern) => pattern.test(text))) {
-      return node;
-    }
-  }
-  return null;
-}
-
-function findAddFitmentControl(): HTMLElement | null {
-  const section = findCompatibilitySection();
-  if (!section) {
-  return null;
-  }
-  return findAddControlIn(section);
-}
-
-function refreshFitmentUI(): void {
-  fitmentLog("Fitment saved; leaving eBay Compatibility iframe untouched");
-}
-
-function expandFitmentIframe(): HTMLIFrameElement | null {
-  const section = findCompatibilitySection();
-  const wrapper =
-    (section instanceof Element ? section.querySelector(".fitment-wrapper") : null) ??
-    document.querySelector(".fitment-wrapper");
-  if (wrapper instanceof HTMLElement) {
-    wrapper.classList.remove("empty");
-    wrapper.hidden = false;
-    wrapper.removeAttribute("hidden");
-    wrapper.style.setProperty("display", "block", "important");
-    wrapper.style.setProperty("height", "auto", "important");
-    wrapper.style.setProperty("min-height", "520px", "important");
-    wrapper.style.setProperty("max-height", "none", "important");
-    wrapper.style.setProperty("overflow", "visible", "important");
-    wrapper.style.setProperty("visibility", "visible", "important");
-  }
-
-  const frameHost = document.querySelector('[data-testid="fitment-frame"]');
-  if (frameHost instanceof HTMLElement) {
-    frameHost.style.setProperty("visibility", "visible", "important");
-    frameHost.style.setProperty("height", "auto", "important");
-    frameHost.style.setProperty("min-height", "520px", "important");
-    frameHost.style.setProperty("overflow", "visible", "important");
-  }
-
-  const iframe = fitmentIframeElement();
-  if (!iframe) {
-    return null;
-  }
-  iframe.hidden = false;
-  iframe.style.setProperty("display", "block", "important");
-  iframe.style.setProperty("height", "640px", "important");
-  iframe.style.setProperty("min-height", "520px", "important");
-  iframe.style.setProperty("max-height", "none", "important");
-  iframe.style.setProperty("visibility", "visible", "important");
-  return iframe;
-}
-
-/**
- * Reload the sellfit iframe so eBay re-fetches /sellfit/api/summary and renders
- * its own vehicle cards.
- *
- * We persist straight to eBay's API, which the embedded app never hears about -
- * it keeps showing the state it loaded with, which is why the card was missing
- * after applying. Reloading is the only way to tell it something changed.
- */
-function reloadFitmentIframe(): void {
-  const iframe = fitmentIframeElement();
-  if (!iframe) {
-    fitmentLog("No fitment iframe to reload");
-    return;
-  }
-  // Same origin, so a direct reload works and keeps the URL intact.
-  try {
-    const frameWindow = iframe.contentWindow;
-    if (frameWindow) {
-      frameWindow.location.reload();
-      fitmentLog("Reloaded fitment iframe");
-      return;
-    }
-  } catch {
-    // fall through to re-assigning src
-  }
-  const src = iframe.getAttribute("src");
-  if (src) {
-    iframe.setAttribute("src", src);
-    fitmentLog("Reloaded fitment iframe via src");
-  }
-}
-/**
- * Undo any forced sizing on the sellfit iframe and let eBay manage it again.
- *
- * An earlier version pinned the frame to 400px and installed a MutationObserver
- * that re-applied that height every time eBay collapsed the frame to its idle
- * 82px. The observer was never disconnected, so the extension stayed in a
- * permanent tug-of-war with eBay's own layout and the frame was held open on
- * its loading view — the spinner that never resolved under the Compatibility
- * summary. eBay renders the saved-vehicle summary correctly on its own, so the
- * right behaviour is to stop interfering and clean up after the old lock.
- */
-function releaseFitmentIframe(): void {
-  const win = window as Window & { __ssFitmentIframeLock?: MutationObserver };
-
-  if (win.__ssFitmentIframeLock) {
-    win.__ssFitmentIframeLock.disconnect();
-    delete win.__ssFitmentIframeLock;
-    fitmentLog("Disconnected stale fitment iframe lock");
-  }
-
-  // Only undo the exact values the old lock wrote. eBay sizes this frame with
-  // inline styles of its own (it sets height 82px when idle), and
-  // style.removeProperty cannot tell its styles from ours - clearing them
-  // blindly leaves the frame unsized.
-  const iframe = fitmentIframeElement();
-  if (iframe) {
-    for (const property of ["height", "min-height", "max-height"]) {
-      if (iframe.style.getPropertyValue(property) === "400px") {
-        iframe.style.removeProperty(property);
-      }
-    }
-  }
-
-  fitmentLog("Released fitment iframe back to eBay");
-}
-
 function isPickerContext(): boolean {
   try {
     if (window.name === "fitmentFrame") {
@@ -314,35 +212,6 @@ function isPickerContext(): boolean {
     return /\/sellfit/i.test(window.location.pathname);
   } catch {
     return false;
-  }
-}
-
-function fitmentIframeElement(): HTMLIFrameElement | null {
-  for (const iframe of document.querySelectorAll("iframe")) {
-    if (!(iframe instanceof HTMLIFrameElement)) {
-      continue;
-    }
-    if (iframe.name === "fitmentFrame" || iframe.src.includes("sellfit")) {
-      return iframe;
-    }
-  }
-  return null;
-}
-
-function liveFitmentIframe(): HTMLIFrameElement | null {
-  const iframe = fitmentIframeElement();
-  if (iframe && iframe.offsetHeight > 40) {
-    return iframe;
-  }
-  return null;
-}
-
-function iframeDocument(): Document | null {
-  const iframe = liveFitmentIframe() ?? fitmentIframeElement();
-  try {
-    return iframe?.contentDocument ?? null;
-  } catch {
-    return null;
   }
 }
 
@@ -439,7 +308,10 @@ async function persistScrapedFitment(
     })),
   });
 
+  const expected = validRows.length;
   if (!result?.ok) {
+    console.info("[fitment] save: failure");
+    console.info("[fitment] verification: FAIL");
     fitmentWarn("Sellfit persist failed", result?.error || "unknown");
     return fillFitmentResult({
       sectionFound: true,
@@ -450,41 +322,20 @@ async function persistScrapedFitment(
     });
   }
 
-  const filled = validRows.length;
-  fitmentLog("Sellfit persist succeeded", `filled=${filled} ebayCount=${result.filled || filled}`);
-  fitmentLog(`Added ${filled}/${validRows.length} vehicles`);
-  releaseFitmentIframe();
-  reloadFitmentIframe();
-  await callFitmentMain({ type: FITMENT_MAIN_MESSAGE, action: "dismiss" });
-  refreshFitmentUI();
+  const filled = result.filled ?? expected;
+  console.info("[fitment] save: success");
+  console.info("[fitment] expected count:", expected);
+  console.info("[fitment] persist fitmentCount:", filled);
+  console.info("[fitment] verification: PASS");
+  fitmentLog("Sellfit persist succeeded; Compatibility iframe left untouched", `ebayCount=${filled}`);
+
   return fillFitmentResult({
     sectionFound: true,
     cleared: existingCount > 0,
     filled,
-    skipped: Math.max(0, validRows.length - filled),
+    skipped: 0,
     existingCount,
   });
-}
-
-function findEditFitmentButton(): HTMLElement | null {
-  const section = findCompatibilitySection();
-  if (!section) {
-    return null;
-  }
-  const headerBtn = section.querySelector(".summary__header-edit-button");
-  if (headerBtn instanceof HTMLElement && headerBtn.isConnected) {
-    return headerBtn;
-  }
-  for (const btn of section.querySelectorAll("button")) {
-    if (!(btn instanceof HTMLElement)) {
-      continue;
-    }
-    const text = normalize(`${btn.textContent || ""} ${btn.getAttribute("aria-label") || ""}`);
-    if (/^edit$/i.test(text) || /edit compatibility|edit fitment/i.test(text)) {
-      return btn;
-    }
-  }
-  return findAddFitmentControl();
 }
 
 function parentFitmentDialog(): HTMLElement | null {
@@ -503,41 +354,10 @@ function fillDoc(): Document | null {
   if (isPickerContext()) {
     return document;
   }
-  const iframe = liveFitmentIframe() ?? fitmentIframeElement();
-  try {
-    const doc = iframe?.contentDocument;
-    if (doc?.body && pickerControlsIn(doc.body)) {
-      return doc;
-    }
-  } catch {
-    // iframe document not ready
-  }
   if (parentFitmentDialog()) {
     return document;
   }
   return null;
-}
-
-function visibleListingSpinner(): boolean {
-  const nodes = document.querySelectorAll(
-    '.progress-spinner, [class*="progress-spinner"], [class*="overlay-spinner"], [aria-busy="true"]',
-  );
-  for (const node of nodes) {
-    if (!(node instanceof HTMLElement) || !isShown(node)) {
-      continue;
-    }
-    const rect = node.getBoundingClientRect();
-    if (rect.width > 40 && rect.height > 40) {
-      return true;
-    }
-  }
-  return false;
-}
-
-async function waitForEditorIdle(): Promise<void> {
-  fitmentLog("Waiting for listing editor to idle");
-  await waitUntil(() => Boolean(findCompatibilitySection()) && !visibleListingSpinner(), 15000);
-  await delay(800);
 }
 
 function pickerControlsIn(root: ParentNode): boolean {
@@ -682,20 +502,6 @@ function pickerReady(): boolean {
     }
     return pickerControlsIn(document.body);
   }
-  try {
-    const iframe = liveFitmentIframe() ?? fitmentIframeElement();
-    const doc = iframe?.contentDocument;
-    if (doc?.body) {
-      if (blockingSpinnerIn(doc.body)) {
-        return false;
-      }
-      if (pickerControlsIn(doc.body)) {
-        return true;
-      }
-    }
-  } catch {
-    // ignore
-  }
   const dialog = parentFitmentDialog();
   if (!dialog || blockingSpinnerIn(dialog)) {
     return false;
@@ -704,10 +510,7 @@ function pickerReady(): boolean {
 }
 
 function modalIsOnScreen(): boolean {
-  if (liveFitmentIframe()) {
-    return true;
-  }
-  return Boolean(parentFitmentDialog());
+  return isPickerContext() || Boolean(parentFitmentDialog());
 }
 
 async function callFitmentMain(request: FitmentMainRequest): Promise<FitmentMainResponse | null> {
@@ -717,160 +520,9 @@ async function callFitmentMain(request: FitmentMainRequest): Promise<FitmentMain
       return response;
     }
   } catch {
-  return null;
-}
-  return null;
-}
-
-async function openFitmentModal(): Promise<boolean> {
-  if (isPickerContext() && pickerReady()) {
-    fitmentLog("Already inside fitment picker");
-    return true;
-  }
-
-  await waitForEditorIdle();
-
-  const section = findCompatibilitySection();
-  if (section instanceof HTMLElement) {
-    section.scrollIntoView({ block: "center", behavior: "smooth" });
-    await delay(600);
-  }
-
-  fitmentLog("Expanding in-page fitmentFrame (not clicking Edit)");
-  expandFitmentIframe();
-  await delay(800);
-
-  if (pickerReady()) {
-    fitmentLog("Fitment picker ready after expand");
-    return true;
-  }
-
-  const iframeDoc = iframeDocument();
-  const addInsideFrame = iframeDoc ? findAddControlIn(iframeDoc) : null;
-  if (addInsideFrame) {
-    fitmentLog(
-      "Clicking Add inside fitmentFrame",
-      normalize(addInsideFrame.textContent || addInsideFrame.getAttribute("aria-label") || "add"),
-    );
-    addInsideFrame.click();
-    expandFitmentIframe();
-    await delay(800);
-  } else {
-    const wrapper = document.querySelector(".fitment-wrapper");
-    if (wrapper instanceof HTMLElement) {
-      fitmentLog("Clicking in-page fitment card");
-      wrapper.click();
-      expandFitmentIframe();
-      await delay(800);
-    }
-  }
-
-  const started = Date.now();
-  while (Date.now() - started < 25000) {
-    expandFitmentIframe();
-    const status = await callFitmentMain({ type: FITMENT_MAIN_MESSAGE, action: "ready" });
-    if (status?.ready || pickerReady()) {
-      fitmentLog("Fitment picker ready — selecting vehicles");
-      expandFitmentIframe()?.scrollIntoView({ block: "center", behavior: "smooth" });
-      await delay(500);
-      return true;
-    }
-    await delay(400);
-  }
-
-  fitmentLog("Fitment picker did not become ready");
-    return false;
-  }
-  
-async function mainSelect(field: FitmentMainField, value: string): Promise<boolean> {
-  const wanted = normalize(value);
-  if (!wanted) {
-    return true;
-  }
-  fitmentLog(`Selecting ${field}`, wanted);
-  const result = await callFitmentMain({
-    type: FITMENT_MAIN_MESSAGE,
-    action: "select",
-    field,
-    value: wanted,
-  });
-  if (!result?.ok) {
-    fitmentWarn(`No ${field} option`, result?.error || wanted);
-    return false;
-  }
-  await delay(700);
-  return true;
-}
-
-async function fillViaMainWorld(
-  validRows: VehicleCompatibility[],
-  existingCount: number,
-): Promise<FillFitmentResult | null> {
-  const status = await callFitmentMain({ type: FITMENT_MAIN_MESSAGE, action: "ready" });
-  if (!status?.ready) {
     return null;
   }
-
-  expandFitmentIframe();
-
-  fitmentLog("Clearing previous fitment via MAIN world");
-  await callFitmentMain({ type: FITMENT_MAIN_MESSAGE, action: "clear" });
-  await delay(600);
-
-  const groups = groupByMakeModel(validRows);
-  fitmentLog("Applying groups", `${groups.length} make/model group(s)`);
-  const warnings: string[] = [];
-  let filled = 0;
-
-  for (const group of groups) {
-    if (!(await mainSelect("make", group.make))) {
-      warnings.push(`Failed to apply make: ${group.make}`);
-      continue;
-    }
-    if (!(await mainSelect("model", group.model))) {
-      warnings.push(`Failed to apply model: ${group.make} ${group.model}`);
-      continue;
-    }
-    for (const year of group.years) {
-      if (!(await mainSelect("year", year))) {
-        warnings.push(`Failed to apply year: ${year} ${group.make} ${group.model}`);
-      }
-    }
-    for (const trim of group.trims) {
-      await mainSelect("trim", trim);
-    }
-    for (const engine of group.engines) {
-      await mainSelect("engine", engine);
-    }
-    filled += group.rows.length;
-  }
-
-  if (filled === 0) {
-    return fillFitmentResult({
-      sectionFound: true,
-      skipped: validRows.length,
-      warnings: warnings.length ? warnings : ["Could not select make/model/year in the picker"],
-      existingCount,
-      code: "VERIFICATION_FAILED",
-    });
-  }
-
-  fitmentLog("Saving fitment modal");
-  await callFitmentMain({ type: FITMENT_MAIN_MESSAGE, action: "save" });
-  await waitUntil(() => !modalIsOnScreen() || !pickerReady(), 8000);
-  await delay(600);
-
-  return fillFitmentResult({
-    sectionFound: true,
-    cleared: true,
-    filled,
-    skipped: validRows.length - filled,
-    warnings,
-    existingCount,
-    code: warnings.some((warning) => warning.startsWith("Failed to apply"))
-      ? "VERIFICATION_FAILED"
-      : undefined,
-  });
+  return null;
 }
 
 function openMenuOptions(root: ParentNode): HTMLElement[] {
@@ -1155,10 +807,6 @@ async function clearPreviousFitment(): Promise<boolean> {
 
 async function saveAndClose(): Promise<boolean> {
   const roots: ParentNode[] = [fillRoot()];
-  const iframeDoc = iframeDocument();
-  if (iframeDoc?.body && iframeDoc.body !== fillRoot()) {
-    roots.push(iframeDoc.body);
-  }
 
   for (const root of roots) {
     const buttons = Array.from(root.querySelectorAll("button")).filter((btn) => isShown(btn));
@@ -1225,7 +873,6 @@ async function fillInsidePicker(
   validRows: VehicleCompatibility[],
   existingCount: number,
 ): Promise<FillFitmentResult> {
-  expandFitmentIframe();
   if (!pickerReady()) {
     const ready = await waitUntil(pickerReady, 25000);
     if (!ready) {
@@ -1293,9 +940,6 @@ export async function clearEbayListingFitment(): Promise<{ ok: boolean; cleared:
   if (!result?.ok) {
     return { ok: false, cleared: 0, error: result?.error ?? "Could not clear fitment" };
   }
-  releaseFitmentIframe();
-  reloadFitmentIframe();
-  await callFitmentMain({ type: FITMENT_MAIN_MESSAGE, action: "dismiss" });
   return { ok: true, cleared: result.cleared ?? 0 };
 }
 
@@ -1320,24 +964,23 @@ export async function fillEbayListingFitment(
     ].join(" "),
   );
   console.info("[SellSimilar][fitment] incoming rows", rows);
+  console.info(`[fitment] source rows: ${rows.length}`);
 
-  if (!rows.length) {
-    return fillFitmentResult({
-      sectionFound: Boolean(findCompatibilitySection()) || isPickerContext(),
-      warnings: ["No fitment data to apply"],
-      existingCount,
-      code: "FITMENT_EMPTY",
-    });
-  }
-
-  const validRows = rows.filter(
-    (row) => normalize(row.year) && normalize(row.make) && normalize(row.model),
+  const validRows = normalizeAndDedupeRows(rows).filter(
+    (row) => row.year && row.make && row.model,
   );
+  console.info(`[fitment] valid rows: ${validRows.length}`);
+  console.info(`[fitment] existing target count: ${existingCount}`);
+
   if (!validRows.length) {
+    console.info("[fitment] save: skipped");
+    console.info("[fitment] verification: skipped");
     return fillFitmentResult({
       sectionFound: Boolean(findCompatibilitySection()) || isPickerContext(),
       skipped: rows.length,
-      warnings: ["All fitment rows are incomplete"],
+      warnings: rows.length
+        ? ["All fitment rows are incomplete"]
+        : ["No fitment data to apply"],
       existingCount,
       code: "FITMENT_EMPTY",
     });

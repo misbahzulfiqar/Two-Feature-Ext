@@ -91,9 +91,32 @@ function toCompatibility(rows: VehicleCompatibility[] | undefined): VehicleCompa
   }));
 }
 
+function isEbayStandardConditionBlurb(text: string): boolean {
+  const compact = text.replace(/[^a-z0-9]/gi, "").toLowerCase();
+  if (!compact) return true;
+  if (compact.includes("seethesellerslistingforfulldetails")) return true;
+  if (compact.includes("abrandnewunusedunopenedundamaged")) return true;
+  if (compact.includes("initsoriginalpackagingwherepackagingisapplicable")) return true;
+  if (compact.includes("anitemthathasbeenusedpreviously")) return true;
+  return false;
+}
+
+function sanitizeConditionDescription(text: string): string {
+  const cleaned = text
+    .replace(/^["']+|["']+$/g, "")
+    .replace(/\s*(read|view|see|show)\s+more(?:\s*about\s+condition)?/gi, " ")
+    .replace(/\s*about condition\s*/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned || isEbayStandardConditionBlurb(cleaned)) {
+    return "";
+  }
+  return cleaned;
+}
+
 function sellerNotesDescription(specifics: ItemSpecific[]): string {
   const notes = specifics.find((item) => item.key.replace(/[^a-z0-9]/gi, "").toLowerCase() === "sellernotes");
-  return (notes?.value ?? "").replace(/^["']+|["']+$/g, "").trim();
+  return sanitizeConditionDescription((notes?.value ?? "").replace(/^["']+|["']+$/g, "").trim());
 }
 
 function toScrapedListing(data: ScrapedListingData): ScrapedListing {
@@ -130,9 +153,11 @@ function toScrapedListing(data: ScrapedListingData): ScrapedListing {
     price: data.price ?? "",
     images: Array.isArray(data.images) ? data.images : [],
     itemSpecifics: Array.isArray(data.itemSpecifics) ? data.itemSpecifics : [],
-    condition: data.condition ?? "",
+    condition: (data.condition ?? "")
+      .replace(/^(used)(\s*\1)+$/i, "Used")
+      .replace(/^(new other \(see details\))\1+$/i, "New other (see details)"),
     conditionDescription:
-      (data.conditionDescription ?? "").replace(/^["']+|["']+$/g, "").trim() ||
+      sanitizeConditionDescription(data.conditionDescription ?? "") ||
       sellerNotesDescription(Array.isArray(data.itemSpecifics) ? data.itemSpecifics : []),
     description: data.description ?? "",
     category: data.category ?? { id: "", name: "", path: [] },

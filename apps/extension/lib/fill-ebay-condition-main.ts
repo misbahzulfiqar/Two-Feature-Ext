@@ -14,6 +14,10 @@ export type FillItemConditionMainArg = {
  * Runs in the listing page MAIN world so eBay React sees the same DOM
  * events as a real click. Do not close over module scope — Chrome
  * serializes this function into the page.
+ *
+ * Empty-state UI is three pills: New | Used | ...
+ * "New other (see details)" is behind the ellipsis, then the
+ * condition-description textarea appears after that choice is selected.
  */
 export async function fillItemConditionInPage(
   payload: FillItemConditionMainArg,
@@ -42,19 +46,72 @@ export async function fillItemConditionInPage(
   const compact = (text: string): string =>
     normalize(text).replace(/[^a-z0-9]/gi, "").toLowerCase();
 
-  const firstLabelLine = (text: string): string =>
-    normalize(text)
-      .split("\n")
-      .map((part) => part.replace(/\s*[ⓘi]$/u, "").trim())
-      .find(
-        (part) =>
-          part.length > 0 &&
-          part.length < 80 &&
-          !/^(select|choose|edit|item condition|condition|done|cancel|close|save|continue|apply|update)$/i.test(
-            part,
-          ) &&
-          !/^["“]/.test(part),
-      ) ?? "";
+  const conditionKey = (text: string): string => compact(text).replace(/seedetails/g, "");
+
+  const collapseRepeated = (text: string): string => {
+    const n = normalize(text);
+    const key = compact(n);
+    if (key.length >= 4 && key.length % 2 === 0 && key.slice(0, key.length / 2) === key.slice(key.length / 2)) {
+      return collapseRepeated(n.slice(0, Math.max(1, Math.floor(n.length / 2))));
+    }
+    return n;
+  };
+
+  const canonicalCondition = (raw: string): string => {
+    const n = collapseRepeated(raw);
+    if (!n) return "";
+    const key = conditionKey(n);
+    const known = [
+      "New other (see details)",
+      "New with defects",
+      "Certified - Refurbished",
+      "Seller refurbished",
+      "For parts or not working",
+      "Open box",
+      "New",
+      "Used",
+    ];
+    for (const label of known) {
+      const labelKey = conditionKey(label);
+      if (!labelKey) continue;
+      if (key === labelKey || key.startsWith(labelKey)) {
+        if (labelKey === "new" && (key.startsWith("newother") || key.startsWith("newwithdefects"))) {
+          continue;
+        }
+        return label;
+      }
+    }
+    return n.split(/[:\n]/)[0]?.trim() || n;
+  };
+
+  const labelsMatch = (left: string, right: string): boolean => {
+    if (!left || !right) return false;
+    const a = conditionKey(left);
+    const b = conditionKey(right);
+    if (!a || !b) return false;
+    if (a === b) return true;
+    const shorter = a.length <= b.length ? a : b;
+    const longer = a.length > b.length ? a : b;
+    if (shorter === "new" && longer.startsWith("newother")) return false;
+    if (shorter === "used" && (longer === "used" || longer === "usedused")) return true;
+    if (shorter === "used" && longer !== "used") return false;
+    return longer.startsWith(shorter) && shorter.length >= 7;
+  };
+
+  const wantedIds = (wanted: string): string[] => {
+    const key = conditionKey(wanted);
+    if (key === "used") return ["3000"];
+    if (key === "new") return ["1000"];
+    if (key === "newother") return ["1500"];
+    if (key === "newwithdefects") return ["1750"];
+    if (key === "certifiedrefurbished" || key === "manufacturerrefurbished") {
+      return ["2000", "2010"];
+    }
+    if (key === "sellerrefurbished") return ["2500"];
+    if (key === "openbox" || key === "newopenbox") return ["1500", "2750"];
+    if (key === "forpartsornotworking" || key === "forparts") return ["7000"];
+    return [];
+  };
 
   const isShown = (el: HTMLElement): boolean => {
     if (el.hidden || el.getAttribute("aria-hidden") === "true") return false;
@@ -68,12 +125,14 @@ export async function fillItemConditionInPage(
     log("click", {
       reason,
       tag: el.tagName,
-      name: el.getAttribute("name"),
-      type: el.getAttribute("type"),
       aria: el.getAttribute("aria-label"),
-      text: normalize(el.textContent ?? "").slice(0, 180),
+      text: normalize(el.textContent ?? "").slice(0, 120),
     });
     el.scrollIntoView({ block: "center", inline: "nearest" });
+    el.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, composed: true }));
+    el.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, composed: true }));
+    el.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, composed: true }));
+    el.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, composed: true }));
     el.click();
   };
 
@@ -86,39 +145,192 @@ export async function fillItemConditionInPage(
     return predicate();
   };
 
-  const conditionSection = (): HTMLElement | null => {
+  const visibleText = (el: HTMLElement): string => {
+    const labeled = el.querySelector<HTMLElement>(
+      ".filter-button__text, .btn__text, .radio__label, .listbox__value, .menu__item-label",
+    );
+    const raw = normalize(
+      labeled?.textContent ?? el.getAttribute("aria-label") ?? el.textContent ?? "",
+    );
+    return (raw.split("\n")[0] ?? "").replace(/\s*[ⓘi]$/u, "").trim();
+  };
+
+  const cardPills = (root: ParentNode): HTMLElement[] => {
+    const found: HTMLElement[] = [];
+    for (const node of root.querySelectorAll("button, [role='button'], .filter-button")) {
+      if (!(node instanceof HTMLElement) || !isShown(node)) continue;
+      if (node.querySelectorAll("button, [role='button']").length > 0) continue;
+      found.push(node);
+    }
+    return found;
+  };
+
+  const conditionCard = (): HTMLElement | null => {
     const byInflow = document.querySelector('[inflow*="condition"]');
     if (byInflow instanceof HTMLElement) return byInflow;
+
     const byClass = document.querySelector(".summary__condition, .smry.summary__condition");
     if (byClass instanceof HTMLElement) return byClass;
-    for (const heading of document.querySelectorAll("h2, h3, .summary__header-label, .textual-display")) {
+
+    for (const heading of document.querySelectorAll("h2, h3, h4, legend, span, label, .textual-display")) {
       if (!/^item condition$/i.test(normalize(heading.textContent ?? ""))) continue;
-      const section = heading.closest(".smry, .summary__condition, section, [class*='summary']");
-      if (section instanceof HTMLElement) return section;
+      if (!(heading instanceof HTMLElement)) continue;
+      let current: HTMLElement | null = heading;
+      while (current && current !== document.body) {
+        const labels = cardPills(current).map(visibleText);
+        if (labels.some((label) => /^new$/i.test(label)) && labels.some((label) => /^used$/i.test(label))) {
+          return current;
+        }
+        current = current.parentElement;
+      }
+      const fallback = heading.closest("section, fieldset, .smry, [class*='summary']");
+      if (fallback instanceof HTMLElement) return fallback;
+    }
+
+    for (const el of document.querySelectorAll("div, section, fieldset")) {
+      if (!(el instanceof HTMLElement) || !isShown(el)) continue;
+      const text = normalize(el.innerText ?? "");
+      if (!/add the condition of your item/i.test(text)) continue;
+      if (cardPills(el).length >= 2) return el;
     }
     return null;
   };
 
-  const listingCondition = (): string => {
-    const section = conditionSection();
-    if (!section) return "";
-    const button = section.querySelector<HTMLElement>(
-      'button[name="condition"], button[aria-label*="Item condition" i], button.listbox-button__control, button.value, a.fake-link',
+  const isEllipsisPill = (el: HTMLElement): boolean => {
+    const raw = visibleText(el);
+    const text = raw.replace(/\s/g, "");
+    const aria = normalize(
+      `${el.getAttribute("aria-label") ?? ""} ${el.getAttribute("title") ?? ""} ${raw}`,
     );
-    const valueEl = button?.querySelector<HTMLElement>(
-      ".btn__text, .listbox-button__value, .filter-button__text",
-    );
-    const fromValue = firstLabelLine(valueEl?.innerText || valueEl?.textContent || "");
-    if (fromValue) return fromValue;
-    const fromAria = firstLabelLine(
-      (button?.getAttribute("aria-label") ?? "").replace(/^(edit\s+)?item condition\s*/i, ""),
-    );
-    if (fromAria) return fromAria;
-    if (button) {
-      const fromControl = firstLabelLine(button.innerText || button.textContent || "");
-      if (fromControl) return fromControl;
+    if (/^(…|⋯|•••|\.{2,3}|more)$/i.test(text)) return true;
+    if (text.length <= 12 && /(\.{2,3}|…|⋯)/.test(text) && !/new|used/i.test(text)) return true;
+    return /view more|see more|show more|more options|more condition/i.test(aria);
+  };
+
+  const isWantedChoice = (el: HTMLElement, wanted: string): boolean => {
+    const title = visibleText(el);
+    if (!title || /undo|access key/i.test(title)) return false;
+    if (/^(done|cancel|close|save|continue|apply|update|edit|more)$/i.test(title)) return false;
+    if (isEllipsisPill(el)) return false;
+    const key = conditionKey(title);
+    const want = conditionKey(wanted);
+    if (key === "new" && want !== "new") return false;
+    if (key === "used" && want !== "used") return false;
+    if (labelsMatch(title, wanted)) return true;
+    const input =
+      el instanceof HTMLInputElement ? el : el.querySelector("input[type='radio']");
+    return input instanceof HTMLInputElement && wantedIds(wanted).includes(input.value);
+  };
+
+  const isConditionSurface = (el: HTMLElement): boolean => {
+    const text = normalize(el.innerText ?? "").toLowerCase();
+    if (/undo\s*-\s*access key/.test(text) && !/new other|item condition/.test(text)) {
+      return false;
     }
-    return firstLabelLine(section.innerText || "");
+    return (
+      /item condition|add the condition of your item/.test(text) ||
+      /new other|new with defects|open box|for parts or not working|condition description/.test(
+        text,
+      ) ||
+      Boolean(
+        el.querySelector(
+          'input[name*="condition" i], textarea[name="conditionDescription"], textarea[name*="conditionDescription" i]',
+        ),
+      )
+    );
+  };
+
+  const overflowMenu = (): HTMLElement | null => {
+    const nodes = document.querySelectorAll(
+      '[role="menu"], [role="listbox"], .menu, .menu__items, .listbox, .listbox__options, .filter-menu, .popover, .tooltip--expanded, .listbox-button__listbox, .fake-menu',
+    );
+    for (const node of nodes) {
+      if (!(node instanceof HTMLElement) || !isShown(node)) continue;
+      if (isConditionSurface(node)) return node;
+    }
+    for (const expanded of document.querySelectorAll('[aria-expanded="true"]')) {
+      if (!(expanded instanceof HTMLElement)) continue;
+      const id = expanded.getAttribute("aria-controls");
+      if (!id) continue;
+      const controlled = document.getElementById(id);
+      if (controlled instanceof HTMLElement && isShown(controlled)) return controlled;
+    }
+    return null;
+  };
+
+  const conditionPanel = (): HTMLElement | null => {
+    const nodes = document.querySelectorAll(
+      '.lightbox-dialog, [role="dialog"], .drawer, .se-panel-container, .lightbox-dialog__window',
+    );
+    for (const node of nodes) {
+      if (!(node instanceof HTMLElement) || !isShown(node) || node.hasAttribute("hidden")) {
+        continue;
+      }
+      if (isConditionSurface(node)) return node;
+    }
+    return null;
+  };
+
+  const findWantedChoice = (wanted: string): HTMLElement | null => {
+    const roots: ParentNode[] = [];
+    const panel = conditionPanel();
+    const menu = overflowMenu();
+    const card = conditionCard();
+    if (menu) roots.push(menu);
+    if (panel) roots.push(panel);
+    if (card) roots.push(card);
+    roots.push(document);
+    for (const root of roots) {
+      const nodes = [
+        ...cardPills(root),
+        ...root.querySelectorAll(
+          'input[type="radio"], [role="radio"], [role="option"], [role="menuitem"], [role="menuitemradio"], label, li, button, .filter-button',
+        ),
+      ];
+      for (const node of nodes) {
+        if (!(node instanceof HTMLElement) || !isShown(node)) continue;
+        if (isWantedChoice(node, wanted)) return node;
+      }
+    }
+    return null;
+  };
+
+  const selectedCondition = (): string => {
+    const card = conditionCard();
+    if (!card) return "";
+    const selected = card.querySelector<HTMLElement>(
+      'button[aria-pressed="true"], [aria-checked="true"], .filter-button--selected, .btn--selected, input[type="radio"]:checked',
+    );
+    if (selected) {
+      const title =
+        selected instanceof HTMLInputElement
+          ? visibleText((selected.closest("label, .radio, .field, .filter-button") as HTMLElement) ?? selected)
+          : visibleText(selected);
+      if (title && !isEllipsisPill(selected) && !/^(new|used)$/i.test(title)) return title;
+      if (title && /^(new|used)$/i.test(title)) return title;
+    }
+    const valueBtn = card.querySelector<HTMLElement>(
+      'button[name="condition"], button[aria-label*="Item condition" i], .listbox-button__value, a.fake-link',
+    );
+    if (valueBtn) {
+      const fromValue = visibleText(valueBtn);
+      const emptyPills = siblingPills(card);
+      const showingChooser =
+        emptyPills.some((el) => /^new$/i.test(visibleText(el))) &&
+        emptyPills.some((el) => /^used$/i.test(visibleText(el)));
+      if (
+        fromValue &&
+        !/^(item condition|add the condition)$/i.test(fromValue) &&
+        !isEllipsisPill(valueBtn) &&
+        (!showingChooser || !/^(new|used)$/i.test(fromValue))
+      ) {
+        return fromValue;
+      }
+      if (fromValue && /^(new|used)$/i.test(fromValue) && !showingChooser) {
+        return fromValue;
+      }
+    }
+    return "";
   };
 
   const setNativeValue = (input: HTMLInputElement | HTMLTextAreaElement, value: string): void => {
@@ -140,25 +352,40 @@ export async function fillItemConditionInPage(
   };
 
   const descriptionInput = (): HTMLTextAreaElement | HTMLInputElement | null => {
-    const section = conditionSection() ?? document;
-    const candidates = [
-      ...section.querySelectorAll("textarea, input[type='text']"),
-    ];
-    for (const node of candidates) {
-      if (!(node instanceof HTMLTextAreaElement) && !(node instanceof HTMLInputElement)) continue;
-      if (node.closest(".lightbox-dialog, [role='dialog']")) continue;
-      const name = `${node.getAttribute("name") ?? ""} ${node.getAttribute("aria-label") ?? ""}`;
-      if (/conditionDescription|condition description/i.test(name)) return node;
+    const named = document.querySelector(
+      'textarea[name="conditionDescription"], textarea[name*="conditionDescription" i], textarea[aria-label*="Condition description" i]',
+    );
+    if (
+      (named instanceof HTMLTextAreaElement || named instanceof HTMLInputElement) &&
+      isShown(named)
+    ) {
+      return named;
     }
-    for (const label of section.querySelectorAll("label, .textual-display, span, h3, h4")) {
-      if (!/^condition description$/i.test(normalize(label.textContent ?? ""))) continue;
-      const root = label.closest("div, fieldset, section") ?? section;
-      const input = root.querySelector("textarea, input[type='text']");
-      if (
-        (input instanceof HTMLTextAreaElement || input instanceof HTMLInputElement) &&
-        !input.closest(".lightbox-dialog, [role='dialog']")
-      ) {
-        return input;
+
+    const roots: ParentNode[] = [];
+    const panel = conditionPanel();
+    const card = conditionCard();
+    if (panel) roots.push(panel);
+    if (card) roots.push(card);
+    roots.push(document);
+
+    for (const root of roots) {
+      for (const label of root.querySelectorAll("label, .textual-display, span, h3, h4, legend")) {
+        if (
+          !/^(condition description|condition details|describe the condition)$/i.test(
+            normalize(label.textContent ?? ""),
+          )
+        ) {
+          continue;
+        }
+        const wrap = label.closest("div, fieldset, section, label") ?? root;
+        const input = wrap.querySelector("textarea, input[type='text']");
+        if (
+          (input instanceof HTMLTextAreaElement || input instanceof HTMLInputElement) &&
+          isShown(input)
+        ) {
+          return input;
+        }
       }
     }
     return null;
@@ -183,360 +410,239 @@ export async function fillItemConditionInPage(
     return ok;
   };
 
-  const labelsMatch = (left: string, right: string): boolean => {
-    if (!left || !right) return false;
-    const a = compact(left).replace(/seedetails/g, "");
-    const b = compact(right).replace(/seedetails/g, "");
-    return a === b;
+  const siblingPills = (card: HTMLElement): HTMLElement[] => {
+    const pills = cardPills(card);
+    const anchor = pills.find((el) => /^(new|used)$/i.test(visibleText(el)));
+    if (!anchor?.parentElement) return pills;
+    return cardPills(anchor.parentElement);
   };
 
-  const wantedIds = (wanted: string): string[] => {
-    const key = compact(wanted).replace(/seedetails/g, "");
-    if (key === "used") return ["3000"];
-    if (key === "new") return ["1000"];
-    if (key === "newother" || key === "newothersee") return ["1500"];
-    if (key === "newwithdefects") return ["1750"];
-    if (key === "certifiedrefurbished" || key === "manufacturerrefurbished") {
-      return ["2000", "2010"];
-    }
-    if (key === "sellerrefurbished") return ["2500"];
-    if (key === "openbox" || key === "newopenbox") return ["1500", "2750"];
-    if (key === "forpartsornotworking" || key === "forparts") return ["7000"];
-    return [];
-  };
-
-  const visibleDialogs = (): HTMLElement[] => {
-    const found: HTMLElement[] = [];
-    document
-      .querySelectorAll(
-        '.lightbox-dialog, [role="dialog"], .drawer, .lightbox-dialog__window, [role="listbox"]',
-      )
-      .forEach((node) => {
-        if (node instanceof HTMLElement && isShown(node) && !node.hasAttribute("hidden")) {
-          found.push(node);
-        }
-      });
-    return found;
-  };
-
-  const dialogHeader = (el: HTMLElement): string =>
-    normalize(
-      el.querySelector("h1, h2, .lightbox-dialog__header, .dialog__header")?.textContent ?? "",
-    );
-
-  const isForeignDialog = (el: HTMLElement): boolean => {
-    const header = dialogHeader(el);
-    const body = normalize(el.innerText ?? "").slice(0, 900).toLowerCase();
-    return (
-      /item category|select a category|search for a category/i.test(header) ||
-      body.includes("first category") ||
-      /add photos|upload photos|drag and drop/i.test(header + " " + body) ||
-      /vehicle compatibility|compatible vehicles/i.test(header + " " + body)
-    );
-  };
-
-  const isConditionDialogEl = (el: HTMLElement): boolean => {
-    if (isForeignDialog(el)) return false;
-    const header = dialogHeader(el);
-    const body = normalize(el.innerText ?? "").slice(0, 900).toLowerCase();
-    return (
-      /item condition|select condition|choose condition|^condition$/i.test(header) ||
-      /item condition|new other|see details|condition description/.test(body) ||
-      Boolean(el.querySelector('input[name*="condition" i], input[type="radio"]'))
-    );
-  };
-
-  const conditionDialog = (): HTMLElement | null => {
-    const dialogs = visibleDialogs();
-    for (const dialog of dialogs) {
-      if (isConditionDialogEl(dialog)) return dialog;
-    }
-    for (const dialog of dialogs) {
-      if (!isForeignDialog(dialog)) return dialog;
-    }
-    return null;
-  };
-
-  const optionTitle = (node: HTMLElement): string => {
-    const valueEl = node.querySelector<HTMLElement>(
-      ".radio__label, .field__label, .listbox__value, .listbox-button__value, .menu__item-label",
-    );
-    const fromValue = firstLabelLine(valueEl?.innerText || valueEl?.textContent || "");
-    if (fromValue) return fromValue;
-    const aria = node.getAttribute("aria-label") ?? "";
-    if (aria && !/item condition/i.test(aria)) return firstLabelLine(aria);
-    return firstLabelLine(node.innerText || node.textContent || "");
-  };
-
-  const findConditionChoice = (
-    root: ParentNode,
-    wanted: string,
-  ): HTMLElement | null => {
-    const ids = wantedIds(wanted);
-    let best: { node: HTMLElement; rank: number; size: number } | null = null;
-    const nodes = root.querySelectorAll(
-      'input[type="radio"], [role="radio"], [role="option"], [role="menuitemradio"], label, .listbox__option, .radio, .field, li, button',
-    );
-    for (const node of nodes) {
-      if (!(node instanceof HTMLElement) || !isShown(node)) continue;
-      if (node.querySelectorAll('input[type="radio"]').length > 1) continue;
-      const input =
-        node instanceof HTMLInputElement
-          ? node
-          : node.querySelector("input[type='radio']");
-      const value = input instanceof HTMLInputElement ? input.value : "";
-      const title = optionTitle(node);
-      if (!title || /^(done|cancel|close|save|continue|apply|update|edit)$/i.test(title)) {
-        continue;
-      }
-      let rank = 0;
-      if (title && labelsMatch(title, wanted)) rank = 3;
-      else if (value && ids.includes(value)) rank = 2;
-      if (rank === 0) continue;
-      if (!best || rank > best.rank || (rank === best.rank && title.length < best.size)) {
-        best = { node, rank, size: title.length || 999 };
-      }
-    }
-    return best?.node ?? null;
-  };
-
-  const clickLabeled = (root: ParentNode, pattern: RegExp, reason: string): boolean => {
-    const buttons = root.querySelectorAll("button, a, [role='button']");
-    for (const node of buttons) {
-      if (!(node instanceof HTMLElement) || !isShown(node)) continue;
-      const text = normalize(node.textContent ?? "");
-      const aria = node.getAttribute("aria-label") ?? "";
-      if (pattern.test(text) || pattern.test(aria)) {
-        fireClick(node, reason);
-        return true;
-      }
-    }
-    return false;
-  };
-
-  /**
-   * Find the dialog's confirm control.
-   *
-   * eBay's condition modal puts Done in the panel HEADER as
-   * .se-panel-container__header-suffix > button.btn--secondary - not a primary
-   * button in a footer. Looking only for button.btn--primary missed it every
-   * time, so match the header-suffix button and the _track attribute too.
-   */
-  const findConfirmControl = (dialog: HTMLElement): HTMLElement | null => {
-    const selectors = [
-      '.se-panel-container__header-suffix button',
-      'button[_track$=".Done"]',
-      '[_track$=".Done"]',
-      "footer button.btn--primary",
-      ".lightbox-dialog__footer button.btn--primary",
-      "button.btn--primary",
-    ];
-    for (const selector of selectors) {
-      for (const node of dialog.querySelectorAll<HTMLElement>(selector)) {
-        if (!isShown(node)) continue;
-        const text = normalize(node.textContent ?? "");
-        if (/^(cancel|close|read more)$/i.test(text)) continue;
-        return node;
-      }
-    }
-    // Last resort: any visible control literally labelled Done/Save/Apply.
-    for (const node of dialog.querySelectorAll<HTMLElement>("button, a, [role='button']")) {
-      if (!isShown(node)) continue;
-      const text = normalize(node.textContent ?? "");
-      const aria = node.getAttribute("aria-label") ?? "";
-      if (/^(done|continue|save|apply|update)$/i.test(text) || /^(done|save|apply)$/i.test(aria)) {
-        return node;
-      }
-    }
-    return null;
-  };
-
-  const confirmPicker = (dialog: HTMLElement): boolean => {
-    const control = findConfirmControl(dialog);
-    if (!control) {
-      return false;
-    }
-    fireClick(control, "confirm condition");
-    return true;
-  };
-
-  /**
-   * Selecting a radio re-renders the dialog, so the confirm control can appear a
-   * beat later. Retry briefly instead of giving up on the first miss.
-   */
-  const confirmPickerWithRetry = async (dialog: HTMLElement): Promise<boolean> => {
-    for (let attempt = 0; attempt < 8; attempt += 1) {
-      const live = conditionDialog() ?? dialog;
-      if (live && isShown(live) && confirmPicker(live)) {
-        return true;
-      }
-      await delay(200);
-    }
-    return false;
-  };
-
-  const closeForeignDialogs = async (): Promise<void> => {
-    for (const dialog of visibleDialogs()) {
-      if (isConditionDialogEl(dialog)) continue;
-      if (!isForeignDialog(dialog)) continue;
-      const closeBtn = dialog.querySelector<HTMLElement>(
-        'button.lightbox-dialog__close, button[aria-label*="Close" i]',
-      );
-      if (closeBtn) {
-        fireClick(closeBtn, "close non-condition dialog");
-        await delay(250);
-      }
-    }
-  };
-
-  const closePicker = (dialog: HTMLElement, reason: string): boolean => {
-    const closeBtn = dialog.querySelector<HTMLElement>(
-      'button.lightbox-dialog__close, button[aria-label*="Close" i], button[aria-label*="close" i]',
-    );
-    if (closeBtn && isShown(closeBtn)) {
-      fireClick(closeBtn, reason);
+  const clickEllipsis = (card: HTMLElement): boolean => {
+    const pills = siblingPills(card);
+    const more = pills.find(isEllipsisPill);
+    if (more) {
+      fireClick(more, "more conditions");
       return true;
     }
-    return clickLabeled(dialog, /^(cancel|close)$/i, reason);
-  };
-
-  const openPicker = async (): Promise<HTMLElement | null> => {
-    const section = conditionSection();
-    const toggle = section?.querySelector<HTMLElement>(
-      'button[name="condition"], button[aria-label*="Item condition" i], button.listbox-button__control, button.value, button.fake-link, a.fake-link',
-    );
-    if (toggle && isShown(toggle)) {
-      fireClick(toggle, "open condition picker");
-    } else {
-      const edit = section?.querySelector<HTMLElement>(
-        'button[aria-label="Edit Item condition"], button.summary__header-edit-button',
-      );
-      if (edit && isShown(edit)) fireClick(edit, "edit item condition");
+    const overflow = pills.find((el) => !/^(new|used)$/i.test(visibleText(el)));
+    if (overflow) {
+      fireClick(overflow, "more conditions (last short pill)");
+      return true;
     }
-    await waitUntil(() => Boolean(conditionDialog()), 2500);
-    return conditionDialog();
+    return false;
   };
 
-  const wanted = normalize(payload.condition);
-  const wantedDescription = normalize(payload.conditionDescription).replace(/^["']+|["']+$/g, "");
+  const confirmConditionPanel = (): boolean => {
+    const panel = conditionPanel();
+    if (!panel) return false;
+    const selectors = [
+      ".se-panel-container__header-suffix button",
+      'button[_track$=".Done"]',
+      "footer button.btn--primary",
+      ".lightbox-dialog__footer button.btn--primary",
+    ];
+    for (const selector of selectors) {
+      for (const node of panel.querySelectorAll<HTMLElement>(selector)) {
+        if (!isShown(node)) continue;
+        const text = visibleText(node);
+        if (/^(cancel|close|read more)$/i.test(text)) continue;
+        fireClick(node, "confirm condition");
+        return true;
+      }
+    }
+    for (const node of panel.querySelectorAll<HTMLElement>("button, [role='button']")) {
+      if (!isShown(node)) continue;
+      if (/^(done|continue|save|apply|update)$/i.test(visibleText(node))) {
+        fireClick(node, "confirm condition");
+        return true;
+      }
+    }
+    return false;
+  };
+
+  const selectChoice = (node: HTMLElement): void => {
+    const radio =
+      node instanceof HTMLInputElement ? node : node.querySelector("input[type='radio']");
+    log("selecting", visibleText(node));
+    if (radio instanceof HTMLElement) fireClick(radio, "condition radio");
+    if (!(radio instanceof HTMLElement) || radio !== node) {
+      fireClick(node, "condition option");
+    }
+  };
+
+  const isEbayConditionBlurb = (text: string): boolean => {
+    const compactText = compact(text);
+    if (!compactText) return true;
+    if (compactText.includes("seethesellerslistingforfulldetails")) return true;
+    if (compactText.includes("abrandnewunusedunopenedundamaged")) return true;
+    if (compactText.includes("initsoriginalpackagingwherepackagingisapplicable")) return true;
+    if (compactText.includes("anitemthathasbeenusedpreviously")) return true;
+    return false;
+  };
+
+  const wanted = canonicalCondition(payload.condition);
+  const wantedDescription = isEbayConditionBlurb(payload.conditionDescription)
+    ? ""
+    : normalize(payload.conditionDescription).replace(/^["']+|["']+$/g, "");
   if (!wanted && !wantedDescription) {
     return { ok: false, condition: false, conditionDescription: false, reason: "No condition" };
   }
 
   try {
-    log("MAIN-world start", { wanted, wantedDescription, current: listingCondition() });
-    await closeForeignDialogs();
-    let conditionOk = !wanted || (labelsMatch(listingCondition(), wanted) && !conditionDialog());
-    if (conditionOk && wanted) {
-      log("already set", listingCondition());
-    } else if (wanted) {
-      let dialog = conditionDialog() ?? (await openPicker());
-      if (!dialog) {
-        const descriptionOk = applyDescription(wantedDescription);
-        return {
-          ok: false,
-          condition: false,
-          conditionDescription: descriptionOk,
-          reason: "Condition picker did not open",
-        };
+    log("MAIN-world start", {
+      wanted,
+      wantedDescription,
+      current: selectedCondition(),
+    });
+
+    const card = conditionCard();
+    log("condition card", {
+      found: Boolean(card),
+      pills: card ? siblingPills(card).map(visibleText) : [],
+    });
+
+    const chooserVisible = (): boolean => {
+      const host = conditionCard();
+      if (!host) return false;
+      const labels = siblingPills(host).map(visibleText);
+      return labels.some((label) => /^new$/i.test(label)) && labels.some((label) => /^used$/i.test(label));
+    };
+
+    const clickLabeledCondition = (wanted: string): HTMLElement | null => {
+      const want = conditionKey(wanted);
+      const roots: ParentNode[] = [];
+      const host = conditionCard();
+      const menu = overflowMenu();
+      const panel = conditionPanel();
+      if (menu) roots.push(menu);
+      if (panel) roots.push(panel);
+      if (host) roots.push(host);
+      roots.push(document);
+
+      for (const root of roots) {
+        for (const textEl of root.querySelectorAll(
+          ".filter-button__text, .btn__text, .radio__label, button, [role='button'], [role='radio'], label, .filter-button",
+        )) {
+          if (!(textEl instanceof HTMLElement)) continue;
+          const title = visibleText(textEl);
+          if (conditionKey(title) !== want) continue;
+          if (/undo|access key|read more|more information/i.test(title)) continue;
+          const hostEl =
+            textEl.closest("button, [role='button'], .filter-button, label, [role='radio']") ?? textEl;
+          if (!(hostEl instanceof HTMLElement)) continue;
+          if (isEllipsisPill(hostEl)) continue;
+          if (!isShown(hostEl) && !(hostEl instanceof HTMLInputElement)) continue;
+          selectChoice(hostEl);
+          return hostEl;
+        }
       }
 
-      log("picker open", {
-        header: normalize(
-          dialog.querySelector("h1, h2, .lightbox-dialog__header")?.textContent ?? "",
-        ),
-        snippet: normalize(dialog.innerText ?? "").slice(0, 400),
-      });
+      const ids = new Set(wantedIds(wanted));
+      if (ids.size === 0) return null;
+      for (const input of document.querySelectorAll('input[type="radio"]')) {
+        if (!(input instanceof HTMLInputElement) || !ids.has(input.value)) continue;
+        const hostEl =
+          (input.closest("label, .filter-button, .radio, button, .field") as HTMLElement | null) ?? input;
+        selectChoice(hostEl);
+        return hostEl;
+      }
+      return null;
+    };
 
-      const started = Date.now();
-      let choice = findConditionChoice(dialog, wanted);
-      while (!choice && Date.now() - started < 2500) {
-        await delay(150);
-        dialog = conditionDialog() ?? dialog;
-        choice = findConditionChoice(dialog, wanted);
+    const openChooser = async (): Promise<void> => {
+      if (chooserVisible()) return;
+      const host = conditionCard();
+      if (!host) return;
+      const valueBtn =
+        host.querySelector<HTMLElement>(
+          'button[name="condition"], button[aria-label*="Item condition" i], a.fake-link, button.listbox-button__control, button.value',
+        ) ??
+        [...host.querySelectorAll("button, a, [role='button']")].find((el): el is HTMLElement => {
+          if (!(el instanceof HTMLElement) || !isShown(el)) return false;
+          const title = visibleText(el);
+          return /^(new|used|new other)/i.test(title) && !isEllipsisPill(el);
+        }) ??
+        null;
+      if (!valueBtn) return;
+      fireClick(valueBtn, "reopen condition chooser");
+      await waitUntil(() => chooserVisible() || Boolean(conditionPanel()), 2500);
+    };
+
+    let conditionOk = Boolean(wanted) && labelsMatch(selectedCondition(), wanted);
+
+    if (wanted && !conditionOk) {
+      await openChooser();
+      let choice = findWantedChoice(wanted) ?? clickLabeledCondition(wanted);
+      const primary = conditionKey(wanted) === "new" || conditionKey(wanted) === "used";
+      if (!choice && !primary) {
+        const host = conditionCard();
+        if (host) {
+          clickEllipsis(host);
+          await waitUntil(
+            () => Boolean(findWantedChoice(wanted) || overflowMenu() || conditionPanel()),
+            2500,
+          );
+          choice = findWantedChoice(wanted) ?? clickLabeledCondition(wanted);
+        }
       }
 
       if (!choice) {
         log("no matching option", {
           wanted,
-          options: [...dialog.querySelectorAll('input[type="radio"], [role="option"], label')]
-            .filter((node): node is HTMLElement => node instanceof HTMLElement && isShown(node))
-            .slice(0, 12)
-            .map((node) => optionTitle(node)),
+          pills: conditionCard() ? siblingPills(conditionCard() as HTMLElement).map(visibleText) : [],
+          menu: overflowMenu() ? normalize(overflowMenu()?.innerText ?? "").slice(0, 300) : "",
         });
-        closePicker(dialog, "close unmatched condition picker");
-        await waitUntil(() => !conditionDialog(), 2000);
-        const descriptionOk = applyDescription(wantedDescription);
         return {
           ok: false,
           condition: false,
-          conditionDescription: descriptionOk,
+          conditionDescription: wantedDescription ? applyDescription(wantedDescription) : false,
           reason: `No matching condition for "${wanted}"`,
         };
       }
 
-      const radio =
-        choice instanceof HTMLInputElement
-          ? choice
-          : choice.querySelector("input[type='radio']");
-      log("selecting", optionTitle(choice));
-      if (radio instanceof HTMLElement) fireClick(radio, "condition radio");
-      if (!(radio instanceof HTMLElement) || radio !== choice) {
-        fireClick(choice, "condition option");
+      if (!labelsMatch(selectedCondition(), wanted)) {
+        selectChoice(choice);
       }
-      await delay(250);
-
-      dialog = conditionDialog() ?? dialog;
-      if (dialog && isShown(dialog)) {
-        const confirmed = await confirmPickerWithRetry(dialog);
-        if (!confirmed) await delay(350);
-      }
-
-      let closed = await waitUntil(() => !conditionDialog(), 2000);
-      if (!closed) {
-        const leftover = conditionDialog();
-        if (leftover) {
-          if (!(await confirmPickerWithRetry(leftover))) {
-            closePicker(leftover, "force-close condition picker");
-          }
-          closed = await waitUntil(() => !conditionDialog(), 1500);
-        }
-      }
-
-      const leftover = conditionDialog();
-      if (leftover && isShown(leftover)) {
-        closePicker(leftover, "dismiss leftover condition picker");
-        await waitUntil(() => !conditionDialog(), 1500);
-      }
-
-      const current = listingCondition();
-      conditionOk = labelsMatch(current, wanted);
-      log("condition after pick", { current, conditionOk, dialogOpen: Boolean(conditionDialog()) });
+      await waitUntil(
+        () => labelsMatch(selectedCondition(), wanted) || labelsMatch(visibleText(choice), wanted),
+        2000,
+      );
+      conditionOk =
+        labelsMatch(selectedCondition(), wanted) || labelsMatch(visibleText(choice), wanted);
     }
 
-    const leftover = conditionDialog();
-    if (leftover && isShown(leftover)) {
-      closePicker(leftover, "dismiss leftover condition picker");
-      await waitUntil(() => !conditionDialog(), 1500);
+    let descriptionOk = false;
+    if (wantedDescription) {
+      await waitUntil(() => Boolean(descriptionInput()), 3000);
+      descriptionOk = applyDescription(wantedDescription);
+      if (!descriptionOk) {
+        await delay(400);
+        descriptionOk = applyDescription(wantedDescription);
+      }
     }
 
-    const descriptionOk = wantedDescription ? applyDescription(wantedDescription) : false;
-    const matched = Boolean(conditionOk);
+    if (conditionPanel()) {
+      confirmConditionPanel();
+      await waitUntil(() => !conditionPanel(), 2000);
+      if (wantedDescription && !descriptionOk) {
+        await waitUntil(() => Boolean(descriptionInput()), 1500);
+        descriptionOk = applyDescription(wantedDescription);
+      }
+    }
+
+    conditionOk = conditionOk || labelsMatch(selectedCondition(), wanted);
     log("MAIN-world result", {
-      current: listingCondition(),
-      matched,
+      current: selectedCondition(),
+      conditionOk,
       descriptionOk,
-      dialogOpen: Boolean(conditionDialog()),
     });
     return {
-      ok: matched || descriptionOk,
-      condition: matched,
+      ok: conditionOk || descriptionOk,
+      condition: conditionOk,
       conditionDescription: wantedDescription ? descriptionOk : false,
-      reason: matched ? "updated" : `Listing still shows "${listingCondition() || "unknown"}"`,
+      reason: conditionOk ? "updated" : `Listing still shows "${selectedCondition() || "unknown"}"`,
     };
   } catch (error) {
-    const leftover = conditionDialog();
-    if (leftover) closePicker(leftover, "close after error");
     const reason = error instanceof Error ? error.message : String(error);
     log("MAIN-world error", reason);
     return { ok: false, condition: false, conditionDescription: false, reason };

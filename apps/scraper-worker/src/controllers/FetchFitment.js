@@ -117,19 +117,111 @@ async function hasCompatibilityTable(page) {
   );
 }
 
+async function readFitmentPaginationState(page) {
+  return page.evaluate(() => {
+    const root =
+      document.querySelector(".motors-compatibility-table") ||
+      document.querySelector('[data-testid="d-motors-compatibility-table"]') ||
+      document.querySelector('[data-testid="d-item-compatibility"]') ||
+      document.querySelector(".motors-compatibility-table-wrapper");
+    const scope = root || document.body;
+    const hay = `${scope.textContent || ""} ${document.body?.innerText || ""}`.slice(0, 8000);
+    const advertisedMatch =
+      hay.match(/compatible with\s+(\d+)\s+vehicle/i) ||
+      hay.match(/(\d+)\s+vehicle\(s\)/i) ||
+      hay.match(/of\s+(\d+)\s+vehicle/i);
+    const advertisedCount = advertisedMatch ? Number.parseInt(advertisedMatch[1], 10) : 0;
+
+    const disabled = (el) =>
+      !el ||
+      el.getAttribute("aria-disabled") === "true" ||
+      el.hasAttribute("disabled") ||
+      /disabled|pagination__next--disabled/i.test(el.className || "");
+
+    const next =
+      scope.querySelector(".pagination__next") ||
+      scope.querySelector('[aria-label*="Go to next" i]') ||
+      scope.querySelector('[aria-label*="Next page" i]') ||
+      scope.querySelector('a[rel="next"]');
+
+    const pageNumbers = Array.from(scope.querySelectorAll("a, button"))
+      .map((el) => (el.textContent || "").trim())
+      .filter((text) => /^\d+$/.test(text));
+
+    return {
+      advertisedCount: Number.isFinite(advertisedCount) ? advertisedCount : 0,
+      hasNext: Boolean(next) && !disabled(next),
+      pageLinkCount: new Set(pageNumbers).size,
+    };
+  });
+}
+
+async function firstFitmentRowText(page) {
+  return page.evaluate(() => {
+    const firstRow =
+      document.querySelector(".motors-compatibility-table tbody.ux-table-section__body tr") ||
+      document.querySelector('[data-testid="d-motors-compatibility-table"] tbody tr') ||
+      document.querySelector(".motors-compatibility-table-wrapper tbody tr") ||
+      document.querySelector('[data-testid="d-item-compatibility"] tbody tr');
+    return firstRow ? firstRow.textContent.trim() : "";
+  });
+}
+
+async function clickNextFitmentPage(page) {
+  return page.evaluate(() => {
+    const root =
+      document.querySelector(".motors-compatibility-table") ||
+      document.querySelector('[data-testid="d-motors-compatibility-table"]') ||
+      document.querySelector('[data-testid="d-item-compatibility"]') ||
+      document.querySelector(".motors-compatibility-table-wrapper");
+    if (!root) {
+      return false;
+    }
+
+    const disabled = (el) =>
+      !el ||
+      el.getAttribute("aria-disabled") === "true" ||
+      el.hasAttribute("disabled") ||
+      /disabled|pagination__next--disabled/i.test(el.className || "");
+
+    const next =
+      root.querySelector(".pagination__next") ||
+      root.querySelector('[aria-label*="Go to next" i]') ||
+      root.querySelector('[aria-label*="Next page" i]') ||
+      root.querySelector('a[rel="next"]');
+    if (next instanceof HTMLElement && !disabled(next)) {
+      next.click();
+      return true;
+    }
+
+    const current = root.querySelector('[aria-current="page"]');
+    const currentNum = Number.parseInt((current?.textContent || "").trim(), 10) || 1;
+    const wanted = String(currentNum + 1);
+    const pageLink = Array.from(root.querySelectorAll("a, button")).find(
+      (el) => (el.textContent || "").trim() === wanted,
+    );
+    if (pageLink instanceof HTMLElement && !disabled(pageLink)) {
+      pageLink.click();
+      return true;
+    }
+    return false;
+  });
+}
+
 async function handlePagination(page, onProgress) {
   let allCompatibility = [];
   let currentPage = 1;
-  let hasNextPage = true;
   let retryCount = 0;
   const maxRetries = 5;
+  const maxPages = 100;
   const tableSelectors = [
     ".motors-compatibility-table",
     '[data-testid="d-motors-compatibility-table"]',
     ".motors-compatibility-table-wrapper",
+    '[data-testid="d-item-compatibility"]',
   ];
 
-  while (hasNextPage && retryCount < maxRetries) {
+  while (currentPage <= maxPages && retryCount < maxRetries) {
     try {
       await Promise.race(
         tableSelectors.map((selector) => page.waitForSelector(selector, { timeout: 30000 })),
@@ -137,9 +229,10 @@ async function handlePagination(page, onProgress) {
 
       const pageStartedAt = Date.now();
       const pageData = await extractCompatibilityData(page);
-      allCompatibility = allCompatibility.concat(pageData.compatibility);
+      const state = await readFitmentPaginationState(page);
+      allCompatibility = uniqueRows(allCompatibility.concat(pageData.compatibility));
       console.log(
-        `[FetchFitment] Page ${currentPage}: extracted ${pageData.compatibility.length} rows in ${Date.now() - pageStartedAt}ms (total: ${allCompatibility.length})`,
+        `[FetchFitment] Page ${currentPage}: extracted ${pageData.compatibility.length} rows in ${Date.now() - pageStartedAt}ms (total: ${allCompatibility.length}${state.advertisedCount ? ` of ${state.advertisedCount}` : ""})`,
       );
       if (onProgress) {
         await onProgress(
@@ -149,38 +242,28 @@ async function handlePagination(page, onProgress) {
         );
       }
 
-      const nextPageAvailable = await page.evaluate(() => {
-        const nextButton = document.querySelector(
-          '.pagination__next:not([aria-disabled="true"])',
-        );
-        return nextButton !== null;
-      });
-
-      if (!nextPageAvailable) {
-        hasNextPage = false;
+      const moreNumberedPages = state.pageLinkCount > currentPage;
+      if (!state.hasNext && !moreNumberedPages) {
         break;
       }
 
-      const firstRowTextBefore = await page.evaluate(() => {
-        const firstRow =
-          document.querySelector(".motors-compatibility-table tbody.ux-table-section__body tr") ||
-          document.querySelector('[data-testid="d-motors-compatibility-table"] tbody tr') ||
-          document.querySelector(".motors-compatibility-table-wrapper tbody tr");
-        return firstRow ? firstRow.textContent.trim() : "";
-      });
+      const firstRowTextBefore = await firstFitmentRowText(page);
+      const clicked = await clickNextFitmentPage(page);
+      if (!clicked) {
+        console.log("[FetchFitment] No next compatibility page control");
+        break;
+      }
 
       currentPage += 1;
       console.log(`[FetchFitment] Navigating to page ${currentPage}...`);
-      await page.evaluate(() => {
-        document.querySelector('.pagination__next:not([aria-disabled="true"])')?.click();
-      });
 
       await page.waitForFunction(
         (prevFirstRowText) => {
           const firstRow =
             document.querySelector(".motors-compatibility-table tbody.ux-table-section__body tr") ||
             document.querySelector('[data-testid="d-motors-compatibility-table"] tbody tr') ||
-            document.querySelector(".motors-compatibility-table-wrapper tbody tr");
+            document.querySelector(".motors-compatibility-table-wrapper tbody tr") ||
+            document.querySelector('[data-testid="d-item-compatibility"] tbody tr');
           if (!firstRow) {
             return false;
           }
@@ -204,7 +287,7 @@ async function handlePagination(page, onProgress) {
         console.log(
           `[FetchFitment] Max retries reached for page ${currentPage}. Returning ${allCompatibility.length} rows.`,
         );
-        hasNextPage = false;
+        break;
       }
     }
   }
@@ -257,21 +340,19 @@ async function extractRowsFromHtmlChunks(page, html) {
   return rows;
 }
 
-async function openLiveListing(page, listingUrl) {
-  try {
-    await page.goto("https://www.ebay.com/", {
-      waitUntil: "domcontentloaded",
-      timeout: 30000,
-      referer: "https://www.google.com/",
-    });
-    await sleep(300 + Math.floor(Math.random() * 200));
-  } catch (error) {
-    console.log(`[FetchFitment] homepage warmup failed: ${error.message}`);
+function listingHasFitmentMarkup(html) {
+  if (!html || typeof html !== "string") {
+    return false;
   }
+  return /motors-compatibility-table|d-motors-compatibility-table|d-item-compatibility|compatible vehicles/i.test(
+    html,
+  );
+}
 
+async function openLiveListing(page, listingUrl) {
   await page.goto(listingUrl, {
     waitUntil: "domcontentloaded",
-    timeout: 60000,
+    timeout: 20000,
     referer: "https://www.ebay.com/",
   });
 
@@ -283,7 +364,7 @@ async function openLiveListing(page, listingUrl) {
   ];
   try {
     await Promise.race(
-      tableSelectors.map((selector) => page.waitForSelector(selector, { timeout: 8000 })),
+      tableSelectors.map((selector) => page.waitForSelector(selector, { timeout: 20000 })),
     );
     return true;
   } catch {
@@ -307,16 +388,37 @@ export async function fetchFitment(page, listingUrl, options = {}) {
       };
     }
 
+    if (html && !listingHasFitmentMarkup(html)) {
+      console.log("[FetchFitment] Listing HTML has no compatibility table; skipping live navigation");
+      return {
+        success: true,
+        compatibility: [],
+        compatibilityCount: 0,
+      };
+    }
+
     let tableFound = false;
     try {
-      tableFound = await openLiveListing(page, listingUrl);
+      tableFound = await hasCompatibilityTable(page);
     } catch (error) {
-      console.log(`[FetchFitment] live navigation failed: ${error.message}`);
+      console.log(`[FetchFitment] current page check failed: ${error.message}`);
     }
 
     if (!tableFound && html) {
-      await page.setContent(html, { waitUntil: "domcontentloaded", timeout: 30000 });
-      tableFound = await hasCompatibilityTable(page);
+      try {
+        await page.setContent(html, { waitUntil: "domcontentloaded", timeout: 10000 });
+        tableFound = await hasCompatibilityTable(page);
+      } catch (error) {
+        console.log(`[FetchFitment] HTML load failed: ${error.message}`);
+      }
+    }
+
+    if (!tableFound) {
+      try {
+        tableFound = await openLiveListing(page, listingUrl);
+      } catch (error) {
+        console.log(`[FetchFitment] live navigation failed: ${error.message}`);
+      }
     }
 
     if (!tableFound) {
@@ -330,12 +432,22 @@ export async function fetchFitment(page, listingUrl, options = {}) {
 
     const liveTable = await hasCompatibilityTable(page);
     let rows = [];
-    if (liveTable && page.url().includes("/itm/")) {
-      console.log("[FetchFitment] Processing paginated compatibility data...");
-      rows = await handlePagination(page, onProgress);
-    } else {
-      const pageData = await extractCompatibilityData(page);
-      rows = pageData.compatibility;
+    if (liveTable) {
+      const onLiveListing = /\/itm\//i.test(page.url());
+      if (!onLiveListing) {
+        console.log(
+          "[FetchFitment] Compatibility table is from an HTML snapshot (page 1 only). Opening the live listing to scrape every page.",
+        );
+        const opened = await openLiveListing(page, listingUrl);
+        if (!opened) {
+          rows = (await extractCompatibilityData(page)).compatibility;
+        } else {
+          rows = await handlePagination(page, onProgress);
+        }
+      } else {
+        console.log("[FetchFitment] Processing paginated compatibility data...");
+        rows = await handlePagination(page, onProgress);
+      }
     }
 
     if (html) {
