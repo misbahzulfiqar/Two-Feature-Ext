@@ -98,7 +98,7 @@ export class SellSimilarApiClient {
     });
   }
 
-  /** Best-effort live progress for the scrape currently running. */
+  /** Best-effort live progress via short-interval HTTP GET (no WebSocket). */
   async getScrapeProgress(): Promise<ApiResponse<ScrapeProgressSnapshot>> {
     return this.request<ApiResponse<ScrapeProgressSnapshot>>("/listings/scrape/progress");
   }

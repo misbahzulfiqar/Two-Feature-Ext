@@ -169,9 +169,9 @@ function toScrapedListing(data: ScrapedListingData): ScrapedListing {
 }
 
 /**
- * Live status of the scrape the worker is running right now. Returns undefined
- * when nothing is running or the lookup fails - progress is best-effort and
- * must never interrupt a scrape.
+ * Live status of the scrape the worker is running right now (HTTP poll, not a
+ * WebSocket). Returns undefined when nothing is running or the lookup fails —
+ * progress is best-effort and must never interrupt a scrape.
  */
 export async function readScrapeProgress(): Promise<string | undefined> {
   try {

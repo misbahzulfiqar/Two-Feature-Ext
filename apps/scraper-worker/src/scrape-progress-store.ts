@@ -5,7 +5,8 @@ import type { ScrapeProgressStage } from "@sell-similar/contracts";
  *
  * The synchronous /scrape call blocks until the whole listing is done, so the
  * extension has no way to see that the worker is, say, on page 4 of the
- * compatibility table. This store is polled by GET /scrape/progress instead.
+ * compatibility table. MVP uses short-interval HTTP polling of GET
+ * /scrape/progress rather than a persistent WebSocket.
  *
  * A single slot is enough: runScrape serialises scrapes, so at most one is in
  * flight at a time.

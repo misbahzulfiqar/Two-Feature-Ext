@@ -3,6 +3,7 @@ import type { HealthResponse } from "@sell-similar/contracts";
 import { createLogger, withCorrelationId } from "@sell-similar/logging";
 import { toNodeHandler } from "better-auth/node";
 import express from "express";
+import morgan from "morgan";
 import { createAuth } from "./auth.js";
 import {
   clearScrapeCacheHandler,
@@ -24,6 +25,7 @@ const logger = createLogger({ name: "api", level: env.LOG_LEVEL });
 const auth = createAuth(env);
 
 const app = express();
+app.use(morgan("tiny"));
 app.use(correlationMiddleware);
 app.use(corsMiddleware);
 app.all("/api/auth/{*path}", toNodeHandler(auth));

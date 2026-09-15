@@ -10,6 +10,7 @@ import {
   PANEL_HOST_ATTR,
   PANEL_HOST_SELECTOR,
   PANEL_HOST_TAG,
+  PANEL_SLOT_SELECTOR,
   findListingEditorContainer,
   insertBeforeListingHeading,
   isEbayListingEditorUrl,
@@ -20,16 +21,35 @@ const HOST_PAGE_STYLE_ID = "sell-similar-assistant-host-styles";
 const SHADOW_CSS = `${panelCss}\n${assistantCss}`;
 
 function hideEbayHelpControl(): void {
+  const isOverflowControl = (el: HTMLElement): boolean => {
+    const hay = `${el.getAttribute("aria-label") ?? ""} ${el.getAttribute("title") ?? ""}`;
+    const text = (el.textContent ?? "").replace(/\s+/g, " ").trim();
+    return (
+      /overflow|more options|more actions|^more$|open menu/i.test(hay) ||
+      text === "..." ||
+      text === "⋯" ||
+      text === "•••"
+    );
+  };
+
   const isHelpControl = (el: HTMLElement): boolean => {
-    if (el.closest(PANEL_HOST_SELECTOR)) return false;
+    if (el.closest(PANEL_HOST_SELECTOR) || el.closest(PANEL_SLOT_SELECTOR)) {
+      return false;
+    }
     if (el.closest(".smry, .summary--fitments, .fitment-wrapper, [data-testid='fitment-frame']")) {
+      return false;
+    }
+    if (isOverflowControl(el)) {
       return false;
     }
     const aria = (el.getAttribute("aria-label") ?? "").trim();
     const title = (el.getAttribute("title") ?? "").trim();
+    const testid = (el.getAttribute("data-testid") ?? "").trim();
     const text = (el.textContent ?? "").replace(/\s+/g, " ").trim();
     if (/^(help|\?|get help|listing help)$/i.test(aria)) return true;
+    if (/\bhelp\b/i.test(aria)) return true;
     if (/^(help|\?)$/i.test(title)) return true;
+    if (/help/i.test(testid)) return true;
     if (text === "?" || text === "？") return true;
     return false;
   };
@@ -42,9 +62,7 @@ function hideEbayHelpControl(): void {
     el.style.setProperty("pointer-events", "none", "important");
   };
 
-  const header = document.querySelector(".se-page-header, .page-header, header");
-  if (!(header instanceof HTMLElement)) return;
-  for (const el of header.querySelectorAll("button, a, [role='button']")) {
+  for (const el of document.querySelectorAll("button, a, [role='button']")) {
     if (el instanceof HTMLElement && isHelpControl(el)) {
       hide(el);
     }
@@ -57,12 +75,30 @@ type MountedAssistant = {
 };
 
 function injectHostPageStyles(): void {
-  if (document.getElementById(HOST_PAGE_STYLE_ID)) {
-    return;
+  let style = document.getElementById(HOST_PAGE_STYLE_ID);
+  if (!(style instanceof HTMLStyleElement)) {
+    style = document.createElement("style");
+    style.id = HOST_PAGE_STYLE_ID;
+    (document.head ?? document.documentElement).append(style);
   }
-  const style = document.createElement("style");
-  style.id = HOST_PAGE_STYLE_ID;
-  style.textContent = `${PANEL_HOST_SELECTOR} {
+  style.textContent = `${PANEL_SLOT_SELECTOR} {
+  display: block !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  position: static !important;
+  top: auto !important;
+  float: none !important;
+  clear: both !important;
+  flex: 0 0 auto !important;
+  box-sizing: border-box !important;
+  margin: 0 !important;
+  padding: 8px 0 12px !important;
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  z-index: auto !important;
+}
+${PANEL_HOST_SELECTOR} {
   display: block !important;
   width: 100% !important;
   max-width: 100% !important;
@@ -82,7 +118,6 @@ function injectHostPageStyles(): void {
   box-shadow: none !important;
 }
 `;
-  (document.head ?? document.documentElement).append(style);
 }
 
 function applyShadowCss(shadow: ShadowRoot): void {
@@ -173,78 +208,126 @@ export default defineContentScript({
       },
     });
 
+    const REATTACH_MS = 400;
     let didMount = false;
-    let persistQueued = false;
+    let waitObserver: MutationObserver | null = null;
+    let keepAliveObserver: MutationObserver | null = null;
+    let reattachTimer: number | null = null;
 
-    function showPanel(): void {
-      const container = findListingEditorContainer();
-      if (!container) {
+    function stopWaitingForEditor(): void {
+      waitObserver?.disconnect();
+      waitObserver = null;
+    }
+
+    function stopKeepAlive(): void {
+      keepAliveObserver?.disconnect();
+      keepAliveObserver = null;
+      if (reattachTimer != null) {
+        window.clearTimeout(reattachTimer);
+        reattachTimer = null;
+      }
+    }
+
+    function panelAnchor(): Element | undefined {
+      return findListingEditorContainer();
+    }
+
+    /**
+     * Mount React once. If Helix later detaches the host, put the same node
+     * back after a short pause — do not remount, and do not poll every 2s.
+     */
+    function attachPanel(): void {
+      const anchor = panelAnchor();
+      if (!anchor) {
         return;
       }
-      hideEbayHelpControl();
       try {
         if (!didMount) {
           ui.mount();
           didMount = true;
-          insertBeforeListingHeading(container, ui.shadowHost);
-          hideEbayHelpControl();
-          return;
         }
         if (!ui.shadowHost.isConnected) {
-          insertBeforeListingHeading(container, ui.shadowHost);
+          insertBeforeListingHeading(anchor, ui.shadowHost);
         }
         hideEbayHelpControl();
+        requestAnimationFrame(() => {
+          hideEbayHelpControl();
+        });
+        stopWaitingForEditor();
+        startKeepAlive();
       } catch (error) {
         didMount = false;
         console.warn("Sell Similar: failed to mount assistant", error);
       }
     }
 
+    function scheduleReattach(): void {
+      if (!didMount || ui.shadowHost.isConnected) {
+        return;
+      }
+      if (!isEbayListingEditorUrl(window.location.href) || reattachTimer != null) {
+        return;
+      }
+      reattachTimer = window.setTimeout(() => {
+        reattachTimer = null;
+        if (!didMount || ui.shadowHost.isConnected) {
+          return;
+        }
+        if (!isEbayListingEditorUrl(window.location.href)) {
+          return;
+        }
+        attachPanel();
+      }, REATTACH_MS);
+    }
+
+    function startKeepAlive(): void {
+      if (keepAliveObserver || !document.body) {
+        return;
+      }
+      keepAliveObserver = new MutationObserver(() => {
+        if (didMount && !ui.shadowHost.isConnected) {
+          scheduleReattach();
+        }
+      });
+      keepAliveObserver.observe(document.body, { childList: true, subtree: true });
+    }
+
+    function waitForEditorThenMount(): void {
+      attachPanel();
+      if (didMount || waitObserver) {
+        return;
+      }
+      waitObserver = new MutationObserver(() => {
+        attachPanel();
+      });
+      waitObserver.observe(document.documentElement, {
+        childList: true,
+        subtree: true,
+      });
+    }
+
     function hidePanel(): void {
+      stopWaitingForEditor();
+      stopKeepAlive();
       ui.remove();
       didMount = false;
     }
 
     function syncPanel(url: URL = new URL(window.location.href)): void {
       if (isEbayListingEditorUrl(url)) {
-        showPanel();
+        waitForEditorThenMount();
         return;
       }
       hidePanel();
-    }
-
-    function queuePlace(): void {
-      if (persistQueued) {
-        return;
-      }
-      persistQueued = true;
-      requestAnimationFrame(() => {
-        persistQueued = false;
-        if (!ui.shadowHost.isConnected && isEbayListingEditorUrl(window.location.href)) {
-          showPanel();
-        }
-      });
     }
 
     syncPanel();
     ctx.addEventListener(window, "wxt:locationchange", ({ newUrl }) => {
       syncPanel(newUrl);
     });
-
-    const persist = new MutationObserver(() => {
-      if (!ui.shadowHost.isConnected) {
-        queuePlace();
-      }
-    });
-    const editorRoot = findListingEditorContainer()?.parentElement ?? document.body;
-    persist.observe(editorRoot, { childList: true, subtree: false });
-    ctx.setInterval(() => {
-      if (!ui.shadowHost.isConnected && isEbayListingEditorUrl(window.location.href)) {
-        showPanel();
-      }
-    }, 2000);
     ctx.onInvalidated(() => {
-      persist.disconnect();
+      stopWaitingForEditor();
+      stopKeepAlive();
     });
   },
 });
