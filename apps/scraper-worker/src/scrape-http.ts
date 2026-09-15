@@ -68,7 +68,8 @@ async function handleRequest(
     return;
   }
 
-  // Polled by the extension while the blocking /scrape call is in flight.
+  // Short-interval HTTP poll from the panel while POST /scrape is in flight.
+  // MVP does not use a persistent WebSocket for scrape progress.
   if (req.method === "GET" && path === "/scrape/progress") {
     sendJson(res, 200, readScrapeProgress());
     return;

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import type { ScrapeProgressStage, VehicleCompatibility } from "@sell-similar/contracts";
 import { fillEbayListingCategories } from "../lib/fill-ebay-categories.ts";
 import {
@@ -59,41 +59,6 @@ export function SellSimilarAssistant() {
 
   const rootRef = useRef<HTMLElement | null>(null);
   const isBusy = isProcessing || isClearingForm;
-
-  /**
-   * Pin the panel while it drives eBay's form. Filling scrolls the page to
-   * each widget in turn, and eBay masks the page while its dialogs are open,
-   * so without this the progress bar scrolls out of sight and the page just
-   * looks frozen.
-   *
-   * The shadow host carries inline "position: static !important" from the
-   * content script, so only an inline override can win.
-   */
-  useEffect(() => {
-    const node = rootRef.current;
-    const root = node?.getRootNode();
-    const host =
-      root instanceof ShadowRoot && root.host instanceof HTMLElement ? root.host : null;
-    if (!host) {
-      return;
-    }
-
-    function release(): void {
-      host?.style.setProperty("position", "static", "important");
-      host?.style.removeProperty("top");
-      host?.style.setProperty("z-index", "40", "important");
-    }
-
-    if (isBusy) {
-      host.style.setProperty("position", "sticky", "important");
-      host.style.setProperty("top", "0px", "important");
-      host.style.setProperty("z-index", "2147483000", "important");
-    } else {
-      release();
-    }
-
-    return release;
-  }, [isBusy]);
 
   function handleScrapeModeChange(mode: ScrapeMode): void {
     setScrapeMode(mode);
@@ -226,8 +191,8 @@ export function SellSimilarAssistant() {
 
   /**
    * The scrape is one blocking request, so the worker's real stage is only
-   * visible by polling it. Runs for the duration of the await and stops as
-   * soon as the scrape returns.
+   * visible by short-interval HTTP polling (~5s). MVP does not keep a
+   * persistent WebSocket. Stops as soon as the scrape returns.
    */
   async function withLiveScrapeStatus<T>(run: () => Promise<T>): Promise<T> {
     let polling = true;
@@ -238,7 +203,7 @@ export function SellSimilarAssistant() {
           setStatusMessage(message);
         }
         await new Promise((resolve) => {
-          window.setTimeout(resolve, 1200);
+          window.setTimeout(resolve, 5000);
         });
       }
     };

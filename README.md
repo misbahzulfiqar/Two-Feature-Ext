@@ -4,6 +4,8 @@ pnpm workspace managed by Turborepo. Applications are independently deployable; 
 
 Apps must not import source files from sibling apps. Share code only through `packages/`.
 
+Scrape progress is short-interval HTTP polling (`GET /listings/scrape/progress` → worker `GET /scrape/progress`) while the blocking `POST /listings/scrape` is in flight. The MVP does not require a persistent WebSocket for that. WXT `ws://127.0.0.1:3000` is local HMR only.
+
 ## Workspace commands
 
 ```bash

@@ -13,6 +13,8 @@ const EDITOR_MODES = new Set([
 export const PANEL_HOST_TAG = "div";
 export const PANEL_HOST_ATTR = "data-sell-similar-assistant";
 export const PANEL_HOST_SELECTOR = `[${PANEL_HOST_ATTR}]`;
+export const PANEL_SLOT_ATTR = "data-sell-similar-slot";
+export const PANEL_SLOT_SELECTOR = `[${PANEL_SLOT_ATTR}]`;
 
 /** eBay listing chrome: header, then this container, then the form. */
 export const LISTING_EDITOR_INSERT_SELECTORS = [
@@ -63,22 +65,62 @@ export function findListingEditorContainer(): Element | undefined {
   return undefined;
 }
 
+export function stylePanelSlot(slot: HTMLElement): void {
+  slot.style.setProperty("display", "block", "important");
+  slot.style.setProperty("position", "static", "important");
+  slot.style.setProperty("top", "auto", "important");
+  slot.style.setProperty("z-index", "auto", "important");
+  slot.style.setProperty("width", "100%", "important");
+  slot.style.setProperty("max-width", "100%", "important");
+  slot.style.setProperty("box-sizing", "border-box", "important");
+  slot.style.setProperty("float", "none", "important");
+  slot.style.setProperty("clear", "both", "important");
+  slot.style.setProperty("margin", "0", "important");
+  slot.style.setProperty("padding", "8px 0 12px", "important");
+  slot.style.setProperty("background", "transparent", "important");
+  slot.style.setProperty("border", "0", "important");
+  slot.style.setProperty("box-shadow", "none", "important");
+}
+
+function ensurePanelSlot(parent: Element, form: Element): HTMLElement {
+  const hostParent = parent === form ? form : parent;
+  const existing = hostParent.querySelector(`:scope > ${PANEL_SLOT_SELECTOR}`);
+  if (existing instanceof HTMLElement) {
+    if (hostParent === form) {
+      if (form.firstElementChild !== existing) {
+        form.prepend(existing);
+      }
+    } else if (existing.nextElementSibling !== form) {
+      parent.insertBefore(existing, form);
+    }
+    return existing;
+  }
+  document.querySelectorAll(PANEL_SLOT_SELECTOR).forEach((node) => {
+    node.remove();
+  });
+  const slot = document.createElement("div");
+  slot.setAttribute(PANEL_SLOT_ATTR, "");
+  if (hostParent === form) {
+    form.prepend(slot);
+  } else {
+    parent.insertBefore(slot, form);
+  }
+  return slot;
+}
+
 /**
- * Insert the assistant above the listing form so it stays visible.
+ * Sit in the listing content column, immediately above the eBay form heading.
+ * Staying out of the sticky header keeps the chrome clean; staying out of the
+ * form's inner Helix tree avoids wiping Compatibility.
  */
 export function insertBeforeListingHeading(anchor: Element, ui: Element): void {
   const form = listingPageContainer(anchor);
-  const parent = form.parentElement;
-  if (parent === null) {
-    if (ui.parentElement !== form) {
-      form.prepend(ui);
-    }
-    return;
+  const parent = form.parentElement ?? form;
+  const slot = ensurePanelSlot(parent, form);
+  stylePanelSlot(slot);
+  if (ui.parentElement !== slot) {
+    slot.append(ui);
   }
-  if (ui.parentElement === parent && ui.nextElementSibling === form) {
-    return;
-  }
-  parent.insertBefore(ui, form);
 }
 
 export function isEbayHost(hostname: string): boolean {

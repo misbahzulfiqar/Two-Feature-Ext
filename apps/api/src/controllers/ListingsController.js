@@ -86,6 +86,7 @@ export function sellSimilar(req, res) {
   });
 }
 
+/** Proxies worker GET /scrape/progress for the panel's short-interval HTTP poll. */
 export function createScrapeProgressHandler(scraperWorkerUrl) {
   const workerBaseUrl = String(scraperWorkerUrl).replace(/[/]+$/, "");
 

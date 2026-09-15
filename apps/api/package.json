@@ -20,11 +20,13 @@
     "bullmq": "^6.3.1",
     "express": "^5.2.1",
     "ioredis": "^6.0.0",
+    "morgan": "^1.12.1",
     "zod": "catalog:"
   },
   "devDependencies": {
     "@sell-similar/tsconfig": "workspace:*",
     "@types/express": "^5.0.6",
+    "@types/morgan": "^1.9.10",
     "@types/node": "catalog:",
     "tsx": "^4.23.12",
     "typescript": "catalog:"
