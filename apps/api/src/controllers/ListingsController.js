@@ -12,6 +12,11 @@ import {
   scrapeCacheItemId,
   writeScrapeCache,
 } from "../scrape-cache.js";
+import { persistHttpScrape } from "../scrape-records.js";
+
+function persistScrape(options) {
+  return persistHttpScrape(options).catch(() => undefined);
+}
 
 const SCRAPE_TIMEOUT_MS = 120_000;
 
@@ -133,8 +138,10 @@ export async function clearScrapeCacheHandler(req, res) {
   });
 }
 
-export function createScrapeListingHandler(scraperWorkerUrl) {
+export function createScrapeListingHandler(scraperWorkerUrl, options = {}) {
   const workerBaseUrl = String(scraperWorkerUrl).replace(/\/+$/, "");
+  const mongoUrl = options.mongoUrl;
+  const auth = options.auth;
 
   return async function scrapeListing(req, res) {
     const parsed = scrapeListingRequestSchema.safeParse(req.body);
@@ -147,6 +154,15 @@ export function createScrapeListingHandler(scraperWorkerUrl) {
     }
 
     const scrapeMode = parsed.data.scrapeMode ?? "full-scrape";
+    const startedAt = new Date();
+    const persistBase = {
+      mongoUrl,
+      auth,
+      req,
+      listingUrl: parsed.data.listingUrl,
+      scrapeMode,
+      startedAt,
+    };
 
     if (!parsed.data.refresh) {
       const cached = await readScrapeCache(parsed.data.listingUrl, scrapeMode);
@@ -154,9 +170,15 @@ export function createScrapeListingHandler(scraperWorkerUrl) {
         console.log(
           `[scrape] cache HIT (${cached.backend}) ${scrapeCacheItemId(parsed.data.listingUrl)} mode=${scrapeMode} age=${Math.round(cached.ageMs / 1000)}s`,
         );
+        const jobId = await persistScrape({
+          ...persistBase,
+          status: "completed",
+          result: cached.data,
+        });
         return res.status(200).json({
           ok: true,
           data: cached.data,
+          jobId,
           cache: {
             hit: true,
             ageMs: cached.ageMs,
@@ -189,33 +211,57 @@ export function createScrapeListingHandler(scraperWorkerUrl) {
 
       const payload = await workerResponse.json();
       if (!workerResponse.ok || payload?.status !== "ok") {
+        const errorCode = "SCRAPE_FAILED";
+        const errorMessage = payload?.message || "Scraper worker failed to scrape listing";
+        const jobId = await persistScrape({
+          ...persistBase,
+          status: "failed",
+          errorCode,
+          errorMessage,
+        });
         return res.status(Number(payload?.code) || workerResponse.status || 502).json({
           ok: false,
           error: {
-            code: "SCRAPE_FAILED",
-            message: payload?.message || "Scraper worker failed to scrape listing",
+            code: errorCode,
+            message: errorMessage,
           },
+          jobId,
           correlationId: req.correlationId,
         });
       }
 
       const listingData = scrapedListingDataSchema.safeParse(payload.listingData);
       if (!listingData.success) {
+        const errorCode = "INVALID_SCRAPE_RESULT";
+        const errorMessage = "Scraper worker returned invalid listing data";
+        const jobId = await persistScrape({
+          ...persistBase,
+          status: "failed",
+          errorCode,
+          errorMessage,
+        });
         return res.status(502).json({
           ok: false,
           error: {
-            code: "INVALID_SCRAPE_RESULT",
-            message: "Scraper worker returned invalid listing data",
+            code: errorCode,
+            message: errorMessage,
           },
+          jobId,
           correlationId: req.correlationId,
         });
       }
 
       await writeScrapeCache(parsed.data.listingUrl, scrapeMode, listingData.data);
+      const jobId = await persistScrape({
+        ...persistBase,
+        status: "completed",
+        result: listingData.data,
+      });
 
       return res.status(200).json({
         ok: true,
         data: listingData.data,
+        jobId,
         cache: {
           hit: false,
           ageMs: 0,
@@ -225,15 +271,22 @@ export function createScrapeListingHandler(scraperWorkerUrl) {
         correlationId: req.correlationId,
       });
     } catch (error) {
+      const errorCode = "SCRAPER_UNAVAILABLE";
+      const errorMessage =
+        error instanceof Error ? error.message : "Could not reach scraper worker";
+      const jobId = await persistScrape({
+        ...persistBase,
+        status: "failed",
+        errorCode,
+        errorMessage,
+      });
       return res.status(502).json({
         ok: false,
         error: {
-          code: "SCRAPER_UNAVAILABLE",
-          message:
-            error instanceof Error
-              ? error.message
-              : "Could not reach scraper worker",
+          code: errorCode,
+          message: errorMessage,
         },
+        jobId,
         correlationId: req.correlationId,
       });
     }

@@ -11,8 +11,32 @@ export type ScrapeListingRequestMessage = {
 };
 
 export type ScrapeListingResponseMessage =
-  | { ok: true; data: ScrapedListingData }
+  | { ok: true; data: ScrapedListingData; jobId?: string }
   | { ok: false; error: string };
+
+export const REPORT_APPLY = "report-apply";
+
+export type ReportApplyRequestMessage = {
+  type: typeof REPORT_APPLY;
+  jobId: string;
+  fitmentCount?: number;
+  imageCount?: number;
+  warningCount: number;
+  warnings?: string[];
+};
+
+export type ReportApplyResponseMessage = { ok: true } | { ok: false; error: string };
+
+export function isReportApplyRequest(message: unknown): message is ReportApplyRequestMessage {
+  return (
+    typeof message === "object" &&
+    message !== null &&
+    "type" in message &&
+    message.type === REPORT_APPLY &&
+    "jobId" in message &&
+    typeof (message as { jobId: unknown }).jobId === "string"
+  );
+}
 
 export type ClearScrapeCacheRequestMessage = {
   type: typeof CLEAR_SCRAPE_CACHE;

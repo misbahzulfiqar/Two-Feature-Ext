@@ -13,7 +13,7 @@ export const scraperEnvSchema = z.object({
     (value) => (value === "" || value === undefined ? undefined : value),
     z.string().min(1).optional(),
   ),
-  SCRAPER_WORKER_PORT: z.coerce.number().int().positive().default(3002),
+  SCRAPER_WORKER_PORT: z.coerce.number().int().positive().default(3003),
   CHROME_EXECUTABLE_PATH: z.preprocess(
     (value) => (value === "" || value === undefined ? undefined : value),
     z.string().min(1).optional(),

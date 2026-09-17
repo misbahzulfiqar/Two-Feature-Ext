@@ -50,14 +50,41 @@ import {
 } from "../lib/fitment-main-world.ts";
 import {
   isClearScrapeCacheRequest,
+  isReportApplyRequest,
   isScrapeListingRequest,
   isScrapeProgressRequest,
   type ClearScrapeCacheResponseMessage,
+  type ReportApplyResponseMessage,
   type ScrapeProgressResponseMessage,
 } from "../lib/scrape-messages.ts";
 
 const apiBaseUrl =
   import.meta.env.WXT_API_BASE_URL?.replace(/\/+$/, "") || "http://127.0.0.1:3001";
+
+const extensionInstalledUrl =
+  import.meta.env.WXT_EXTENSION_INSTALLED_URL?.replace(/\/+$/, "") ||
+  "http://127.0.0.1:3004/extension-installed";
+
+const PRODUCTION_WEB_ORIGINS = [
+  "https://ebaysellsimilar.com",
+  "https://www.ebaysellsimilar.com",
+  "https://app.ebaysellsimilar.com",
+] as const;
+
+function isAllowedWebOrigin(url: string | undefined): boolean {
+  if (!url) {
+    return false;
+  }
+  try {
+    const origin = new URL(url).origin;
+    if (PRODUCTION_WEB_ORIGINS.includes(origin as (typeof PRODUCTION_WEB_ORIGINS)[number])) {
+      return true;
+    }
+    return import.meta.env.DEV && (origin === "http://localhost:3004" || origin === "http://127.0.0.1:3004");
+  } catch {
+    return false;
+  }
+}
 
 function apiErrorMessage(error: unknown): string {
   if (error instanceof SellSimilarApiError && error.body && typeof error.body === "object") {
@@ -249,13 +276,84 @@ async function unregisterStaleFitmentScripts(): Promise<void> {
 
 export default defineBackground(() => {
   void unregisterStaleFitmentScripts();
-  browser.runtime.onInstalled.addListener(() => {
+  browser.runtime.onInstalled.addListener((details) => {
     void unregisterStaleFitmentScripts();
+    if (details.reason === "install") {
+      void browser.tabs.create({ url: extensionInstalledUrl });
+    }
+  });
+
+  browser.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
+    if (!isAllowedWebOrigin(sender.url)) {
+      sendResponse({ ok: false });
+      return;
+    }
+    if (message && typeof message === "object" && "type" in message) {
+      if (message.type === "EBAY_SELL_SIMILAR_PING") {
+        sendResponse({
+          installed: true,
+          extensionName: "eBay Sell Similar",
+          version: browser.runtime.getManifest().version,
+        });
+        return;
+      }
+      if (
+        message.type === "EBAY_SELL_SIMILAR_PAIR" &&
+        "token" in message &&
+        typeof message.token === "string"
+      ) {
+        void fetch(`${apiBaseUrl}/extension/pairing/exchange`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ token: message.token }),
+        })
+          .then(async (response) => {
+            const payload: unknown = await response.json();
+            if (
+              payload &&
+              typeof payload === "object" &&
+              "ok" in payload &&
+              payload.ok === true &&
+              "data" in payload &&
+              payload.data &&
+              typeof payload.data === "object"
+            ) {
+              const data = payload.data as {
+                userId?: string;
+                email?: string;
+                name?: string;
+              };
+              await browser.storage.local.set({
+                pairedUser: {
+                  userId: data.userId,
+                  email: data.email,
+                  name: data.name,
+                },
+              });
+            }
+            sendResponse(payload);
+          })
+          .catch(() => {
+            sendResponse({ ok: false });
+          });
+        return true;
+      }
+    }
+    sendResponse({ ok: false });
   });
 
   const api = new SellSimilarApiClient({
     baseUrl: apiBaseUrl,
     fetch: (input, init) => fetch(input, init),
+    getHeaders: async () => {
+      const stored = await browser.storage.local.get("pairedUser");
+      const paired = stored.pairedUser as { userId?: string } | undefined;
+      const headers: Record<string, string> = {};
+      if (paired?.userId) {
+        headers["x-extension-user-id"] = paired.userId;
+      }
+      return headers;
+    },
   });
 
   browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -548,6 +646,31 @@ export default defineBackground(() => {
       return true;
     }
 
+    if (isReportApplyRequest(message)) {
+      void api
+        .reportApplyResult({
+          jobId: message.jobId,
+          fitmentCount: message.fitmentCount,
+          imageCount: message.imageCount,
+          warningCount: message.warningCount,
+          warnings: message.warnings,
+        })
+        .then((response) => {
+          sendResponse(
+            response.ok
+              ? ({ ok: true } satisfies ReportApplyResponseMessage)
+              : ({ ok: false, error: response.error.message } satisfies ReportApplyResponseMessage),
+          );
+        })
+        .catch((error: unknown) => {
+          sendResponse({
+            ok: false,
+            error: apiErrorMessage(error),
+          } satisfies ReportApplyResponseMessage);
+        });
+      return true;
+    }
+
     if (!isScrapeListingRequest(message)) {
       return;
     }
@@ -579,6 +702,7 @@ export default defineBackground(() => {
         sendResponse({
           ok: true,
           data: response.data,
+          jobId: response.jobId,
         });
       })
       .catch((error: unknown) => {

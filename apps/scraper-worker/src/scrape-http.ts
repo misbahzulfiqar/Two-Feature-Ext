@@ -50,6 +50,17 @@ export function startScrapeHttpServer(
     void handleRequest(env, logger, req, res);
   });
 
+  server.on("error", (error: NodeJS.ErrnoException) => {
+    if (error.code === "EADDRINUSE") {
+      logger.error(
+        { port: env.SCRAPER_WORKER_PORT },
+        "scraper-worker is already running on this port. Keep the existing process and do not start a second one.",
+      );
+      process.exit(1);
+    }
+    throw error;
+  });
+
   server.listen(env.SCRAPER_WORKER_PORT, () => {
     logger.info({ port: env.SCRAPER_WORKER_PORT }, "scraper-worker HTTP listening");
   });

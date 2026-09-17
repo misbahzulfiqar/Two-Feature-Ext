@@ -48,6 +48,16 @@ export type ScrapeJobRecord = {
   createdAt: string;
   startedAt: string | null;
   completedAt: string | null;
+  userId?: string | null;
+  marketplace?: string;
+  duration?: number | null;
+  itemSpecificCount?: number;
+  fitmentCount?: number;
+  imageCount?: number;
+  warningCount?: number;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  listingId?: string | null;
 };
 
 export type CreateScrapeJobRequest = {

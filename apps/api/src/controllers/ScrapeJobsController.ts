@@ -11,6 +11,9 @@ import { createScrapeJobRequestSchema } from "@sell-similar/validation";
 import { randomUUID } from "node:crypto";
 import type { Request, Response } from "express";
 import { getScrapeListingQueue } from "../scrape-listing-queue.js";
+import { getAdminSettings } from "../admin/settings.js";
+import type { Auth } from "../auth.js";
+import { persistQueuedJobCreated, resolveScrapeActor } from "../scrape-records.js";
 
 function correlationId(req: Request): CorrelationId {
   return req.correlationId as CorrelationId;
@@ -19,6 +22,7 @@ function correlationId(req: Request): CorrelationId {
 export function createScrapeJobsHandlers(env: {
   REDIS_URL?: string;
   MONGO_URL?: string;
+  auth?: Auth;
 }) {
   return {
     createScrapeJob: async function createScrapeJob(req: Request, res: Response) {
@@ -43,6 +47,31 @@ export function createScrapeJobsHandlers(env: {
       }
 
       const scrapeMode: ScrapeMode = parsed.data.scrapeMode ?? "full-scrape";
+      const settings = await getAdminSettings(env.MONGO_URL);
+      if (settings.maintenance.enabled) {
+        return res.status(503).json({
+          ok: false,
+          error: {
+            code: "MAINTENANCE",
+            message: settings.maintenance.message || "The service is in maintenance mode",
+          },
+          correlationId: req.correlationId,
+        });
+      }
+      if (scrapeMode === "full-scrape" && !settings.features.fullScrapeEnabled) {
+        return res.status(403).json({
+          ok: false,
+          error: { code: "FEATURE_DISABLED", message: "Full scrape is disabled" },
+          correlationId: req.correlationId,
+        });
+      }
+      if (scrapeMode === "only-fitment" && !settings.features.fitmentOnlyEnabled) {
+        return res.status(403).json({
+          ok: false,
+          error: { code: "FEATURE_DISABLED", message: "Fitment-only scrape is disabled" },
+          correlationId: req.correlationId,
+        });
+      }
 
       if (!parsed.data.refresh) {
         const reusable = await findReusableScrapeJob(env.MONGO_URL, {
@@ -63,10 +92,28 @@ export function createScrapeJobsHandlers(env: {
       const jobId = randomUUID();
 
       try {
+        const actor = env.MONGO_URL
+          ? await resolveScrapeActor({
+              mongoUrl: env.MONGO_URL,
+              req,
+              auth: env.auth,
+            })
+          : {};
         const record = await createQueuedScrapeJob(env.MONGO_URL, {
           jobId,
           listingUrl: parsed.data.listingUrl,
           scrapeMode,
+          userId: actor.userId ?? null,
+          marketplace: settings.marketplace,
+        });
+        await persistQueuedJobCreated({
+          mongoUrl: env.MONGO_URL,
+          req,
+          auth: env.auth,
+          jobId,
+          listingUrl: parsed.data.listingUrl,
+          scrapeMode,
+          ebayItemId: record.ebayItemId,
         });
 
         const queue = getScrapeListingQueue(env.REDIS_URL);
@@ -75,6 +122,7 @@ export function createScrapeJobsHandlers(env: {
           {
             listingUrl: parsed.data.listingUrl,
             scrapeMode,
+            requestedBy: actor.userId,
             correlationId: correlationId(req),
           },
           {

@@ -25,6 +25,7 @@ export type SellSimilarApiClientOptions = {
   baseUrl: string;
   fetch?: typeof fetch;
   getCorrelationId?: () => string | undefined;
+  getHeaders?: () => Promise<Record<string, string>> | Record<string, string>;
 };
 
 export class SellSimilarApiError extends Error {
@@ -49,11 +50,13 @@ export class SellSimilarApiClient {
   private readonly baseUrl: string;
   private readonly fetchImpl: typeof fetch;
   private readonly getCorrelationId?: () => string | undefined;
+  private readonly getHeaders?: () => Promise<Record<string, string>> | Record<string, string>;
 
   constructor(options: SellSimilarApiClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/+$/, "");
     this.fetchImpl = options.fetch ?? globalFetch;
     this.getCorrelationId = options.getCorrelationId;
+    this.getHeaders = options.getHeaders;
   }
 
   async health(): Promise<HealthResponse> {
@@ -119,6 +122,19 @@ export class SellSimilarApiClient {
     );
   }
 
+  async reportApplyResult(input: {
+    jobId: string;
+    fitmentCount?: number;
+    imageCount?: number;
+    warningCount: number;
+    warnings?: string[];
+  }): Promise<ApiResponse<{ jobId: string }>> {
+    return this.request<ApiResponse<{ jobId: string }>>("/listings/apply-result", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
   private async request<T>(
     path: string,
     init: RequestInit = {},
@@ -126,6 +142,12 @@ export class SellSimilarApiClient {
     const headers = new Headers(init.headers);
     if (init.body && !headers.has("content-type")) {
       headers.set("content-type", "application/json");
+    }
+    const extra = this.getHeaders ? await this.getHeaders() : {};
+    for (const [key, value] of Object.entries(extra)) {
+      if (value) {
+        headers.set(key, value);
+      }
     }
     const correlationId = this.getCorrelationId?.();
     if (correlationId) {
