@@ -1,0 +1,152 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --ss-bg: #050814;
+  --ss-bg-secondary: #080c19;
+  --ss-card: #0d1222;
+  --ss-card-2: #11172a;
+  --ss-border: rgba(255, 255, 255, 0.08);
+  --ss-purple: #7c3aed;
+  --ss-purple-bright: #8b5cf6;
+  --ss-purple-hot: #a855f7;
+  --ss-blue: #2563eb;
+  --ss-blue-light: #3b82f6;
+  --ss-success: #22c55e;
+  --ss-warning: #f59e0b;
+  --ss-error: #ef4444;
+  --ss-text: #f8fafc;
+  --ss-text-secondary: #94a3b8;
+  --ss-text-muted: #64748b;
+  --ss-cta: linear-gradient(135deg, #8b5cf6 0%, #5b3df5 50%, #2563eb 100%);
+  --admin-bg: #050914;
+  --admin-sidebar: #070c18;
+  --admin-card: #0d1424;
+  --admin-card-2: #10182a;
+  --admin-border: rgba(255, 255, 255, 0.08);
+  --admin-purple: #7c3aed;
+  --admin-purple-light: #8b5cf6;
+  --admin-blue: #2563eb;
+  --admin-success: #10b981;
+  --admin-warning: #f59e0b;
+  --admin-error: #ef4444;
+  --admin-info: #0ea5e9;
+  --admin-text: #f8fafc;
+  --admin-text-2: #94a3b8;
+  --admin-muted: #64748b;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--ss-bg);
+  color: var(--ss-text);
+  font-family: Inter, system-ui, sans-serif;
+}
+
+@keyframes ss-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes ss-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes ss-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+@keyframes ss-progress {
+  from {
+    width: 0;
+  }
+  to {
+    width: 80%;
+  }
+}
+
+@keyframes ss-glow {
+  0%,
+  100% {
+    box-shadow: 0 10px 28px color-mix(in srgb, var(--ss-purple) 40%, transparent);
+  }
+  50% {
+    box-shadow: 0 12px 34px color-mix(in srgb, var(--ss-purple) 62%, transparent);
+  }
+}
+
+.ss-fade-up {
+  animation: ss-fade-up 0.45s ease both;
+}
+
+.ss-fade-in {
+  animation: ss-fade-in 0.5s ease both;
+}
+
+.ss-delay-1 {
+  animation-delay: 0.08s;
+}
+.ss-delay-2 {
+  animation-delay: 0.16s;
+}
+.ss-delay-3 {
+  animation-delay: 0.24s;
+}
+.ss-delay-4 {
+  animation-delay: 0.32s;
+}
+.ss-delay-5 {
+  animation-delay: 0.4s;
+}
+
+.ss-float {
+  animation: ss-float 5.5s ease-in-out infinite;
+}
+
+.ss-progress {
+  animation: ss-progress 0.9s ease 0.5s both;
+}
+
+.ss-cta-glow {
+  animation: ss-glow 2.4s ease-in-out infinite;
+}
+
+.ss-hand {
+  animation: ss-fade-up 0.6s ease both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

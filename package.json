@@ -7,6 +7,9 @@
   },
   "scripts": {
     "dev": "turbo run dev",
+    "dev:api": "pnpm --filter @sell-similar/api dev",
+    "dev:web": "pnpm --filter @sell-similar/web dev",
+    "dev:admin": "pnpm --filter @sell-similar/admin dev",
     "build": "turbo run build --filter=./apps/*",
     "check-types": "turbo run check-types",
     "lint": "turbo run lint",

@@ -1,5 +1,20 @@
 import { defineConfig } from "wxt";
 
+const PRODUCTION_WEB_MATCHES = [
+  "https://ebaysellsimilar.com/*",
+  "https://www.ebaysellsimilar.com/*",
+  "https://app.ebaysellsimilar.com/*",
+];
+
+const PRODUCTION_HOST_PERMISSIONS = [
+  "https://*.ebay.com/*",
+  "https://ebay.com/*",
+  "https://*.ebayimg.com/*",
+  "https://i.ebayimg.com/*",
+  "https://*.ebaysellsimilar.com/*",
+  "https://ebaysellsimilar.com/*",
+];
+
 export default defineConfig({
   modules: ["@wxt-dev/module-react"],
   webExt: {
@@ -8,13 +23,14 @@ export default defineConfig({
   dev: {
     server: {
       host: "127.0.0.1",
-      port: 3000,
-      origin: "http://127.0.0.1:3000",
+      port: 3010,
+      origin: "http://127.0.0.1:3010",
     },
   },
   manifest: {
     name: "Sell Similar",
     description: "Find and list similar items on eBay",
+    homepage_url: "https://ebaysellsimilar.com",
     icons: {
       16: "/icon-16.png",
       32: "/icon-32.png",
@@ -31,17 +47,27 @@ export default defineConfig({
       },
     },
     permissions: ["storage", "activeTab", "webNavigation", "scripting", "tabs"],
-    host_permissions: [
-      "https://*.ebay.com/*",
-      "https://ebay.com/*",
-      "https://*.ebayimg.com/*",
-      "https://i.ebayimg.com/*",
-      "http://localhost:3000/*",
-      "http://127.0.0.1:3000/*",
-      "ws://localhost:3000/*",
-      "ws://127.0.0.1:3000/*",
-      "http://localhost:3001/*",
-      "http://127.0.0.1:3001/*",
-    ],
+    externally_connectable: {
+      matches:
+        process.env.NODE_ENV === "production"
+          ? PRODUCTION_WEB_MATCHES
+          : [
+              ...PRODUCTION_WEB_MATCHES,
+              "http://localhost:3004/*",
+              "http://127.0.0.1:3004/*",
+            ],
+    },
+    host_permissions:
+      process.env.NODE_ENV === "production"
+        ? PRODUCTION_HOST_PERMISSIONS
+        : [
+            ...PRODUCTION_HOST_PERMISSIONS,
+            "http://localhost:3004/*",
+            "http://127.0.0.1:3004/*",
+            "ws://localhost:3010/*",
+            "ws://127.0.0.1:3010/*",
+            "http://localhost:3001/*",
+            "http://127.0.0.1:3001/*",
+          ],
   },
 });

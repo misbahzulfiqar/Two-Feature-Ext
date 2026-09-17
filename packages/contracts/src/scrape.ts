@@ -93,6 +93,27 @@ export type StoreCategory = {
   path?: string[];
 };
 
+export type ListingWeight = {
+  value: string;
+  unit: string;
+};
+
+export type ListingDimensions = {
+  length: string;
+  width: string;
+  height: string;
+  unit: string;
+  raw: string;
+};
+
+export type ListingShipping = {
+  service: string;
+  cost: string;
+  handlingTime: string;
+  location: string;
+  details: string;
+};
+
 export type ScrapedListingData = {
   title: string;
   sku: string;
@@ -104,6 +125,9 @@ export type ScrapedListingData = {
   description: string;
   category: ListingCategory;
   storeCategories: StoreCategory[];
+  shipping: ListingShipping;
+  weight: ListingWeight;
+  dimensions: ListingDimensions;
   fitment: VehicleCompatibility[];
   compatibility: VehicleCompatibility[];
   compatibilityCount: number;
@@ -127,4 +151,6 @@ export type ClearScrapeCacheResult = {
   cleared: number;
 };
 
-export type ScrapeListingResponse = ApiResponse<ScrapedListingData>;
+export type ScrapeListingResponse = ApiResponse<ScrapedListingData> & {
+  jobId?: string;
+};

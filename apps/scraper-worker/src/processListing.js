@@ -13,6 +13,9 @@ function emptyListingData() {
     description: "",
     category: { id: "", name: "", path: [] },
     storeCategories: [],
+    shipping: { service: "", cost: "", handlingTime: "", location: "", details: "" },
+    weight: { value: "", unit: "" },
+    dimensions: { length: "", width: "", height: "", unit: "", raw: "" },
     fitment: [],
     compatibility: [],
     compatibilityCount: 0,
@@ -45,7 +48,10 @@ function applyFetchedListing(listingData, fetched) {
   listingData.conditionDescription = fetched.conditionDescription || "";
   listingData.description = fetched.description || "";
   listingData.category = fetched.category || { id: "", name: "", path: [] };
-  listingData.storeCategories = [];
+  listingData.storeCategories = Array.isArray(fetched.storeCategories) ? fetched.storeCategories : [];
+  listingData.shipping = fetched.shipping || listingData.shipping;
+  listingData.weight = fetched.weight || listingData.weight;
+  listingData.dimensions = fetched.dimensions || listingData.dimensions;
   applyFitment(listingData, fetched);
   return listingData;
 }

@@ -9,6 +9,7 @@ import {
 } from "@sell-similar/contracts";
 import {
   CLEAR_SCRAPE_CACHE,
+  REPORT_APPLY,
   SCRAPE_LISTING,
   SCRAPE_PROGRESS,
   type ClearScrapeCacheResponseMessage,
@@ -31,6 +32,7 @@ export type ScrapedListing = {
   fitment: VehicleCompatibility[];
   compatibility: VehicleCompatibility[];
   compatibilityCount: number;
+  jobId?: string;
 };
 
 function isUsEbayHost(hostname: string): boolean {
@@ -161,10 +163,11 @@ function toScrapedListing(data: ScrapedListingData): ScrapedListing {
       sellerNotesDescription(Array.isArray(data.itemSpecifics) ? data.itemSpecifics : []),
     description: data.description ?? "",
     category: data.category ?? { id: "", name: "", path: [] },
-    storeCategories: [],
+    storeCategories: Array.isArray(data.storeCategories) ? data.storeCategories : [],
     fitment: compatibility,
     compatibility,
     compatibilityCount: data.compatibilityCount ?? compatibility.length,
+    jobId: undefined,
   };
 }
 
@@ -202,7 +205,10 @@ export async function scrapeSourceListing(
     throw new Error(response?.error || "Couldn't scrape listing");
   }
 
-  return toScrapedListing(response.data);
+  return {
+    ...toScrapedListing(response.data),
+    jobId: response.jobId,
+  };
 }
 
 /**
@@ -227,4 +233,28 @@ export async function clearSourceListingCache(
 export async function scrapeSourceTitle(source: string): Promise<string> {
   const listing = await scrapeSourceListing(source, "full-scrape");
   return listing.title;
+}
+
+export async function reportApplyResult(input: {
+  jobId?: string;
+  fitmentCount?: number;
+  imageCount?: number;
+  warningCount: number;
+  warnings?: string[];
+}): Promise<void> {
+  if (!input.jobId) {
+    return;
+  }
+  try {
+    await browser.runtime.sendMessage({
+      type: REPORT_APPLY,
+      jobId: input.jobId,
+      fitmentCount: input.fitmentCount,
+      imageCount: input.imageCount,
+      warningCount: input.warningCount,
+      warnings: input.warnings,
+    });
+  } catch {
+    // History recording is best-effort and must not block listing apply.
+  }
 }

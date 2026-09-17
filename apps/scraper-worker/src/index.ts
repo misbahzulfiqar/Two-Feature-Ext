@@ -7,6 +7,8 @@ import {
 import {
   completeScrapeJob,
   failScrapeJob,
+  getMongoClient,
+  getScrapeJobById,
   markScrapeJobProcessing,
   updateScrapeJobProgress,
 } from "@sell-similar/ebay-models";
@@ -35,6 +37,52 @@ async function persistProgress(jobId: string | undefined, stage: ScrapeProgressS
     return;
   }
   await updateScrapeJobProgress(env.MONGO_URL, jobId, stage);
+}
+
+async function writeQueueAudit(
+  jobId: string,
+  event: "scrape_completed" | "scrape_failed",
+): Promise<void> {
+  if (!env.MONGO_URL) {
+    return;
+  }
+  const job = await getScrapeJobById(env.MONGO_URL, jobId);
+  const db = (await getMongoClient(env.MONGO_URL)).db();
+  switch (event) {
+    case "scrape_completed":
+      await db.collection("auditEvents").insertOne({
+        event,
+        userId: job?.userId ?? undefined,
+        jobId,
+        listingId: job?.listingId ?? undefined,
+        targetId: job?.listingId || jobId,
+        metadata: {
+          collection: "scrapedListings",
+          listingId: job?.listingId,
+          fitmentCount: job?.fitmentCount,
+          imageCount: job?.imageCount,
+          itemSpecificCount: job?.itemSpecificCount,
+          warningCount: job?.warningCount,
+        },
+        createdAt: new Date(),
+      });
+      return;
+    case "scrape_failed":
+      await db.collection("auditEvents").insertOne({
+        event,
+        userId: job?.userId ?? undefined,
+        jobId,
+        targetId: jobId,
+        details: job?.errorMessage || job?.error || "Scrape failed",
+        metadata: { errorCode: job?.errorCode ?? "SCRAPE_FAILED" },
+        createdAt: new Date(),
+      });
+      return;
+    default: {
+      const _exhaustive: never = event;
+      return _exhaustive;
+    }
+  }
 }
 
 function startScrapeListingWorker(connection: Redis): void {
@@ -78,7 +126,7 @@ function startScrapeListingWorker(connection: Redis): void {
       if (!listingData.success) {
         const message = "Scraper worker returned invalid listing data";
         if (env.MONGO_URL && jobId) {
-          await failScrapeJob(env.MONGO_URL, jobId, message);
+          await failScrapeJob(env.MONGO_URL, jobId, message, "INVALID_SCRAPE_RESULT");
         }
         throw new Error(message);
       }
@@ -86,6 +134,7 @@ function startScrapeListingWorker(connection: Redis): void {
       await report("complete");
       if (env.MONGO_URL && jobId) {
         await completeScrapeJob(env.MONGO_URL, jobId, listingData.data);
+        await writeQueueAudit(jobId, "scrape_completed");
       }
       log.info(
         {
@@ -110,7 +159,7 @@ function startScrapeListingWorker(connection: Redis): void {
         env.MONGO_URL,
         String(job.id),
         error instanceof Error ? error.message : "eBay scrape job failed",
-      );
+      ).then(() => writeQueueAudit(String(job.id), "scrape_failed"));
     }
   });
 

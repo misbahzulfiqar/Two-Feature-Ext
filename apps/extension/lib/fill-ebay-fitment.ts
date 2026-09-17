@@ -210,7 +210,7 @@ function isPickerContext(): boolean {
       return true;
     }
     return /\/sellfit/i.test(window.location.pathname);
-  } catch {
+    } catch {
     return false;
   }
 }
@@ -248,8 +248,8 @@ function readFitmentFrameMeta(): FitmentPersistMeta | null {
     }
   }
   if (!session) {
-    return null;
-  }
+  return null;
+}
 
   return {
     session,
@@ -401,8 +401,8 @@ function fillRoot(): HTMLElement {
 
 function isListingEditorStillActive(): boolean {
   if (isPickerContext()) {
-    return true;
-  }
+  return true;
+}
   try {
     const path = new URL(window.location.href).pathname.toLowerCase();
     return ["/lstng", "/listing", "/lst", "/sl"].some(
@@ -485,8 +485,8 @@ function blockingSpinnerIn(root: ParentNode): boolean {
   );
   for (const node of nodes) {
     if (!(node instanceof HTMLElement) || !isShown(node)) {
-      continue;
-    }
+              continue;
+            }
     const rect = node.getBoundingClientRect();
     if (rect.width >= 24 && rect.height >= 24) {
       return true;
@@ -520,8 +520,8 @@ async function callFitmentMain(request: FitmentMainRequest): Promise<FitmentMain
       return response;
     }
   } catch {
-    return null;
-  }
+  return null;
+}
   return null;
 }
 
@@ -573,8 +573,8 @@ async function selectDropdown(field: FitmentField, value: string): Promise<boole
     return false;
   }
   if (controlShowsValue(control, wanted)) {
-    return true;
-  }
+        return true;
+      }
   
   fitmentLog(`Opening ${field} dropdown`, wanted);
   fillRoot().scrollIntoView({ block: "center" });
@@ -600,19 +600,19 @@ async function selectDropdown(field: FitmentField, value: string): Promise<boole
       fireClick(control);
     }
     fitmentLog(`Selected ${field}`, wanted);
-          return true;
-        }
-
+    return true;
+  }
+  
   if (control instanceof HTMLSelectElement) {
     const option = Array.from(control.options).find((item) => optionMatches(item.text, wanted));
     if (option) {
       control.value = option.value;
       control.dispatchEvent(new Event("change", { bubbles: true }));
       fitmentLog(`Selected ${field}`, wanted);
-      return true;
+          return true;
+      }
     }
-  }
-
+    
   if (control.getAttribute("aria-expanded") === "true") {
     fireClick(control);
   }

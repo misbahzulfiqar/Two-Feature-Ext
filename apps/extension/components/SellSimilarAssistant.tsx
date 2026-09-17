@@ -29,6 +29,7 @@ import {
 import {
   clearSourceListingCache,
   readScrapeProgress,
+  reportApplyResult,
   scrapeSourceListing,
 } from "../lib/scrape-source-title.ts";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
@@ -341,11 +342,15 @@ export function SellSimilarAssistant() {
           }
 
           let fitmentText = "Vehicle compatibility skipped";
+          let applyWarnings: string[] = [];
+          let appliedFitment = 0;
           if (fillOptions.fitment) {
             setStatusMessage(
               `Applying vehicle compatibility. Found ${listing.compatibility.length} compatible vehicle${listing.compatibility.length === 1 ? "" : "s"}.`,
             );
             const fitmentResult = await applyNormalizedFitment(listing.compatibility);
+            appliedFitment = fitmentResult.filled;
+            applyWarnings = fitmentResult.warnings;
             fitmentText = fitmentSummary(fitmentResult, listing.compatibility.length);
             if (fitmentResult.filled > 0) {
               setShowFitmentReload(true);
@@ -425,6 +430,13 @@ export function SellSimilarAssistant() {
           parts.push(fitmentText);
 
           setStatusMessage(`${parts.join(". ")}.`);
+          await reportApplyResult({
+            jobId: listing.jobId,
+            fitmentCount: appliedFitment,
+            imageCount: filledImages,
+            warningCount: applyWarnings.length,
+            warnings: applyWarnings,
+          });
           setIsComplete(true);
           return;
         }
@@ -445,6 +457,12 @@ export function SellSimilarAssistant() {
           if (fitmentResult.filled > 0) {
             setShowFitmentReload(true);
           }
+          await reportApplyResult({
+            jobId: listing.jobId,
+            fitmentCount: fitmentResult.filled,
+            warningCount: fitmentResult.warnings.length,
+            warnings: fitmentResult.warnings,
+          });
           setIsComplete(true);
           return;
         }

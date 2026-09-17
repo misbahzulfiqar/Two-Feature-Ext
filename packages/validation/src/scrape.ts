@@ -67,6 +67,27 @@ export const vehicleCompatibilitySchema = z.object({
   notes: z.string().optional().default(""),
 });
 
+export const listingWeightSchema = z.object({
+  value: z.string().default(""),
+  unit: z.string().default(""),
+});
+
+export const listingDimensionsSchema = z.object({
+  length: z.string().default(""),
+  width: z.string().default(""),
+  height: z.string().default(""),
+  unit: z.string().default(""),
+  raw: z.string().default(""),
+});
+
+export const listingShippingSchema = z.object({
+  service: z.string().default(""),
+  cost: z.string().default(""),
+  handlingTime: z.string().default(""),
+  location: z.string().default(""),
+  details: z.string().default(""),
+});
+
 export const scrapedListingDataSchema = z.object({
   title: z.string().default(""),
   sku: z.string().default(""),
@@ -78,6 +99,21 @@ export const scrapedListingDataSchema = z.object({
   description: z.string().default(""),
   category: listingCategorySchema.default({ id: "", name: "", path: [] }),
   storeCategories: z.array(storeCategorySchema).default([]),
+  shipping: listingShippingSchema.default({
+    service: "",
+    cost: "",
+    handlingTime: "",
+    location: "",
+    details: "",
+  }),
+  weight: listingWeightSchema.default({ value: "", unit: "" }),
+  dimensions: listingDimensionsSchema.default({
+    length: "",
+    width: "",
+    height: "",
+    unit: "",
+    raw: "",
+  }),
   fitment: z.array(vehicleCompatibilitySchema).default([]),
   compatibility: z.array(vehicleCompatibilitySchema).default([]),
   compatibilityCount: z.number().int().nonnegative().default(0),

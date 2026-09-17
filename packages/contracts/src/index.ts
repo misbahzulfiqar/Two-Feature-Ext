@@ -24,6 +24,9 @@ export type {
   ScrapeProgressStage,
   ScrapedListingData,
   StoreCategory,
+  ListingWeight,
+  ListingDimensions,
+  ListingShipping,
   VehicleCompatibility,
 } from "./scrape.js";
 export {

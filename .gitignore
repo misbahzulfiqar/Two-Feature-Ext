@@ -2,6 +2,7 @@ node_modules
 dist
 .turbo
 .output
+.next
 .wxt
 .env
 .env.local

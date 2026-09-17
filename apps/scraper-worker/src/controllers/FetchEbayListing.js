@@ -348,6 +348,106 @@ export function extractListingImagesInPage(ebaySelectors) {
   return urls;
 }
 
+function listingExtrasFromSpecifics(specifics) {
+  const byKey = new Map();
+  for (const spec of Array.isArray(specifics) ? specifics : []) {
+    const key = String(spec?.key || "").trim().toLowerCase();
+    const value = String(spec?.value || "").trim();
+    if (key && value && !byKey.has(key)) {
+      byKey.set(key, value);
+    }
+  }
+  const pick = (...keys) => {
+    for (const key of keys) {
+      const value = byKey.get(key);
+      if (value) return value;
+    }
+    return "";
+  };
+
+  const sku = pick("sku", "custom label", "custom label (sku)", "mfr part number", "manufacturer part number", "mpn");
+  const weightRaw = pick("item weight", "weight", "package weight");
+  const weightMatch = weightRaw.match(/^([\d.,]+)\s*([a-zA-Z]+)?/);
+  const dimRaw =
+    pick("item dimensions", "dimensions", "package dimensions") ||
+    [pick("length"), pick("width"), pick("height")].filter(Boolean).join(" x ");
+  const dimMatch = dimRaw.match(
+    /([\d.,]+)\s*(?:x|×)\s*([\d.,]+)\s*(?:x|×)\s*([\d.,]+)\s*([a-zA-Z]+)?/i,
+  );
+
+  return {
+    sku,
+    weight: {
+      value: weightMatch?.[1] || "",
+      unit: weightMatch?.[2] || "",
+    },
+    dimensions: {
+      length: dimMatch?.[1] || pick("length"),
+      width: dimMatch?.[2] || pick("width"),
+      height: dimMatch?.[3] || pick("height"),
+      unit: dimMatch?.[4] || "",
+      raw: dimRaw,
+    },
+  };
+}
+
+export function extractListingShippingInPage() {
+  const clean = (text) =>
+    String(text || "")
+      .replace(/\u00a0/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const shipping = {
+    service: "",
+    cost: "",
+    handlingTime: "",
+    location: "",
+    details: "",
+  };
+
+  const roots = [
+    document.querySelector('[data-testid="d-shipping"]'),
+    document.querySelector(".ux-layout-section--shipping"),
+    document.querySelector("#vi-acc-del-range"),
+    document.querySelector('[class*="ux-shipping"]'),
+  ].filter(Boolean);
+
+  const pairs = [];
+  roots.forEach((root) => {
+    root.querySelectorAll(".ux-labels-values").forEach((row) => {
+      const key = clean(row.querySelector(".ux-labels-values__labels")?.textContent);
+      const value = clean(row.querySelector(".ux-labels-values__values")?.textContent);
+      if (key && value) pairs.push([key.toLowerCase(), value]);
+    });
+    if (!shipping.details) {
+      shipping.details = clean(root.innerText).slice(0, 500);
+    }
+  });
+
+  for (const [key, value] of pairs) {
+    if (!shipping.service && /shipping|service|delivery/i.test(key)) shipping.service = value;
+    if (!shipping.cost && /cost|price|fee|free/i.test(key)) shipping.cost = value;
+    if (!shipping.handlingTime && /handling|dispatch|ships/i.test(key)) shipping.handlingTime = value;
+    if (!shipping.location && /location|item location|ships from/i.test(key)) shipping.location = value;
+  }
+
+  if (!shipping.cost) {
+    const free = document.body.innerText.match(/free shipping/i);
+    if (free) shipping.cost = "Free";
+  }
+  if (!shipping.location) {
+    const located = document.body.innerText.match(/located in\s+([^\n.]{3,80})/i);
+    if (located?.[1]) shipping.location = clean(located[1]);
+  }
+  if (!shipping.handlingTime) {
+    const handling = document.body.innerText.match(/handling time[:\s]+([^\n.]{3,80})/i);
+    if (handling?.[1]) shipping.handlingTime = clean(handling[1]);
+  }
+
+  return shipping;
+}
+
 export function extractListingSpecificsInPage() {
   const specifics = [];
   const embeddedKeys = [
@@ -767,6 +867,7 @@ export function extractListingSpecificsInPage() {
 
 export function extractListingCategoriesInPage() {
   const category = { id: "", name: "", path: [] };
+  const storeCategories = [];
 
   const cleanText = (text) =>
     String(text || "")
@@ -865,6 +966,19 @@ export function extractListingCategoriesInPage() {
     /[?&]_storecat=/i.test(href) ||
     /[?&]_sc=1/i.test(href);
 
+  const addStoreCategory = (name, id, path) => {
+    const storeName = acceptCategoryName(name);
+    if (!storeName) return;
+    if (storeCategories.some((entry) => entry.name.toLowerCase() === storeName.toLowerCase())) {
+      return;
+    }
+    storeCategories.push({
+      name: storeName,
+      id: id || undefined,
+      path: Array.isArray(path) && path.length ? path : undefined,
+    });
+  };
+
   const categoryIdFromHref = (href) => {
     if (!href) return "";
     const sacat = href.match(/[?&]_sacat=(\d+)/i);
@@ -901,7 +1015,11 @@ export function extractListingCategoriesInPage() {
     links.forEach((link) => {
       const name = acceptCategoryName(link.innerText || link.textContent);
       const href = link.href || link.getAttribute("href") || "";
-      if (!name || isStoreHref(href) || isItemHref(href)) return;
+      if (!name || isItemHref(href)) return;
+      if (isStoreHref(href)) {
+        addStoreCategory(name, categoryIdFromHref(href));
+        return;
+      }
       pathEntries.push({ name, href });
     });
     if (pathEntries.length) break;
@@ -925,7 +1043,11 @@ export function extractListingCategoriesInPage() {
       root.querySelectorAll('a[href*="/b/"]').forEach((link) => {
         const name = acceptCategoryName(link.innerText || link.textContent);
         const href = link.href || link.getAttribute("href") || "";
-        if (!name || isStoreHref(href) || isItemHref(href)) return;
+        if (!name || isItemHref(href)) return;
+        if (isStoreHref(href)) {
+          addStoreCategory(name, categoryIdFromHref(href));
+          return;
+        }
         fromBrowse.push({ name, href });
     });
   });
@@ -1015,6 +1137,10 @@ export function extractListingCategoriesInPage() {
         ? obj.categoryPath.split(/>|\/|\|/).map(acceptCategoryName).filter(Boolean)
         : [];
 
+    if (parent.includes("store") && (maybeId || maybeName || maybePath.length)) {
+      addStoreCategory(maybeName, maybeId, maybePath);
+    }
+
     if (!parent.includes("store") && (maybeId || maybeName || maybePath.length)) {
       if (maybeId && !category.id) category.id = cleanText(maybeId);
       if (maybeName && !isRejectedMarketplaceName(maybeName) && !category.name) {
@@ -1073,7 +1199,7 @@ export function extractListingCategoriesInPage() {
     category.path = [category.name];
   }
 
-  return { category, storeCategories: [] };
+  return { category, storeCategories };
 }
 
 export async function extractListingConditionInPage() {
@@ -1503,7 +1629,9 @@ export async function fetchEbayListing(page, listingUrl, options = {}) {
   const itemSpecifics = await evaluate(extractListingSpecificsInPage);
   const categories = await evaluate(extractListingCategoriesInPage);
   const category = categories?.category || { id: "", name: "", path: [] };
-  const storeCategories = [];
+  const storeCategories = Array.isArray(categories?.storeCategories)
+    ? categories.storeCategories
+    : [];
   const conditionData = await evaluate(extractListingConditionInPage);
   const condition =
     typeof conditionData?.condition === "string" ? conditionData.condition : "";
@@ -1511,6 +1639,8 @@ export async function fetchEbayListing(page, listingUrl, options = {}) {
     typeof conditionData?.conditionDescription === "string"
       ? conditionData.conditionDescription
       : "";
+  const shippingData = await evaluate(extractListingShippingInPage);
+  const extras = listingExtrasFromSpecifics(itemSpecifics);
 
   const descExtract = await evaluate(extractListingDescriptionInPage);
   const itemId = String(listingUrl).match(/\/itm\/(\d+)/i)?.[1] || "";
@@ -1558,7 +1688,7 @@ export async function fetchEbayListing(page, listingUrl, options = {}) {
 
   return {
     title: typeof title === "string" ? title.trim() : "",
-    sku: "",
+    sku: extras.sku,
     price: typeof price === "string" ? price : "",
     images: Array.isArray(images) ? images : [],
     itemSpecifics: Array.isArray(itemSpecifics) ? itemSpecifics : [],
@@ -1573,6 +1703,15 @@ export async function fetchEbayListing(page, listingUrl, options = {}) {
       path: Array.isArray(category.path) ? category.path.filter(Boolean) : [],
     },
     storeCategories,
+    shipping: {
+      service: typeof shippingData?.service === "string" ? shippingData.service : "",
+      cost: typeof shippingData?.cost === "string" ? shippingData.cost : "",
+      handlingTime: typeof shippingData?.handlingTime === "string" ? shippingData.handlingTime : "",
+      location: typeof shippingData?.location === "string" ? shippingData.location : "",
+      details: typeof shippingData?.details === "string" ? shippingData.details : "",
+    },
+    weight: extras.weight,
+    dimensions: extras.dimensions,
     fitment: [],
     compatibility: [],
     compatibilityCount: 0,
