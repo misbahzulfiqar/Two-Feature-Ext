@@ -65,7 +65,7 @@ export function findListingEditorContainer(): Element | undefined {
   return undefined;
 }
 
-export function stylePanelSlot(slot: HTMLElement): void {
+export function stylePanelSlot(slot: HTMLElement, alignTo?: Element | null): void {
   slot.style.setProperty("display", "block", "important");
   slot.style.setProperty("position", "static", "important");
   slot.style.setProperty("top", "auto", "important");
@@ -80,31 +80,97 @@ export function stylePanelSlot(slot: HTMLElement): void {
   slot.style.setProperty("background", "transparent", "important");
   slot.style.setProperty("border", "0", "important");
   slot.style.setProperty("box-shadow", "none", "important");
+
+  // Sitting at shell level makes the slot full-bleed, so borrow the content
+  // container's width and gutters to stay lined up with the form below.
+  if (alignTo instanceof HTMLElement) {
+    const styles = window.getComputedStyle(alignTo);
+    if (styles.maxWidth && styles.maxWidth !== "none") {
+      slot.style.setProperty("max-width", styles.maxWidth, "important");
+    }
+    slot.style.setProperty("margin-left", "auto", "important");
+    slot.style.setProperty("margin-right", "auto", "important");
+    slot.style.setProperty("padding-left", styles.paddingLeft, "important");
+    slot.style.setProperty("padding-right", styles.paddingRight, "important");
+  }
 }
 
-function ensurePanelSlot(parent: Element, form: Element): HTMLElement {
-  const hostParent = parent === form ? form : parent;
-  const existing = hostParent.querySelector(`:scope > ${PANEL_SLOT_SELECTOR}`);
+/**
+ * eBay's page shell is:
+ *
+ *   div.root
+ *   |- div.header
+ *   |- div.container   <- the entire listing form lives in here
+ *   `- div.footer
+ *
+ * The panel belongs between .header and .container, as a direct child of
+ * .root. That keeps it out of the container subtree eBay re-renders, which is
+ * what kept remounting the panel and re-triggering the Compatibility iframe.
+ */
+export function shellAnchor(): { parent: Element; before: Element } | null {
+  const direct =
+    document.querySelector("div.root > div.container") ??
+    document.querySelector(".root > .container");
+  if (direct?.parentElement) {
+    return { parent: direct.parentElement, before: direct };
+  }
+
+  // Shell classes shift occasionally; fall back to any element owning both a
+  // header and a container child.
+  for (const root of document.querySelectorAll("div")) {
+    const header = root.querySelector(":scope > .header");
+    const container = root.querySelector(":scope > .container");
+    if (header && container && container.parentElement === root) {
+      return { parent: root, before: container };
+    }
+  }
+  return null;
+}
+
+/**
+ * Fallback for pages without that shell: below the page header but OUTSIDE
+ * eBay's <form>.
+ *
+ * .main__container--form is a div *inside* the form element, so anchoring as
+ * its sibling still lands within the form. eBay re-renders that subtree, which
+ * remounts the panel and re-triggers the Compatibility iframe load over and
+ * over. Walk up to the outermost <form> ancestor and sit in front of it.
+ */
+export function anchorOutsideForm(container: Element): { parent: Element; before: Element } | null {
+  let outermostForm: Element | null = null;
+  for (let node: Element | null = container; node; node = node.parentElement) {
+    if (node.tagName === "FORM") {
+      outermostForm = node;
+    }
+  }
+
+  const target = outermostForm ?? container;
+  const parent = target.parentElement;
+  if (!parent) {
+    return null;
+  }
+  return { parent, before: target };
+}
+
+/**
+ * The slot is only ever inserted as a preceding sibling of `before`. It is
+ * never prepended into it: that is what placed the panel inside the form.
+ */
+function ensurePanelSlot(parent: Element, before: Element): HTMLElement {
+  const existing = parent.querySelector(`:scope > ${PANEL_SLOT_SELECTOR}`);
   if (existing instanceof HTMLElement) {
-    if (hostParent === form) {
-      if (form.firstElementChild !== existing) {
-        form.prepend(existing);
-      }
-    } else if (existing.nextElementSibling !== form) {
-      parent.insertBefore(existing, form);
+    if (existing.nextElementSibling !== before) {
+      parent.insertBefore(existing, before);
     }
     return existing;
   }
+
   document.querySelectorAll(PANEL_SLOT_SELECTOR).forEach((node) => {
     node.remove();
   });
   const slot = document.createElement("div");
   slot.setAttribute(PANEL_SLOT_ATTR, "");
-  if (hostParent === form) {
-    form.prepend(slot);
-  } else {
-    parent.insertBefore(slot, form);
-  }
+  parent.insertBefore(slot, before);
   return slot;
 }
 
@@ -114,10 +180,17 @@ function ensurePanelSlot(parent: Element, form: Element): HTMLElement {
  * form's inner Helix tree avoids wiping Compatibility.
  */
 export function insertBeforeListingHeading(anchor: Element, ui: Element): void {
-  const form = listingPageContainer(anchor);
-  const parent = form.parentElement ?? form;
-  const slot = ensurePanelSlot(parent, form);
-  stylePanelSlot(slot);
+  // Preferred: between .header and .container in eBay's page shell.
+  const shell = shellAnchor();
+  const spot = shell ?? anchorOutsideForm(listingPageContainer(anchor));
+  if (!spot) {
+    // Detached container: leave the panel where it is rather than forcing it
+    // into the form, which is the failure mode this function exists to avoid.
+    return;
+  }
+
+  const slot = ensurePanelSlot(spot.parent, spot.before);
+  stylePanelSlot(slot, shell ? shell.before : null);
   if (ui.parentElement !== slot) {
     slot.append(ui);
   }
