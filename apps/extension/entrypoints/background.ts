@@ -66,9 +66,8 @@ const extensionInstalledUrl =
   "http://127.0.0.1:3004/extension-installed";
 
 const PRODUCTION_WEB_ORIGINS = [
-  "https://ebaysellsimilar.com",
-  "https://www.ebaysellsimilar.com",
-  "https://app.ebaysellsimilar.com",
+  "https://extension.carvmac.com",
+  "https://extension-admin.carvmac.com",
 ] as const;
 
 function isAllowedWebOrigin(url: string | undefined): boolean {

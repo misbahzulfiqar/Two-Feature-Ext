@@ -349,28 +349,83 @@ function listingHasFitmentMarkup(html) {
   );
 }
 
-async function openLiveListing(page, listingUrl) {
-  await page.goto(listingUrl, {
-    waitUntil: "domcontentloaded",
-    timeout: 20000,
-    referer: "https://www.ebay.com/",
-  });
+/**
+ * eBay intermittently answers the scraper with a 403 "Error Page" instead of
+ * the listing. It is not listing-specific and not sticky: the very next attempt
+ * usually succeeds, so a block must be retried rather than reported as "this
+ * listing has no compatibility table".
+ */
+async function isBlockedPage(page) {
+  try {
+    return await page.evaluate(
+      'document.title.toLowerCase().indexOf("error page") >= 0 ||' +
+        ' (document.body ? document.body.innerText : "").toLowerCase().indexOf("something went wrong on our end") >= 0 ||' +
+        ' (document.body ? document.body.innerText : "").toLowerCase().indexOf("pardon our interruption") >= 0 ||' +
+        ' (document.body ? document.body.innerText : "").toLowerCase().indexOf("checking your browser") >= 0',
+    );
+  } catch {
+    return false;
+  }
+}
 
+const LIVE_NAV_ATTEMPTS = 4;
+
+/**
+ * Returns "ok" when the compatibility table is on screen, "blocked" when eBay
+ * kept serving an anti-bot page, and "no-table" when the listing loaded fine
+ * but genuinely has no fitment. Callers must not treat "blocked" as "no-table".
+ */
+async function openLiveListing(page, listingUrl) {
   const tableSelectors = [
     ".motors-compatibility-table",
     '[data-testid="d-motors-compatibility-table"]',
     '[data-testid="d-item-compatibility"]',
     ".motors-compatibility-table-wrapper",
   ];
-  try {
-    await Promise.race(
-      tableSelectors.map((selector) => page.waitForSelector(selector, { timeout: 20000 })),
-    );
-    return true;
-  } catch {
-    console.log("[FetchFitment] no compatibility table after live navigation");
-    return false;
+
+  let blockedEveryTime = true;
+
+  for (let attempt = 1; attempt <= LIVE_NAV_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await page.goto(listingUrl, {
+        waitUntil: "domcontentloaded",
+        timeout: 20000,
+        referer: "https://www.ebay.com/",
+      });
+
+      const status = response ? response.status() : 0;
+      const blocked = status >= 400 || (await isBlockedPage(page));
+      if (blocked) {
+        console.log(
+          `[FetchFitment] attempt ${attempt}/${LIVE_NAV_ATTEMPTS}: eBay served a block page (http ${status}); retrying`,
+        );
+        await sleep(1500 * attempt + Math.floor(Math.random() * 700));
+        continue;
+      }
+
+      blockedEveryTime = false;
+
+      try {
+        await Promise.race(
+          tableSelectors.map((selector) => page.waitForSelector(selector, { timeout: 20000 })),
+        );
+        console.log(`[FetchFitment] attempt ${attempt}: compatibility table found`);
+        return "ok";
+      } catch {
+        console.log(
+          `[FetchFitment] attempt ${attempt}: listing loaded but has no compatibility table`,
+        );
+        return "no-table";
+      }
+    } catch (error) {
+      console.log(
+        `[FetchFitment] attempt ${attempt}/${LIVE_NAV_ATTEMPTS} navigation failed: ${error.message}`,
+      );
+      await sleep(1500 * attempt);
+    }
   }
+
+  return blockedEveryTime ? "blocked" : "no-table";
 }
 
 export async function fetchFitment(page, listingUrl, options = {}) {
@@ -414,11 +469,27 @@ export async function fetchFitment(page, listingUrl, options = {}) {
     }
 
     if (!tableFound) {
+      let liveStatus = "no-table";
       try {
-        tableFound = await openLiveListing(page, listingUrl);
+        liveStatus = await openLiveListing(page, listingUrl);
       } catch (error) {
         console.log(`[FetchFitment] live navigation failed: ${error.message}`);
       }
+
+      // A block is a failure, not an empty result. Reporting success here is
+      // what made "no compatibility" indistinguishable from "eBay blocked us".
+      if (liveStatus === "blocked") {
+        console.log("[FetchFitment] eBay blocked every navigation attempt");
+        return {
+          success: false,
+          compatibility: [],
+          compatibilityCount: 0,
+          blocked: true,
+          error: `eBay blocked the scraper after ${LIVE_NAV_ATTEMPTS} attempts. Try again in a moment.`,
+        };
+      }
+
+      tableFound = liveStatus === "ok";
     }
 
     if (!tableFound) {
@@ -438,7 +509,7 @@ export async function fetchFitment(page, listingUrl, options = {}) {
         console.log(
           "[FetchFitment] Compatibility table is from an HTML snapshot (page 1 only). Opening the live listing to scrape every page.",
         );
-        const opened = await openLiveListing(page, listingUrl);
+        const opened = (await openLiveListing(page, listingUrl)) === "ok";
         if (!opened) {
           rows = (await extractCompatibilityData(page)).compatibility;
         } else {

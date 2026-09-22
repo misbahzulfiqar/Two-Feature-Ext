@@ -1,9 +1,8 @@
 import type { NextFunction, Request, Response } from "express";
 
 const PRODUCTION_WEB_ORIGINS = [
-  "https://ebaysellsimilar.com",
-  "https://www.ebaysellsimilar.com",
-  "https://app.ebaysellsimilar.com",
+  "https://extension.carvmac.com",
+  "https://extension-admin.carvmac.com",
 ];
 
 function isAllowedOrigin(origin: string): boolean {
