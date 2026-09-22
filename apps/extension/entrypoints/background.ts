@@ -66,8 +66,8 @@ const extensionInstalledUrl =
   "http://127.0.0.1:3004/extension-installed";
 
 const PRODUCTION_WEB_ORIGINS = [
-  "https://extension.carvmac.com",
-  "https://extension-admin.carvmac.com",
+  "https://extension.carvmax.com",
+  "https://extension-admin.carvmax.com",
 ] as const;
 
 function isAllowedWebOrigin(url: string | undefined): boolean {

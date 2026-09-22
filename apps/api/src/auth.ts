@@ -11,7 +11,7 @@ import { sendAuthEmail, publicAuthUrl, rememberVerificationLink } from "./mail.j
 const authLog = createLogger({ name: "auth" });
 
 /**
- * Registrable domain of the API, as a cookie domain (".carvmac.com").
+ * Registrable domain of the API, as a cookie domain (".carvmax.com").
  *
  * The web app, admin and API live on sibling subdomains, so the session cookie
  * has to be set on the parent domain or the browser will not send it back.
@@ -43,8 +43,8 @@ function trustedWebOrigins(env: ApiEnv): string[] {
     "http://127.0.0.1:3004",
     "http://localhost:3005",
     "http://127.0.0.1:3005",
-    "https://extension.carvmac.com",
-    "https://extension-admin.carvmac.com",
+    "https://extension.carvmax.com",
+    "https://extension-admin.carvmax.com",
   ];
 }
 
