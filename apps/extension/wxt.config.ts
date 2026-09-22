@@ -1,8 +1,8 @@
 import { defineConfig } from "wxt";
 
 const PRODUCTION_WEB_MATCHES = [
-  "https://extension.carvmac.com/*",
-  "https://extension-admin.carvmac.com/*",
+  "https://extension.carvmax.com/*",
+  "https://extension-admin.carvmax.com/*",
 ];
 
 const PRODUCTION_HOST_PERMISSIONS = [
@@ -12,9 +12,9 @@ const PRODUCTION_HOST_PERMISSIONS = [
   "https://i.ebayimg.com/*",
   // The background script calls the API directly, so it needs host access to
   // the API origin as well as the web app.
-  "https://extension.carvmac.com/*",
-  "https://extension-admin.carvmac.com/*",
-  "https://extension-api.carvmac.com/*",
+  "https://extension.carvmax.com/*",
+  "https://extension-admin.carvmax.com/*",
+  "https://extension-api.carvmax.com/*",
 ];
 
 export default defineConfig({
@@ -32,7 +32,7 @@ export default defineConfig({
   manifest: {
     name: "Sell Similar",
     description: "Find and list similar items on eBay",
-    homepage_url: "https://extension.carvmac.com",
+    homepage_url: "https://extension.carvmax.com",
     icons: {
       16: "/icon-16.png",
       32: "/icon-32.png",

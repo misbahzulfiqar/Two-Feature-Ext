@@ -1,8 +1,8 @@
 import type { NextFunction, Request, Response } from "express";
 
 const PRODUCTION_WEB_ORIGINS = [
-  "https://extension.carvmac.com",
-  "https://extension-admin.carvmac.com",
+  "https://extension.carvmax.com",
+  "https://extension-admin.carvmax.com",
 ];
 
 function isAllowedOrigin(origin: string): boolean {

@@ -41,7 +41,7 @@ export type AuthEmail = {
 };
 
 function fromAddress(env: ApiEnv): string {
-  return env.EMAIL_FROM || env.SMTP_USER || "Sell Similar <noreply@carvmac.com>";
+  return env.EMAIL_FROM || env.SMTP_USER || "Sell Similar <noreply@carvmax.com>";
 }
 
 async function sendWithResend(env: ApiEnv, email: AuthEmail): Promise<void> {
