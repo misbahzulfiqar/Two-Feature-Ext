@@ -22,7 +22,7 @@ export function PublicFooter() {
       <PageContainer className="mt-6 flex flex-col gap-2 text-xs text-faint md:flex-row md:justify-between">
         <p>© {new Date().getFullYear()} eBay Sell Similar. Not affiliated with eBay. Built for eBay sellers.</p>
         <p className="flex gap-4">
-          <Link to="/help">Privacy</Link>
+          <Link to="/privacy">Privacy</Link>
           <Link to="/help">Terms</Link>
           <Link to="/help">Support</Link>
         </p>

@@ -59,7 +59,10 @@ export function RegisterPage() {
         <FormInput label="Confirm Password" name="confirm" type="password" required />
         <label className="flex items-start gap-2 text-sm text-mute">
           <input name="terms" type="checkbox" className="mt-1" />
-          I agree to the Terms of Service and Privacy Policy
+          I agree to the Terms of Service and{" "}
+          <a className="underline" href="/privacy" target="_blank" rel="noreferrer">
+            Privacy Policy
+          </a>
         </label>
         {error ? <p className="text-sm text-danger">{error}</p> : null}
         <GradientButton className="w-full" type="submit" disabled={loading}>

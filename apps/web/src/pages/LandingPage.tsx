@@ -488,7 +488,7 @@ export function LandingPage() {
             sellers.
           </p>
           <p>
-            <a href="#privacy">Privacy</a>
+            <a href="/privacy">Privacy</a>
             <a href="#terms">Terms</a>
             <Link to="/help">Support</Link>
           </p>
