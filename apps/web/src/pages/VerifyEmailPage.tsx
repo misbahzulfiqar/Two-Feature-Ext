@@ -1,4 +1,5 @@
 import { type FormEvent, useEffect, useState } from "react";
+import { apiPath } from "../lib/env";
 import { Link, useSearchParams } from "react-router-dom";
 import { AuthShell } from "../components/AuthShell";
 import { GradientButton } from "../components/Buttons";
@@ -16,11 +17,20 @@ async function loadVerificationLink(
   if (!email) {
     return { url: null, mailEnabled: false };
   }
+  // Must go through apiPath: a bare relative path resolves against the web
+  // origin, where the SPA rewrite answers with index.html (HTTP 200, HTML), so
+  // response.ok passes and .json() then fails on "<!doctype".
   const response = await fetch(
-    `/api/v1/verification-link?email=${encodeURIComponent(email)}`,
+    apiPath(`/api/v1/verification-link?email=${encodeURIComponent(email)}`),
     { credentials: "include" },
   );
   if (!response.ok) {
+    return { url: null, mailEnabled: false };
+  }
+
+  // Defend against any future origin mix-up returning a page instead of JSON.
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.includes("application/json")) {
     return { url: null, mailEnabled: false };
   }
   const body = (await response.json()) as VerificationLinkResponse;
