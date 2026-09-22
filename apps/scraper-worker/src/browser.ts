@@ -39,6 +39,23 @@ function resolveChromeExecutable(env: ScraperEnv): string {
   );
 }
 
+/**
+ * Chrome refuses to start as root unless its sandbox is disabled. Deployments
+ * that run the worker as root therefore need these flags, but they are only
+ * added in that case: everywhere else the sandbox stays on, which matters
+ * because this browser loads arbitrary eBay pages.
+ */
+function rootSandboxArgs(): string[] {
+  const uid = typeof process.getuid === "function" ? process.getuid() : undefined;
+  if (uid !== 0) {
+    return [];
+  }
+  console.warn(
+    "[browser] running as root; launching Chrome with --no-sandbox. Prefer a non-root user in production.",
+  );
+  return ["--no-sandbox", "--disable-setuid-sandbox"];
+}
+
 export async function createBrowser(env: ScraperEnv): Promise<Browser> {
   return puppeteer.launch({
     headless: true,
@@ -49,6 +66,9 @@ export async function createBrowser(env: ScraperEnv): Promise<Browser> {
       "--disable-infobars",
       "--start-maximized",
       "--window-size=1366,768",
+      // Shared memory in containers/VPS images is often too small for Chrome.
+      "--disable-dev-shm-usage",
+      ...rootSandboxArgs(),
     ],
     defaultViewport: { width: 1366, height: 768 },
   });
