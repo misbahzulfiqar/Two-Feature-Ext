@@ -9,17 +9,38 @@ export function mailDeliveryEnabled(env: ApiEnv): boolean {
   return Boolean(env.RESEND_API_KEY || env.SMTP_HOST);
 }
 
+/**
+ * Normalises the link that goes into an auth email.
+ *
+ * The link itself must stay on the API. Better Auth builds it against
+ * API_BASE_URL and only the API can consume the token. An earlier version
+ * rewrote the host to the web app, which meant the link landed on the SPA
+ * (index.html, HTTP 200) instead of the API, so the token was never delivered
+ * and no account was ever verified. It only appeared to work in development,
+ * where Vite proxies /api through to the API.
+ *
+ * The only thing worth fixing here is where the user lands afterwards: if
+ * callbackURL is missing or relative, make it absolute against the web app
+ * (or the admin app, for admin flows).
+ */
 export function publicAuthUrl(env: ApiEnv, url: string): string {
   try {
     const parsed = new URL(url);
     const callback = parsed.searchParams.get("callbackURL") ?? "";
+
+    // Absolute callback: the client already said exactly where to land.
+    const isAbsolute =
+      callback.startsWith("http://") || callback.startsWith("https://");
+    if (isAbsolute) {
+      return parsed.toString();
+    }
+
     const useAdmin =
-      callback.startsWith(env.ADMIN_APP_URL) ||
+      callback.startsWith("/admin") ||
       callback.includes("://localhost:3005") ||
       callback.includes("://127.0.0.1:3005");
-    const origin = new URL(useAdmin ? env.ADMIN_APP_URL : env.WEB_APP_URL);
-    parsed.protocol = origin.protocol;
-    parsed.host = origin.host;
+    const appOrigin = useAdmin ? env.ADMIN_APP_URL : env.WEB_APP_URL;
+    parsed.searchParams.set("callbackURL", new URL(callback || "/", appOrigin).toString());
     return parsed.toString();
   } catch {
     return url;
