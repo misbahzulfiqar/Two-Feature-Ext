@@ -12,3 +12,6 @@ dist
 Thumbs.db
 *.tsbuildinfo
 tools/redis/
+
+# Extension signing key - pins the extension ID, never commit
+apps/extension/keys/*.pem

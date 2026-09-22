@@ -428,7 +428,7 @@ export function LandingPage() {
               <details>
                 <summary>How do I install the extension?</summary>
                 <p>
-                  Create a free account, then Add to Chrome from the public Chrome Web Store listing.
+                  Create a free account, then download the extension from your dashboard and load it into Chrome.
                   After install, return here so we can connect the extension to your account. Pin
                   the icon, then open eBay’s Create or Edit Listing page.
                 </p>

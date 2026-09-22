@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import { SecondaryButton } from "../components/Buttons";
-import { ChromeStoreInstallActions } from "../components/ChromeStoreInstallActions";
+import { ExtensionDownloadActions } from "../components/ExtensionDownloadActions";
 import { ProgressSteps } from "../components/DashboardPieces";
 import { DarkCard } from "../components/LayoutBits";
 import { SetupChecklist } from "../components/ProductCards";
@@ -42,7 +42,7 @@ export function ReadyPage() {
           />
           {!installed ? (
             <div className="mt-4">
-              <ChromeStoreInstallActions align="start" onCheck={() => void refresh()} />
+              <ExtensionDownloadActions align="start" onCheck={() => void refresh()} />
             </div>
           ) : null}
         </DarkCard>

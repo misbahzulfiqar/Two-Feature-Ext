@@ -6,11 +6,11 @@ import { useSessionUser } from "../lib/session";
 const CARDS = [
   [
     "Getting Started",
-    "Create a free account, then install the public Chrome Web Store listing. Anyone can Add to Chrome.",
+    "Create a free account, sign in, then download the extension from your dashboard and load it into Chrome.",
   ],
   [
     "Installing the Extension",
-    "Chrome cannot install silently. Use Add to Chrome on the store listing, pin the icon, then Check Again on this site.",
+    "Download the zip, unzip it, open chrome://extensions, turn on Developer mode, then Load unpacked and pick the unzipped folder.",
   ],
   ["Full Scrape", "Copies title, photos, specifics, description, and compatibility when enabled."],
   ["Fitment Only", "Scrapes vehicle compatibility only and leaves other fields alone."],
@@ -24,11 +24,11 @@ const CARDS = [
 const FAQS = [
   [
     "Why is my extension not detected?",
-    "After Add to Chrome, return here and press Check Again. Detection uses the store listing ID (or VITE_CHROME_EXTENSION_ID). Allow this website origin when Chrome asks.",
+    "After Load unpacked, return here and press Check Again. If it still is not detected, confirm the extension is enabled on chrome://extensions and that you selected the folder containing manifest.json.",
   ],
   [
     "Is the extension public?",
-    "Yes. Once Chrome publishes the listing, anyone can install it from the Chrome Web Store. Signing in here pairs that install with your account.",
+    "The extension is distributed directly to customers rather than through the Chrome Web Store. Sign in, download it from your dashboard, and signing in here pairs that install with your account.",
   ],
   [
     "Why does the extension need authentication?",

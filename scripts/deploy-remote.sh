@@ -22,6 +22,18 @@ corepack enable >/dev/null 2>&1 || true
 pnpm install --frozen-lockfile
 pnpm build
 
+# Package the extension for self-hosted distribution. The API serves the
+# newest zip from apps/extension/.output, so this is what makes the download
+# URL track every deploy. Needs apps/extension/.env with the production URLs.
+echo "==> Packaging extension"
+if [ -f apps/extension/.env ]; then
+  rm -f apps/extension/.output/*.zip
+  NODE_ENV=production pnpm --filter @sell-similar/extension zip
+  ls -la apps/extension/.output/*.zip
+else
+  echo "!! apps/extension/.env missing - skipping zip, download URL will serve the previous build"
+fi
+
 echo "==> Restarting services"
 pm2 restart api worker cron --update-env
 pm2 save

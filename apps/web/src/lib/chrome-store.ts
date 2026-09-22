@@ -1,34 +1,15 @@
 import { publicEnv } from "./env";
 
-const STORE_DETAIL_ID =
-  /(?:chromewebstore\.google\.com|chrome\.google\.com\/webstore)\/detail\/(?:[^/?#]+\/)?([a-p]{32})(?:[/?#]|$)/i;
-
-export function chromeStoreListingUrl(): string | null {
-  const url = publicEnv().webstoreUrl.trim();
-  if (!url || !STORE_DETAIL_ID.test(url)) {
-    return null;
-  }
-  return url;
-}
+/**
+ * The extension is distributed directly to customers, not through the Chrome
+ * Web Store. Its ID comes from the "key" pinned in the extension manifest:
+ * without that key every "Load unpacked" install would get a different ID
+ * (derived from the folder path) and this site could never detect it.
+ */
+export const PINNED_EXTENSION_ID = "plohbfpfbfppmlnamocnoelnefchplnm";
 
 export function configuredExtensionId(): string {
+  // An env override wins, so a differently-keyed build can be pointed at.
   const fromEnv = publicEnv().extensionId.trim();
-  if (fromEnv) {
-    return fromEnv;
-  }
-  const match = publicEnv().webstoreUrl.match(STORE_DETAIL_ID);
-  return match?.[1] ?? "";
-}
-
-export function hasChromeStoreListing(): boolean {
-  return Boolean(chromeStoreListingUrl());
-}
-
-export function openChromeStoreInstall(): boolean {
-  const listing = chromeStoreListingUrl();
-  if (!listing) {
-    return false;
-  }
-  window.open(listing, "_blank", "noopener");
-  return true;
+  return fromEnv || PINNED_EXTENSION_ID;
 }

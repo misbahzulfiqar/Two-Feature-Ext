@@ -9,6 +9,7 @@ import { createAdminRouter } from "./admin/router.js";
 import { bootstrapAdminAccount } from "./admin/bootstrap.js";
 import { ensureAdminDataStores } from "./admin/ensure-db.js";
 import { createAccountHandlers } from "./controllers/AccountController.js";
+import { createExtensionReleaseHandlers } from "./controllers/ExtensionReleaseController.js";
 import {
   clearScrapeCacheHandler,
   createListing,
@@ -38,6 +39,10 @@ if (env.MONGO_URL) {
   const account = createAccountHandlers(auth, env.MONGO_URL);
   app.all("/api/auth/{*path}", toNodeHandler(auth));
   app.use(express.json({ limit: "20mb" }));
+  const extensionRelease = createExtensionReleaseHandlers(auth);
+  // Stable URLs; each deploy replaces the file they serve.
+  app.get("/extension/release", extensionRelease.releaseInfo);
+  app.get("/extension/download", extensionRelease.download);
   app.post("/extension/pairing/start", account.pairingStart);
   app.post("/extension/pairing/exchange", account.pairingExchange);
   app.get("/me/activity", account.activity);

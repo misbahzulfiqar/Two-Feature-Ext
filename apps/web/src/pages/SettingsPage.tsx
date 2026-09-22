@@ -2,7 +2,7 @@ import { type FormEvent, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import { GradientButton, SecondaryButton } from "../components/Buttons";
-import { ChromeStoreInstallActions } from "../components/ChromeStoreInstallActions";
+import { ExtensionDownloadActions } from "../components/ExtensionDownloadActions";
 import { DashboardHeader } from "../components/DashboardPieces";
 import { FormInput } from "../components/FormInput";
 import { DarkCard, StatusBadge } from "../components/LayoutBits";
@@ -64,7 +64,7 @@ export function SettingsPage() {
             {installed ? (
               <SecondaryButton onClick={() => void refresh()}>Check Connection</SecondaryButton>
             ) : (
-              <ChromeStoreInstallActions align="start" onCheck={() => void refresh()} />
+              <ExtensionDownloadActions align="start" onCheck={() => void refresh()} />
             )}
           </div>
         </DarkCard>
