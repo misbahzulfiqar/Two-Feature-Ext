@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { publicEnv } from "../lib/env";
 import { SecondaryButton } from "./Buttons";
-import { ChromeStoreInstallActions } from "./ChromeStoreInstallActions";
+import { ExtensionDownloadActions } from "./ExtensionDownloadActions";
 import { ChromeIcon, PuzzleIcon } from "./Icons";
 import { DarkCard, StatusBadge } from "./LayoutBits";
 
@@ -33,7 +33,7 @@ export function ChromeExtensionCard({
             <p className="mt-2 max-w-xl text-sm text-mute">
               {installed
                 ? `eBay Sell Similar ${version ? `v${version}` : ""} is installed and ready inside eBay’s listing editor.`
-                : "Install eBay Sell Similar from the public Chrome Web Store, then return here to connect it to this account."}
+                : "Download eBay Sell Similar from here, load it into Chrome, then return to connect it to this account."}
             </p>
           </div>
         </div>
@@ -54,11 +54,7 @@ export function ChromeExtensionCard({
             </div>
           ) : (
             <>
-              <ChromeStoreInstallActions
-                align="start"
-                installLabel="Install Chrome Extension"
-                onCheck={onCheck}
-              />
+              <ExtensionDownloadActions align="start" onCheck={onCheck} />
               <SecondaryButton href="/onboarding/how-to-use">How It Works</SecondaryButton>
             </>
           )}

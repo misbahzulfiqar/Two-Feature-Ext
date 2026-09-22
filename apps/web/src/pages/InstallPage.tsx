@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import { GradientButton, SecondaryButton } from "../components/Buttons";
-import { ChromeStoreInstallActions } from "../components/ChromeStoreInstallActions";
+import { ExtensionDownloadActions } from "../components/ExtensionDownloadActions";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { ProgressSteps } from "../components/DashboardPieces";
 import { ChromeIcon } from "../components/Icons";
@@ -12,10 +12,22 @@ import { useExtensionInstall } from "../lib/use-extension-install";
 import { useExtensionPairing } from "../lib/use-extension-pairing";
 
 const STORE_STEPS = [
-  ["Open the public listing", "Install from the Chrome Web Store. Anyone can Add to Chrome — no zip file."],
-  ["Add to Chrome", "Click Add to Chrome, then Add extension."],
-  ["Pin the icon", "Open the puzzle menu in Chrome and pin eBay Sell Similar."],
-  ["Return here", "Come back and press Check Again. This site pairs the extension to your account."],
+  [
+    "Download and unzip",
+    "Press Download extension above, then unzip the file. Keep the unzipped folder somewhere permanent — Chrome loads the extension from that folder every time it starts, so deleting it uninstalls the extension.",
+  ],
+  [
+    "Open chrome://extensions",
+    "Paste chrome://extensions into your address bar and press Enter. Then turn on Developer mode using the switch in the top-right corner.",
+  ],
+  [
+    "Load unpacked",
+    "Click Load unpacked, then select the unzipped folder — the one containing manifest.json. eBay Sell Similar now appears in your extensions list.",
+  ],
+  [
+    "Pin it and come back",
+    "Open Chrome's puzzle-piece menu and pin eBay Sell Similar so it stays visible. Then return here and press Check Again to link it to your account.",
+  ],
 ] as const;
 
 export function InstallPage() {
@@ -38,8 +50,8 @@ export function InstallPage() {
       <ProgressSteps step={1} total={3} />
       <h1 className="text-3xl font-extrabold">Install the Chrome Extension</h1>
       <p className="mt-2 text-mute">
-        eBay Sell Similar is a public Chrome Web Store listing. Add it once, then use it on any
-        Chrome browser where you are signed into this account.
+        eBay Sell Similar is distributed directly to customers. Download the build below, load it
+        into Chrome once, and it stays installed on this browser.
       </p>
       <DarkCard className="mx-auto mt-8 max-w-2xl p-8 text-center">
         <div className="flex justify-center">
@@ -55,12 +67,12 @@ export function InstallPage() {
           </>
         ) : (
           <p className="mt-3 text-sm text-mute">
-            Add the extension from the Chrome Web Store, then return here so we can connect it to
-            this account.
+            Download the extension, load it into Chrome using the steps below, then return here so
+            we can connect it to this account.
           </p>
         )}
         <div className="mt-6">
-          <ChromeStoreInstallActions onCheck={() => void refresh()} />
+          <ExtensionDownloadActions onCheck={() => void refresh()} />
         </div>
       </DarkCard>
       <div className="mx-auto mt-8 grid max-w-3xl gap-4 text-left md:grid-cols-2">
