@@ -12,6 +12,7 @@ import { HowToUsePage } from "./pages/HowToUsePage";
 import { InstallPage } from "./pages/InstallPage";
 import { LandingPage } from "./pages/LandingPage";
 import { LoginPage } from "./pages/LoginPage";
+import { PrivacyPolicyPage } from "./pages/PrivacyPolicyPage";
 import { ReadyPage } from "./pages/ReadyPage";
 import { RegisterPage } from "./pages/RegisterPage";
 import { ResetPasswordPage } from "./pages/ResetPasswordPage";
@@ -52,6 +53,8 @@ export function App() {
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route path="/extension-installed" element={<ExtensionInstalledPage />} />
+      {/* Public: Chrome Web Store reviewers must reach this without an account. */}
+      <Route path="/privacy" element={<PrivacyPolicyPage />} />
       <Route
         path="/dashboard"
         element={
