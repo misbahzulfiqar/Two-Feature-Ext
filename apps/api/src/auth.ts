@@ -10,6 +10,30 @@ import { sendAuthEmail, publicAuthUrl, rememberVerificationLink } from "./mail.j
 
 const authLog = createLogger({ name: "auth" });
 
+/**
+ * Registrable domain of the API, as a cookie domain (".carvmac.com").
+ *
+ * The web app, admin and API live on sibling subdomains, so the session cookie
+ * has to be set on the parent domain or the browser will not send it back.
+ * Returns undefined for localhost/IP hosts, where subdomain cookies do not
+ * apply and "secure" cookies would be dropped over http.
+ */
+function cookieDomain(env: ApiEnv): string | undefined {
+  try {
+    const host = new URL(env.API_BASE_URL).hostname;
+    if (host === "localhost" || /^[0-9.]+$/.test(host)) {
+      return undefined;
+    }
+    const labels = host.split(".");
+    if (labels.length < 2) {
+      return undefined;
+    }
+    return `.${labels.slice(-2).join(".")}`;
+  } catch {
+    return undefined;
+  }
+}
+
 function trustedWebOrigins(env: ApiEnv): string[] {
   return [
     env.API_BASE_URL,
@@ -19,9 +43,8 @@ function trustedWebOrigins(env: ApiEnv): string[] {
     "http://127.0.0.1:3004",
     "http://localhost:3005",
     "http://127.0.0.1:3005",
-    "https://ebaysellsimilar.com",
-    "https://www.ebaysellsimilar.com",
-    "https://app.ebaysellsimilar.com",
+    "https://extension.carvmac.com",
+    "https://extension-admin.carvmac.com",
   ];
 }
 
@@ -35,6 +58,12 @@ export async function createAuth(env: ApiEnv) {
   const client = await getMongoClient(env.MONGO_URL);
   const db = client.db();
   const mongoUrl = env.MONGO_URL;
+  const isProduction = env.NODE_ENV === "production";
+  const crossSubDomain = cookieDomain(env);
+  authLog.info(
+    { isProduction, cookieDomain: crossSubDomain ?? "(host-only)" },
+    "auth cookie policy",
+  );
 
   return betterAuth({
     secret: env.BETTER_AUTH_SECRET,
@@ -94,10 +123,27 @@ export async function createAuth(env: ApiEnv) {
       },
     },
     advanced: {
-      defaultCookieAttributes: {
-        sameSite: "lax",
-        secure: false,
-      },
+      // Sibling subdomains are a different site to the browser, and the
+      // extension calls the API from a chrome-extension:// origin, so the
+      // session cookie must be SameSite=None + Secure in production. Locally
+      // that would be dropped over http, hence the split.
+      ...(isProduction
+        ? {
+            crossSubDomainCookies: crossSubDomain
+              ? { enabled: true, domain: crossSubDomain }
+              : { enabled: false },
+            defaultCookieAttributes: {
+              sameSite: "none" as const,
+              secure: true,
+              httpOnly: true,
+            },
+          }
+        : {
+            defaultCookieAttributes: {
+              sameSite: "lax" as const,
+              secure: false,
+            },
+          }),
     },
   });
 }
