@@ -20,6 +20,25 @@ function uniqueRows(rows) {
   return [...seen.values()];
 }
 
+function extractEmbeddedFitmentRows(html) {
+  if (!html || typeof html !== "string") {
+    return [];
+  }
+  const rows = [];
+  const pattern = /<script type="application\/json" id="sell-similar-fitment-page">([\s\S]*?)<\/script>/g;
+  for (const match of html.matchAll(pattern)) {
+    try {
+      const parsed = JSON.parse(match[1]);
+      if (Array.isArray(parsed)) {
+        rows.push(...parsed);
+      }
+    } catch {
+      // A bad page payload must not drop the tables that did parse.
+    }
+  }
+  return rows;
+}
+
 function extraHtmlChunks(html) {
   if (!html || typeof html !== "string") {
     return [];
@@ -49,19 +68,28 @@ async function extractCompatibilityData(page) {
       compatibilityCount: 0,
     };
 
-    const motorsTable =
-      document.querySelector(".motors-compatibility-table") ||
-      document.querySelector('[data-testid="d-motors-compatibility-table"]') ||
-      document.querySelector('[data-testid="d-item-compatibility"] table') ||
-      document.querySelector(".motors-compatibility-table-wrapper table") ||
-      document.querySelector(".vim.d-motors-compatibility-table table");
+    const tableNodes = Array.from(
+      document.querySelectorAll(
+        ".motors-compatibility-table, [data-testid='d-motors-compatibility-table'], [data-testid='d-item-compatibility'] table, .motors-compatibility-table-wrapper table, .vim.d-motors-compatibility-table table",
+      ),
+    );
+    const motorsTables = [];
+    const seenTables = new Set();
+    tableNodes.forEach((node) => {
+      const table = String(node.tagName || "").toUpperCase() === "TABLE" ? node : node.querySelector("table");
+      if (!table || seenTables.has(table)) {
+        return;
+      }
+      seenTables.add(table);
+      motorsTables.push(table);
+    });
 
-    if (!motorsTable) {
+    if (motorsTables.length === 0) {
       return result;
     }
 
     const detailsTextEl =
-      motorsTable.querySelector(".motors-compatibility-table__details-text") ||
+      motorsTables[0].querySelector(".motors-compatibility-table__details-text") ||
       document.querySelector(".motors-compatibility-table__details-text");
     const detailsText = detailsTextEl?.textContent;
     if (detailsText) {
@@ -69,8 +97,8 @@ async function extractCompatibilityData(page) {
       result.compatibilityCount = countMatch ? Number.parseInt(countMatch[0], 10) : 0;
     }
 
-    const rows = Array.from(
-      motorsTable.querySelectorAll("tbody.ux-table-section__body tr, tbody tr"),
+    const rows = motorsTables.flatMap((motorsTable) =>
+      Array.from(motorsTable.querySelectorAll("tbody.ux-table-section__body tr, tbody tr")),
     );
     const seen = new Set();
     rows.forEach((row) => {
@@ -524,7 +552,11 @@ export async function fetchFitment(page, listingUrl, options = {}) {
     }
 
     if (html) {
-      rows = uniqueRows([...rows, ...(await extractRowsFromHtmlChunks(page, html))]);
+      rows = uniqueRows([
+        ...rows,
+        ...extractEmbeddedFitmentRows(html),
+        ...(await extractRowsFromHtmlChunks(page, html)),
+      ]);
     } else {
       rows = uniqueRows(rows);
     }

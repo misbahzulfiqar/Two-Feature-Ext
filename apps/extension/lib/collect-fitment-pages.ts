@@ -40,10 +40,42 @@ export function readFitmentPageInListing(): FitmentPageSnapshot | null {
     parent = parent.parentElement;
   }
 
-  const rows = Array.from(table.querySelectorAll("tbody tr")).filter((row) =>
-    /\b(?:19|20)\d{2}\b/.test(row.textContent || ""),
-  );
-  const signature = (rows[0]?.textContent || "").replace(/\s+/g, " ").trim().slice(0, 180);
+  const clean = (text: string): string => text.replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
+  const escapeCell = (text: string): string =>
+    text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const parsedRows: Array<{
+    year: string;
+    make: string;
+    model: string;
+    trim: string;
+    engine: string;
+    notes: string;
+  }> = [];
+  for (const row of Array.from(table.querySelectorAll("tbody tr"))) {
+    const cells = Array.from(row.querySelectorAll("td")).map((cell) => clean(cell.textContent || ""));
+    if (cells.length < 3 || !cells[0] || !cells[1] || !cells[2]) {
+      continue;
+    }
+    if (!/\b(?:19|20)\d{2}\b/.test(cells[0])) {
+      continue;
+    }
+    parsedRows.push({
+      year: cells[0],
+      make: cells[1],
+      model: cells[2],
+      trim: cells[3] || "",
+      engine: cells[4] || "",
+      notes: cells[5] || "",
+    });
+  }
+  const rows = parsedRows;
+  const signature = `${rows[0]?.year ?? ""} ${rows[0]?.make ?? ""} ${rows[0]?.model ?? ""} ${rows[0]?.trim ?? ""}`.trim();
+  const tableHtml = `<div class="motors-compatibility-table"><table class="motors-compatibility-table"><thead><tr><th>Year</th><th>Make</th><th>Model</th><th>Trim</th><th>Engine</th><th>Notes</th></tr></thead><tbody>${rows
+    .map(
+      (row) =>
+        `<tr><td>${escapeCell(row.year)}</td><td>${escapeCell(row.make)}</td><td>${escapeCell(row.model)}</td><td>${escapeCell(row.trim)}</td><td>${escapeCell(row.engine)}</td><td>${escapeCell(row.notes)}</td></tr>`,
+    )
+    .join("")}</tbody></table></div><script type="application/json" id="sell-similar-fitment-page">${JSON.stringify(rows).replace(/</g, "\\u003c")}</script>`;
   const next =
     scope.querySelector(".pagination__next") ||
     scope.querySelector('[aria-label*="Go to next" i]') ||
@@ -56,7 +88,7 @@ export function readFitmentPageInListing(): FitmentPageSnapshot | null {
     /disabled|pagination__next--disabled/i.test(next.className || "");
 
   return {
-    html: table.outerHTML,
+    html: tableHtml,
     rows: rows.length,
     signature,
     hasNext: Boolean(next) && !disabled,

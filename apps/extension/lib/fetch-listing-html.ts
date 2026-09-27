@@ -281,22 +281,6 @@ async function collectClickedFitmentPages(listingUrl: string): Promise<string[]>
   }
 }
 
-function freshTableChunks(tables: string[], seenRows: Set<string>): string[] {
-  const chunks: string[] = [];
-  for (const table of tables) {
-    const rows = vehicleRowTexts(table);
-    const fresh = rows.filter((row) => !seenRows.has(row));
-    if (fresh.length === 0) {
-      continue;
-    }
-    for (const row of rows) {
-      seenRows.add(row);
-    }
-    chunks.push(table);
-  }
-  return chunks;
-}
-
 /** eBay shows 20 vehicles per page. Later pages are appended for the existing extractor. */
 async function appendFitmentPages(listingUrl: string, html: string): Promise<string> {
   const itemId = itemIdFromUrl(listingUrl);
@@ -321,7 +305,7 @@ async function appendFitmentPages(listingUrl: string, html: string): Promise<str
   });
   const clicked = await collectClickedFitmentPages(listingUrl);
   console.log("[SellSimilar] fitment tables from listing", clicked.length);
-  let chunks = freshTableChunks(clicked, seenRows);
+  let chunks = clicked.filter((table) => table.includes("sell-similar-fitment-page"));
   if (chunks.length === 0) {
     const discovered = extraCompatibilityUrls(listingUrl, html);
     const lastPage = clicked.length > 0 ? 2 : pageCount;
