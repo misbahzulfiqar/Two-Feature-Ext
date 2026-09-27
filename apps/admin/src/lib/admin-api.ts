@@ -1,3 +1,4 @@
+import { adminIdentityHeaders } from "./auth-client";
 import { apiPath } from "./env";
 
 export class AdminApiError extends Error {
@@ -16,6 +17,7 @@ async function adminRequest<T>(path: string, init?: RequestInit): Promise<T> {
     credentials: "include",
     headers: {
       ...(init?.body ? { "content-type": "application/json" } : {}),
+      ...adminIdentityHeaders(),
       ...init?.headers,
     },
   });

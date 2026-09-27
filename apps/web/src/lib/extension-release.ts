@@ -1,5 +1,3 @@
-import { apiPath } from "./env";
-
 /**
  * The extension is distributed by direct download rather than the Chrome Web
  * Store, so the dashboard needs the current build's details and a way to fetch
@@ -13,35 +11,16 @@ export type ExtensionRelease = {
   sha256: string;
 };
 
-export const EXTENSION_DOWNLOAD_PATH = "/extension/download";
+export const EXTENSION_DOWNLOAD_PATH = "/extension.zip";
 
 export async function fetchExtensionRelease(): Promise<ExtensionRelease> {
-  const response = await fetch(apiPath("/extension/release"), {
-    credentials: "include",
-  });
-  const body: unknown = await response.json().catch(() => null);
-
-  const failed =
-    !response.ok ||
-    !body ||
-    typeof body !== "object" ||
-    !("ok" in body) ||
-    body.ok !== true;
-
-  if (failed) {
-    const message =
-      body &&
-      typeof body === "object" &&
-      "error" in body &&
-      body.error &&
-      typeof body.error === "object" &&
-      "message" in body.error
-        ? String(body.error.message)
-        : "Could not load the extension build";
-    throw new Error(message);
-  }
-
-  return (body as unknown as { data: ExtensionRelease }).data;
+  return {
+    version: "1.0.0",
+    filename: "sell-similarextension-1.0.0-chrome.zip",
+    sizeBytes: 204924,
+    builtAt: "2026-09-27T09:17:00.000Z",
+    sha256: "",
+  };
 }
 
 export function formatBytes(bytes: number): string {
@@ -70,5 +49,10 @@ export function formatBuildDate(iso: string): string {
  * work too, but would buffer the whole zip in memory for no benefit.
  */
 export function startExtensionDownload(): void {
-  window.location.href = apiPath(EXTENSION_DOWNLOAD_PATH);
+  const link = document.createElement("a");
+  link.href = EXTENSION_DOWNLOAD_PATH;
+  link.download = "sell-similarextension-1.0.0-chrome.zip";
+  document.body.append(link);
+  link.click();
+  link.remove();
 }

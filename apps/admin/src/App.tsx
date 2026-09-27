@@ -11,14 +11,15 @@ import { AdminWorkersPage } from "./pages/admin/AdminWorkersPage";
 import { AdminHealthPage } from "./pages/admin/AdminHealthPage";
 import { AdminSettingsPage } from "./pages/admin/AdminSettingsPage";
 import { AdminExtensionsPage } from "./pages/admin/AdminExtensionsPage";
+import { AdminLoginPage } from "./pages/admin/AdminLoginPage";
 import { AdminProfilePage } from "./pages/admin/AdminProfilePage";
 
 export function App() {
   return (
     <Routes>
-      <Route path="/" element={<Navigate to="/admin" replace />} />
-      <Route path="/login" element={<Navigate to="/admin" replace />} />
-      <Route path="/admin/login" element={<Navigate to="/admin" replace />} />
+      <Route path="/" element={<Navigate to="/admin/login" replace />} />
+      <Route path="/login" element={<Navigate to="/admin/login" replace />} />
+      <Route path="/admin/login" element={<AdminLoginPage />} />
       <Route
         path="/admin"
         element={

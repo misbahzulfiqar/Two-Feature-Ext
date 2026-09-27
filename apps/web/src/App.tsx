@@ -7,7 +7,9 @@ import { HistoryPage } from "./pages/HistoryPage";
 import { HowToUsePage } from "./pages/HowToUsePage";
 import { InstallPage } from "./pages/InstallPage";
 import { LandingPage } from "./pages/LandingPage";
+import { LoginPage } from "./pages/LoginPage";
 import { PrivacyPolicyPage } from "./pages/PrivacyPolicyPage";
+import { RegisterPage } from "./pages/RegisterPage";
 import { ReadyPage } from "./pages/ReadyPage";
 import { SettingsPage } from "./pages/SettingsPage";
 
@@ -15,8 +17,8 @@ export function App() {
   return (
     <Routes>
       <Route path="/" element={<LandingPage />} />
-      <Route path="/login" element={<Navigate to="/onboarding/install" replace />} />
-      <Route path="/register" element={<Navigate to="/onboarding/install" replace />} />
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="/register" element={<RegisterPage />} />
       <Route path="/verify-email" element={<Navigate to="/onboarding/install" replace />} />
       <Route path="/forgot-password" element={<Navigate to="/onboarding/install" replace />} />
       <Route path="/reset-password" element={<Navigate to="/onboarding/install" replace />} />

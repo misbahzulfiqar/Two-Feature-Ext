@@ -25,7 +25,6 @@ export function ExtensionDownloadActions({
 }) {
   const [release, setRelease] = useState<ExtensionRelease | null>(null);
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let active = true;
@@ -39,11 +38,6 @@ export function ExtensionDownloadActions({
       .catch((cause: unknown) => {
         if (active) {
           setError(cause instanceof Error ? cause.message : "Could not load the extension build.");
-        }
-      })
-      .finally(() => {
-        if (active) {
-          setLoading(false);
         }
       });
     return () => {
@@ -60,9 +54,7 @@ export function ExtensionDownloadActions({
       {error ? <p className={textClass}>{error}</p> : null}
 
       <div className={rowClass}>
-        <GradientButton disabled={loading || Boolean(error)} onClick={startExtensionDownload}>
-          {loading ? "Checking for build..." : "Download extension"}
-        </GradientButton>
+        <GradientButton onClick={startExtensionDownload}>Download extension</GradientButton>
         <SecondaryButton onClick={onCheck}>Check Again</SecondaryButton>
       </div>
 

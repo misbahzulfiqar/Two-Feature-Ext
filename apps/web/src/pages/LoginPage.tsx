@@ -1,22 +1,20 @@
 import { type FormEvent, useState } from "react";
-import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 import { AuthShell } from "../components/AuthShell";
 import { GradientButton } from "../components/Buttons";
 import { FormInput } from "../components/FormInput";
 import { authClient, confirmSignedIn } from "../lib/auth-client";
 import { authRequestError, isUnverifiedEmailError } from "../lib/auth-error";
-import { isSignedInUser, postLoginPath } from "../lib/session";
+import { isSignedInUser } from "../lib/session";
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const [search] = useSearchParams();
-  const nextPath = postLoginPath(search.get("callbackUrl"));
   const { data, isPending } = authClient.useSession();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   if (!isPending && isSignedInUser(data?.user)) {
-    return <Navigate to={nextPath} replace />;
+    return <Navigate to="/onboarding/install" replace />;
   }
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -44,7 +42,7 @@ export function LoginPage() {
         setError(sessionError);
         return;
       }
-      navigate(nextPath);
+      navigate("/onboarding/install");
     } catch (caught) {
       setError(authRequestError(caught, "Invalid credentials"));
     } finally {

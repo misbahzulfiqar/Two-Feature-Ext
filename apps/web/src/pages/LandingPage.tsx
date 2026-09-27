@@ -75,8 +75,11 @@ export function LandingPage() {
           ))}
         </nav>
         <div className="nav-actions">
-          <Link className="btn-pill" to="/onboarding/install">
-            Download
+          <Link className="btn-text" to="/login">
+            Login
+          </Link>
+          <Link className="btn-pill" to="/register">
+            Sign Up
           </Link>
         </div>
       </header>
@@ -474,7 +477,8 @@ export function LandingPage() {
                 {link.label}
               </a>
             ))}
-            <Link to="/onboarding/install">Download</Link>
+            <Link to="/login">Login</Link>
+            <Link to="/register">Sign Up</Link>
           </nav>
         </div>
         <div className="footer-bottom">

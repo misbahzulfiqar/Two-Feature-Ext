@@ -3,6 +3,8 @@ import type { HealthResponse } from "@sell-similar/contracts";
 import { createLogger, withCorrelationId } from "@sell-similar/logging";
 import express from "express";
 import morgan from "morgan";
+import { loginAccount, registerAccount } from "./accounts.js";
+import { createAdminOverviewRouter } from "./admin/overview.js";
 import { createExtensionReleaseHandlers } from "./controllers/ExtensionReleaseController.js";
 import {
   clearScrapeCacheHandler,
@@ -60,6 +62,38 @@ const liveScrape = process.env.VERCEL
 
 if (env) {
   app.use(express.json({ limit: "20mb" }));
+  app.post("/api/accounts/register", async (req, res) => {
+    const body = req.body as { name?: string; email?: string; password?: string };
+    const created = await registerAccount(env.MONGO_URL, {
+      name: body?.name ?? "",
+      email: body?.email ?? "",
+      password: body?.password ?? "",
+    });
+    if (created.error || !created.account) {
+      res.status(400).json({
+        ok: false,
+        error: { code: "INVALID_REQUEST", message: created.error ?? "Could not create the account" },
+      });
+      return;
+    }
+    res.json({ ok: true, data: created.account });
+  });
+  app.post("/api/accounts/login", async (req, res) => {
+    const body = req.body as { email?: string; password?: string };
+    const signedIn = await loginAccount(env.MONGO_URL, {
+      email: body?.email ?? "",
+      password: body?.password ?? "",
+    });
+    if (signedIn.error || !signedIn.account) {
+      res.status(401).json({
+        ok: false,
+        error: { code: "INVALID_CREDENTIALS", message: signedIn.error ?? "Invalid email or password." },
+      });
+      return;
+    }
+    res.json({ ok: true, data: signedIn.account });
+  });
+  app.use("/api/v1/admin", createAdminOverviewRouter(env.MONGO_URL));
   const extensionRelease = createExtensionReleaseHandlers();
   app.get("/extension/release", extensionRelease.releaseInfo);
   app.get("/extension/download", extensionRelease.download);

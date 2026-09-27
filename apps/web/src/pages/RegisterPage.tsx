@@ -38,7 +38,7 @@ export function RegisterPage() {
         setError(authError.message || "Could not create the account");
         return;
       }
-      navigate(`/verify-email?email=${encodeURIComponent(email)}`);
+      navigate("/onboarding/install");
     } catch (caught) {
       setError(authRequestError(caught, "Could not create the account"));
     } finally {
@@ -50,7 +50,7 @@ export function RegisterPage() {
     <AuthShell backHref="/" backLabel="← Back to Home">
       <h1 className="text-xl font-extrabold">Create Account</h1>
       <p className="mt-1 text-sm text-mute">
-        Create an account, then open the verification link before you sign in.
+        Create an account, then download the extension. No email verification.
       </p>
       <form className="mt-4 space-y-3" onSubmit={(event) => void onSubmit(event)}>
         <FormInput label="Full Name" name="name" required />

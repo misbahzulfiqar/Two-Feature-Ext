@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { AppLogo } from "./AppLogo";
-import { GradientButton } from "./Buttons";
+import { GradientButton, SecondaryButton } from "./Buttons";
 import { PageContainer } from "./LayoutBits";
 
 const LINKS = [
@@ -27,7 +27,8 @@ export function PublicNavbar() {
           ))}
         </nav>
         <div className="ml-auto hidden items-center gap-2 lg:flex">
-          <GradientButton href="/onboarding/install">Download</GradientButton>
+          <SecondaryButton href="/login">Login</SecondaryButton>
+          <GradientButton href="/register">Sign Up</GradientButton>
         </div>
         <button
           type="button"
@@ -46,7 +47,8 @@ export function PublicNavbar() {
                 {link.label}
               </a>
             ))}
-            <GradientButton href="/onboarding/install">Download</GradientButton>
+            <SecondaryButton href="/login">Login</SecondaryButton>
+            <GradientButton href="/register">Sign Up</GradientButton>
           </div>
         </div>
       ) : null}
