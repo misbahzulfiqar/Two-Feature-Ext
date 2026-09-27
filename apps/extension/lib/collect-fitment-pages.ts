@@ -120,39 +120,28 @@ export function readFitmentPageInListing(): FitmentPageSnapshot | null {
       return true;
     }
     const host = el.closest("button, a") || el;
-    const className = typeof host.className === "string" ? host.className : "";
+    const className = host.className || "";
     return (
       host.getAttribute("aria-disabled") === "true" ||
       host.hasAttribute("disabled") ||
       /(?:^|\s)disabled(?:\s|$)|pagination__next--disabled|--disabled/.test(className)
     );
   };
-  const fitted =
-    table.closest("[data-testid='d-item-compatibility']") ||
-    table.closest("[data-testid='d-motors-compatibility-table']") ||
-    table.closest(".motors-compatibility-table-wrapper") ||
-    table.parentElement ||
+  const scope =
+    document.querySelector("[data-testid='d-motors-compatibility-table']") ||
+    document.querySelector("[data-testid='d-item-compatibility']") ||
+    document.querySelector(".motors-compatibility-table-wrapper") ||
     table;
-  const scope = fitted.parentElement && fitted.parentElement !== document.body ? fitted.parentElement : fitted;
-  const tableBottom = table.getBoundingClientRect().bottom;
-  const controls = Array.from(scope.querySelectorAll("button, a")).filter((el): el is HTMLElement => {
-    if (!(el instanceof HTMLElement)) {
-      return false;
-    }
-    const top = el.getBoundingClientRect().top;
-    return top >= tableBottom - 80 && top < tableBottom + 700;
-  });
-  const next = controls.find((el) => {
-    const label = el.getAttribute("aria-label") || "";
-    return (
-      el.classList.contains("pagination__next") ||
-      el.getAttribute("rel") === "next" ||
-      /next page|go to next|next compatibility/i.test(label)
-    );
-  });
-  const current = controls.find((el) => el.getAttribute("aria-current") === "page");
-  const currentNum = Number.parseInt(clean(current?.textContent || ""), 10) || 1;
-  const pageLink = controls.find((el) => clean(el.textContent || "") === String(currentNum + 1));
+  const next =
+    scope.querySelector(".pagination__next") ||
+    scope.querySelector('[aria-label*="Go to next" i]') ||
+    scope.querySelector('[aria-label*="Next page" i]') ||
+    scope.querySelector('a[rel="next"]');
+  const current = scope.querySelector('[aria-current="page"]');
+  const currentNum = Number.parseInt((current?.textContent || "").trim(), 10) || 1;
+  const pageLink = Array.from(scope.querySelectorAll("a, button")).find(
+    (el) => (el.textContent || "").trim() === String(currentNum + 1),
+  );
   const section =
     table.closest("[data-testid='d-motors-compatibility-table']") ||
     table.closest("[data-testid='d-item-compatibility']") ||
@@ -178,98 +167,46 @@ export function readFitmentPageInListing(): FitmentPageSnapshot | null {
     rows: rows.length,
     signature,
     advertised: Number.isFinite(advertised) ? advertised : 0,
-    hasNext: (next != null && !disabled(next)) || (pageLink != null && !disabled(pageLink)) || moreNumbered,
+    hasNext: (next != null && !disabled(next)) || (pageLink != null && !disabled(pageLink ?? null)) || moreNumbered,
   };
 }
 
-/** Clicks the compatibility pager under the table. Self-contained so it can be injected. */
-export function clickFitmentNextInListing(attempt?: number): boolean {
-  const candidates = Array.from(
-    document.querySelectorAll(
-      ".motors-compatibility-table, [data-testid='d-motors-compatibility-table'] table, [data-testid='d-item-compatibility'] table, .motors-compatibility-table-wrapper table",
-    ),
-  );
-  let table: Element | null = null;
-  let bestCount = 0;
-  for (const candidate of candidates) {
-    const count = candidate.querySelectorAll("tbody tr").length;
-    if (count > bestCount) {
-      table = candidate;
-      bestCount = count;
-    }
-  }
-  if (!table) {
-    for (const candidate of Array.from(document.querySelectorAll("table"))) {
-      const text = candidate.textContent || "";
-      if (/year/i.test(text) && /make/i.test(text) && candidate.querySelector("tbody tr")) {
-        table = candidate;
-        break;
-      }
-    }
-  }
-  if (!table) {
+/** Same Next click the pre-deploy fitment walker used. Self-contained so it can be injected. */
+export function clickFitmentNextInListing(): boolean {
+  const root =
+    document.querySelector("[data-testid='d-motors-compatibility-table']") ||
+    document.querySelector("[data-testid='d-item-compatibility']") ||
+    document.querySelector(".motors-compatibility-table-wrapper") ||
+    document.querySelector(".motors-compatibility-table");
+  if (!root) {
     return false;
   }
-  table.scrollIntoView({ block: "center" });
+  root.scrollIntoView({ block: "center" });
 
-  const disabled = (el: Element | null): boolean => {
-    if (!el) {
-      return true;
-    }
-    const host = el.closest("button, a") || el;
-    const className = typeof host.className === "string" ? host.className : "";
-    return (
-      host.getAttribute("aria-disabled") === "true" ||
-      host.hasAttribute("disabled") ||
-      /pagination__next--disabled|(?:^|\s)disabled(?:\s|$)/.test(className)
-    );
-  };
-  const press = (el: HTMLElement): void => {
-    const host = el.closest("button, a");
-    const node = host instanceof HTMLElement ? host : el;
-    node.scrollIntoView({ block: "center" });
-    node.click();
-  };
+  const disabled = (el: Element | null): boolean =>
+    !el ||
+    el.getAttribute("aria-disabled") === "true" ||
+    el.hasAttribute("disabled") ||
+    /disabled|pagination__next--disabled/i.test(el.className || "");
 
-  const fitted =
-    table.closest("[data-testid='d-item-compatibility']") ||
-    table.closest("[data-testid='d-motors-compatibility-table']") ||
-    table.closest(".motors-compatibility-table-wrapper") ||
-    table.parentElement ||
-    table;
-  const scope = fitted.parentElement && fitted.parentElement !== document.body ? fitted.parentElement : fitted;
-  const tableBottom = table.getBoundingClientRect().bottom;
-  const controls = Array.from(scope.querySelectorAll("button, a")).filter((el): el is HTMLElement => {
-    if (!(el instanceof HTMLElement)) {
-      return false;
-    }
-    const top = el.getBoundingClientRect().top;
-    return top >= tableBottom - 80 && top < tableBottom + 700;
-  });
-  const next = controls.find((el) => {
-    const label = el.getAttribute("aria-label") || "";
-    return (
-      el.classList.contains("pagination__next") ||
-      el.getAttribute("rel") === "next" ||
-      /next page|go to next|next compatibility/i.test(label)
-    );
-  });
-  const current = controls.find((el) => el.getAttribute("aria-current") === "page");
-  const currentNum = Number.parseInt((current?.textContent || "").replace(/\s+/g, " ").trim(), 10) || 1;
-  const pageLink = controls.find(
-    (el) => (el.textContent || "").replace(/\s+/g, " ").trim() === String(currentNum + 1),
+  const next =
+    root.querySelector(".pagination__next") ||
+    root.querySelector('[aria-label*="Go to next" i]') ||
+    root.querySelector('[aria-label*="Next page" i]') ||
+    root.querySelector('a[rel="next"]');
+  if (next instanceof HTMLElement && !disabled(next)) {
+    next.click();
+    return true;
+  }
+
+  const current = root.querySelector('[aria-current="page"]');
+  const currentNum = Number.parseInt((current?.textContent || "").trim(), 10) || 1;
+  const wanted = String(currentNum + 1);
+  const pageLink = Array.from(root.querySelectorAll("a, button")).find(
+    (el) => (el.textContent || "").trim() === wanted,
   );
-  const preferPageNumber = (attempt ?? 1) > 1;
-  if (!preferPageNumber && next && !disabled(next)) {
-    press(next);
-    return true;
-  }
-  if (pageLink && !disabled(pageLink)) {
-    press(pageLink);
-    return true;
-  }
-  if (next && !disabled(next)) {
-    press(next);
+  if (pageLink instanceof HTMLElement && !disabled(pageLink)) {
+    pageLink.click();
     return true;
   }
   return false;
@@ -326,7 +263,6 @@ async function advanceFitmentPage(
       target: { tabId },
       world: "MAIN",
       func: clickFitmentNextInListing,
-      args: [attempt],
     });
     if (!clicked[0]?.result) {
       await sleep(600);
@@ -407,14 +343,10 @@ export async function openListingAndCollectFitment(
       tables.push(snapshot.html);
       totalVehicles += snapshot.rows;
       advertised = Math.max(advertised, snapshot.advertised);
-      const targetCount = Math.max(advertised, expectedCount, snapshot.advertised);
       onProgress?.({
         page,
         vehicles: totalVehicles,
-        message:
-          targetCount > totalVehicles
-            ? `Reading page ${page}, ${totalVehicles} of ${targetCount} vehicles`
-            : `Reading page ${page}, ${totalVehicles} vehicles`,
+        message: `Reading page ${page}, ${totalVehicles} vehicles`,
       });
 
       if (!snapshot.hasNext && snapshot.rows >= 20 && advertised <= totalVehicles) {
