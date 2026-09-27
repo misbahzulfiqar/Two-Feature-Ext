@@ -342,9 +342,7 @@ export default defineBackground(() => {
     if (isCollectFitmentPagesRequest(message)) {
       const panelTabId = sender.tab?.id;
       void openListingAndCollectFitment(message.listingUrl, (progress) => {
-        console.log(
-          `[Background] reading page ${progress.page}, ${progress.vehicles} vehicles`,
-        );
+        console.log(`[Background] ${progress.message}`);
         if (panelTabId == null) {
           return;
         }
@@ -353,12 +351,15 @@ export default defineBackground(() => {
             type: FITMENT_PAGE_PROGRESS,
             page: progress.page,
             vehicles: progress.vehicles,
+            message: progress.message,
           })
           .catch(() => undefined);
       })
-        .then((tables) => {
-          console.log(`[Background] fitment pages collected: ${tables.length}`);
-          sendResponse({ tables });
+        .then((collected) => {
+          console.log(
+            `[Background] fitment pages collected: ${collected.tables.length}, vehicles=${collected.vehicles}`,
+          );
+          sendResponse(collected);
         })
         .catch((error: unknown) => {
           console.log(
@@ -546,6 +547,7 @@ export default defineBackground(() => {
           listingUrl: message.listingUrl,
           html,
           scrapeMode: message.scrapeMode,
+          refresh: true,
         });
       })
       .then((response) => {

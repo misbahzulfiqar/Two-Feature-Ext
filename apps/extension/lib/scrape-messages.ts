@@ -13,6 +13,8 @@ export type CollectFitmentPagesRequestMessage = {
 
 export type CollectFitmentPagesResponseMessage = {
   tables: string[];
+  advertised?: number;
+  vehicles?: number;
 };
 
 export function isCollectFitmentPagesRequest(

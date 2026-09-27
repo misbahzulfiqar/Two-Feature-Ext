@@ -131,11 +131,14 @@ export async function readScrapeProgress(): Promise<string | undefined> {
 export async function scrapeSourceListing(
   source: string,
   scrapeMode: ScrapeMode = "full-scrape",
+  options?: { fitmentPages?: boolean },
 ): Promise<ScrapedListing> {
   const listingUrl = resolveSourceListingUrl(source);
   const started = Date.now();
   console.log("[SellSimilar] scrape start", { listingUrl, scrapeMode });
-  const html = await fetchListingHtml(listingUrl);
+  const html = await fetchListingHtml(listingUrl, {
+    fitmentPages: options?.fitmentPages !== false,
+  });
   console.log("[SellSimilar] posting scrape to API", {
     htmlChars: html?.length ?? 0,
     elapsedMs: Date.now() - started,

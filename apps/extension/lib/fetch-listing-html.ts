@@ -1,4 +1,7 @@
-import { openListingAndCollectFitment } from "./collect-fitment-pages.ts";
+import {
+  openListingAndCollectFitment,
+  type CollectedFitmentPages,
+} from "./collect-fitment-pages.ts";
 import {
   COLLECT_FITMENT_PAGES,
   type CollectFitmentPagesResponseMessage,
@@ -125,6 +128,7 @@ async function fetchHtml(
  */
 export async function fetchListingHtml(
   listingUrl: string,
+  options?: { fitmentPages?: boolean },
 ): Promise<string | undefined> {
   const started = Date.now();
   console.log("[SellSimilar] fetching source listing", listingUrl);
@@ -137,6 +141,9 @@ export async function fetchListingHtml(
       looksLikeEbayListing(session) ? "listing" : "not-a-listing",
     );
     if (looksLikeEbayListing(session) || session.length > 1500) {
+      if (options?.fitmentPages === false) {
+        return session;
+      }
       return appendFitmentPages(listingUrl, session);
     }
   } catch (error) {
@@ -311,73 +318,86 @@ function embeddedFitmentCount(html: string): number {
   return total;
 }
 
-function reportFitmentProgress(page: number, vehicles: number): void {
-  console.log(`[SellSimilar] Reading page ${page}, ${vehicles} vehicles`);
+function reportFitmentProgress(page: number, vehicles: number, message?: string): void {
+  const text = message || `Reading page ${page}, ${vehicles} vehicles`;
+  console.log(`[SellSimilar] ${text}`);
+  if (typeof window === "undefined") {
+    return;
+  }
   window.dispatchEvent(
     new CustomEvent("sell-similar-fitment-progress", {
-      detail: { page, vehicles },
+      detail: { page, vehicles, message: text },
     }),
   );
 }
 
-function canOpenTabs(): boolean {
+function canCollectHere(): boolean {
   try {
-    return typeof browser.tabs?.create === "function";
+    return (
+      typeof browser.scripting?.executeScript === "function" &&
+      typeof browser.tabs?.create === "function"
+    );
   } catch {
     return false;
   }
 }
 
-async function collectClickedFitmentPages(listingUrl: string): Promise<string[]> {
+async function collectClickedFitmentPages(listingUrl: string): Promise<CollectedFitmentPages> {
+  const empty: CollectedFitmentPages = { tables: [], advertised: 0, vehicles: 0 };
   try {
-    if (canOpenTabs()) {
-      return await openListingAndCollectFitment(listingUrl);
+    if (canCollectHere()) {
+      return await openListingAndCollectFitment(listingUrl, (progress) => {
+        reportFitmentProgress(progress.page, progress.vehicles, progress.message);
+      });
     }
     const response = (await browser.runtime.sendMessage({
       type: COLLECT_FITMENT_PAGES,
       listingUrl,
     })) as CollectFitmentPagesResponseMessage | undefined;
-    return Array.isArray(response?.tables) ? response.tables : [];
+    return {
+      tables: Array.isArray(response?.tables) ? response.tables : [],
+      advertised: Number(response?.advertised) || 0,
+      vehicles: Number(response?.vehicles) || 0,
+    };
   } catch (error) {
     console.log(
       "[SellSimilar] fitment page click failed",
       error instanceof Error ? error.message : error,
     );
-    return [];
+    return empty;
   }
 }
 
 /** eBay shows 20 vehicles per page. Later pages are appended for the existing extractor. */
 async function appendFitmentPages(listingUrl: string, html: string): Promise<string> {
   const itemId = itemIdFromUrl(listingUrl);
+  if (!itemId) {
+    return html;
+  }
   const section = fitmentSlice(html);
   const firstRows = vehicleRowTexts(section || html);
   const count = Math.max(compatibilityVehicleCount(html), compatibilityVehicleCount(section));
   const hasNext = /pagination__next|go to next compatibility|next page/i.test(section);
-  const pageCount =
-    count > 20 ? Math.min(40, Math.ceil(count / 20)) : firstRows.length >= 20 || hasNext ? 40 : 1;
-  if (!itemId || pageCount <= 1) {
-    console.log("[SellSimilar] fitment single page", { count, rows: firstRows.length });
-    return html;
-  }
+  const pageCount = count > 20 ? Math.min(40, Math.ceil(count / 20)) : 40;
 
   const seenRows = new Set(firstRows);
-  const firstPageVehicles = firstRows.length || Math.min(count, 20);
-  reportFitmentProgress(1, firstPageVehicles);
   console.log("[SellSimilar] reading all fitment pages", {
     count,
     firstPageRows: firstRows.length,
-    pageCount,
+    hasNext,
   });
   const clicked = await collectClickedFitmentPages(listingUrl);
-  console.log("[SellSimilar] fitment tables from listing", clicked.length);
-  let chunks = clicked.filter((table) => table.includes("sell-similar-fitment-page"));
-  const clickedVehicles = chunks.reduce((total, table) => total + embeddedFitmentCount(table), 0);
-  const pagesRead = clickedVehicles > 20 ? Math.ceil(clickedVehicles / 20) : chunks.length > 1 ? chunks.length : 1;
-  if (pagesRead <= 1) {
+  console.log("[SellSimilar] fitment tables from listing", clicked.tables.length, clicked.vehicles);
+  let chunks = clicked.tables.filter((table) => table.includes("sell-similar-fitment-page"));
+  const clickedVehicles =
+    clicked.vehicles || chunks.reduce((total, table) => total + embeddedFitmentCount(table), 0);
+  const stillShort =
+    (clicked.advertised > 0 && clickedVehicles < clicked.advertised) ||
+    (chunks.length <= 1 && (count > 20 || hasNext || firstRows.length >= 20));
+  if (stillShort) {
     const discovered = extraCompatibilityUrls(listingUrl, html);
-    for (let page = 2; page <= pageCount; page += 1) {
-      reportFitmentProgress(page, Math.max(seenRows.size, firstPageVehicles));
+    let runningTotal = clickedVehicles;
+    for (let page = chunks.length > 0 ? chunks.length + 1 : 2; page <= pageCount; page += 1) {
       console.log("[SellSimilar] fitment page", `${page}/${pageCount}`);
       const fragment = await readNewFitmentPage(listingUrl, itemId, page, discovered, seenRows);
       if (!fragment) {
@@ -393,8 +413,9 @@ async function appendFitmentPages(listingUrl: string, html: string): Promise<str
         seenRows.add(`${row.year}|${row.make}|${row.model}|${row.trim}|${row.engine}`);
       }
       chunks.push(embedFitmentRows(pageRows));
-      reportFitmentProgress(page, seenRows.size);
-      if (count > 20 && page >= pageCount) {
+      runningTotal += pageRows.length;
+      reportFitmentProgress(page, runningTotal);
+      if (count > 20 && runningTotal >= count) {
         break;
       }
       if (pageRows.length < 20) {
@@ -403,7 +424,7 @@ async function appendFitmentPages(listingUrl: string, html: string): Promise<str
     }
   }
 
-  console.log("[SellSimilar] fitment extra pages captured", chunks.length, "rows", seenRows.size);
+  console.log("[SellSimilar] fitment extra pages captured", chunks.length, "rows", clickedVehicles);
   if (chunks.length === 0) {
     return html;
   }

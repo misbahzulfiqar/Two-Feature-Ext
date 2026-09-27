@@ -459,6 +459,26 @@
   font-weight: 500;
 }
 
+.activity-log {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-height: 148px;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.activity-log li.is-latest {
+  color: var(--navy);
+  font-weight: 700;
+}
+
 .activity-result {
   color: var(--muted);
   font-weight: 500;
