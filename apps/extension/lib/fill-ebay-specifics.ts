@@ -770,7 +770,7 @@ function specificKeysToFill(spec: ItemSpecific): string[] {
   if (!key) return [];
   const compact = compactKey(key);
   if (compact === "brand" || compact === "partbrand") {
-    return ["Part Brand", "Brand"];
+    return ["Brand"];
   }
   return [key];
 }

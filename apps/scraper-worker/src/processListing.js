@@ -39,20 +39,7 @@ function applyFitment(listingData, fitmentResult) {
 }
 
 function applyFetchedListing(listingData, fetched) {
-  listingData.title = fetched.title;
-  listingData.sku = fetched.sku;
-  listingData.price = fetched.price;
-  listingData.images = fetched.images || [];
   listingData.itemSpecifics = fetched.itemSpecifics || [];
-  listingData.condition = fetched.condition || "";
-  listingData.conditionDescription = fetched.conditionDescription || "";
-  listingData.description = fetched.description || "";
-  listingData.category = fetched.category || { id: "", name: "", path: [] };
-  listingData.storeCategories = Array.isArray(fetched.storeCategories) ? fetched.storeCategories : [];
-  listingData.shipping = fetched.shipping || listingData.shipping;
-  listingData.weight = fetched.weight || listingData.weight;
-  listingData.dimensions = fetched.dimensions || listingData.dimensions;
-  applyFitment(listingData, fetched);
   return listingData;
 }
 
@@ -76,15 +63,6 @@ export async function processListing(page, listingUrl, options = {}) {
       console.log(`[processListing] 📊 Fitment result:`, fitmentResult);
       console.log(`[processListing] 📊 Final listingData compatibility: ${listingData.compatibility.length}`);
       console.log(`[processListing] 📊 First row:`, listingData.compatibility[0]);
-
-      if (!listingData.title) {
-        return {
-          status: "failed",
-          code: "400",
-          message: "Unable to fetch listing title",
-          listingData,
-        };
-      }
 
       return {
         status: "ok",

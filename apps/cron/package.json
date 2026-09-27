@@ -11,12 +11,6 @@
     "clean": "node --input-type=module -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true });\""
   },
   "dependencies": {
-    "@sell-similar/config": "workspace:*",
-    "@sell-similar/contracts": "workspace:*",
-    "@sell-similar/ebay-models": "workspace:*",
-    "@sell-similar/logging": "workspace:*",
-    "@agendajs/mongo-backend": "^4.0.3",
-    "agenda": "^6.2.6",
     "zod": "catalog:"
   },
   "devDependencies": {

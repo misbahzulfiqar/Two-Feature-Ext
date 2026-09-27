@@ -139,24 +139,6 @@ importers:
 
   apps/cron:
     dependencies:
-      '@agendajs/mongo-backend':
-        specifier: ^4.0.3
-        version: 4.0.3(agenda@6.2.6)(mongodb@7.6.0)
-      '@sell-similar/config':
-        specifier: workspace:*
-        version: link:../../packages/config
-      '@sell-similar/contracts':
-        specifier: workspace:*
-        version: link:../../packages/contracts
-      '@sell-similar/ebay-models':
-        specifier: workspace:*
-        version: link:../../packages/ebay-models
-      '@sell-similar/logging':
-        specifier: workspace:*
-        version: link:../../packages/logging
-      agenda:
-        specifier: ^6.2.6
-        version: 6.2.6
       zod:
         specifier: 'catalog:'
         version: 4.4.3
@@ -410,13 +392,6 @@ packages:
 
   '@1natsu/wait-element@4.2.0':
     resolution: {integrity: sha512-Om0Q+WE9mNrpY4AwMTvkFiYHv8VM7TML3PvOqXy+w6kAjLjKhGYHYX+305+a6J8RVpds9s7IF2Z5aOPYwULFNw==}
-
-  '@agendajs/mongo-backend@4.0.3':
-    resolution: {integrity: sha512-8bR62tl8a27cIheBgz4v2aUkPCA9PykHEghOdMbNKcmhmU4d/OYb+WjSvAAVl5uUt4Uf+Jh7hn95WMUwmThmpQ==}
-    engines: {node: '>=18.0.0'}
-    peerDependencies:
-      agenda: 6.2.6
-      mongodb: ^6.0.0 || ^7.0.0
 
   '@aklinker1/rollup-plugin-visualizer@5.12.0':
     resolution: {integrity: sha512-X24LvEGw6UFmy0lpGJDmXsMyBD58XmX1bbwsaMLhNoM+UMQfQ3b2RtC+nz4b/NoRK5r6QJSKJHBNVeUdwqybaQ==}
@@ -1609,10 +1584,6 @@ packages:
     resolution: {integrity: sha512-XleryMhbuksdKtofnWZ9Sk+4CUTbms4Mb/EU32SZwToAyZ5RgVos/ki8n+yr0LWHOGKuakbXTuuYNHLQjhddgg==}
     engines: {node: '>=14.0'}
 
-  agenda@6.2.6:
-    resolution: {integrity: sha512-FlLauHnm0Zxn+y2n8pwFLZd7LiYNTDNnChMwPLo1OuAi9QPFe3a29godrpVluEEdhZFuFu0H+4ichW08BULUBA==}
-    engines: {node: '>=18.0.0'}
-
   agent-base@7.1.4:
     resolution: {integrity: sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ==}
     engines: {node: '>= 14'}
@@ -2097,9 +2068,6 @@ packages:
     resolution: {integrity: sha512-ndfJ/JxxMd3nw31uyKoY2naivF+r29V+Lc0svZxe1JvvIRmi8hUsrMvdOwgS1o6uBHmiz91geQ0ylPP0aj1VUA==}
     engines: {node: '>=12'}
 
-  date.js@0.3.3:
-    resolution: {integrity: sha512-HgigOS3h3k6HnW011nAb43c5xx5rBXk8P2v/WIT9Zv4koIaVXiH2BURguI78VVp+5Qc076T7OR378JViCnZtBw==}
-
   dateformat@4.6.3:
     resolution: {integrity: sha512-2P0p0pFGzHS5EMnhdxQi7aJN+iMheud0UhG4dlE1DLAlvL8JHjJJTX/CSm4JXwV0Ka5nGk3zC5mcb5bUQUxxMA==}
 
@@ -2108,14 +2076,6 @@ packages:
 
   debug@2.6.9:
     resolution: {integrity: sha512-bC7ElrdJaJnPbAP+1EotYvqZsb3ecl5wi6Bfi6BJTUcNowp6cvspg0jXznRTKDjm/E7AdgFBVeAPVMNcKGsHMA==}
-    peerDependencies:
-      supports-color: '*'
-    peerDependenciesMeta:
-      supports-color:
-        optional: true
-
-  debug@3.1.0:
-    resolution: {integrity: sha512-OX8XqP7/1a9cqkxYw2yXss15f26NKWBpDXQd0/uK/KPqdQhxbPa994hnzjcE2VqQpDslf55723cKPUOGSmMY3g==}
     peerDependencies:
       supports-color: '*'
     peerDependenciesMeta:
@@ -2595,9 +2555,6 @@ packages:
   https-proxy-agent@7.0.6:
     resolution: {integrity: sha512-vK9P5/iUfdl95AI+JVyUuIcVtd4ofvtrOr3HNtM2yxC9bnMbEdp3x01OhQNnjb8IJYi38VlTE3mBXwcfvywuSw==}
     engines: {node: '>= 14'}
-
-  human-interval@2.0.1:
-    resolution: {integrity: sha512-r4Aotzf+OtKIGQCB3odUowy4GfUDTy3aTWTfLd7ZF2gBCy3XW3v/dJLRefZnOFFnjqs5B1TypvS8WarpBkYUNQ==}
 
   iconv-lite@0.6.3:
     resolution: {integrity: sha512-4fCk79wshMdzMp2rH06qWrJE4iolqLhCUH+OiuIgU++RB0+94NlDL81atO7GX55uUKueo0txHNtvEyI6D7WdMw==}
@@ -3183,9 +3140,6 @@ packages:
   nth-check@3.0.1:
     resolution: {integrity: sha512-GX0gsdbGVCgnRgbeGaubfjpBXyYRWOOCVeYh08bSQvDZqxz5ndXs1OTfAt/h36G1xvI94YIspsI0sVFqAV9+RQ==}
     engines: {node: '>=20.19.0'}
-
-  numbered@1.1.0:
-    resolution: {integrity: sha512-pv/ue2Odr7IfYOO0byC1KgBI10wo5YDauLhxY6/saNzAdAs0r1SotGCPzzCLNPL0xtrAwWRialLu23AAu9xO1g==}
 
   nypm@0.6.9:
     resolution: {integrity: sha512-zxlE2yvSWZWmHcNdT3+5zV2lrCogeE9YOklHrR3dFjqutq5wO7GFDYLFDRXLsYnJzwvy/im9fYoxePvS0VTW0w==}
@@ -4212,14 +4166,6 @@ snapshots:
       defu: 6.1.7
       many-keys-map: 3.0.3
 
-  '@agendajs/mongo-backend@4.0.3(agenda@6.2.6)(mongodb@7.6.0)':
-    dependencies:
-      agenda: 6.2.6
-      debug: 4.4.3
-      mongodb: 7.6.0
-    transitivePeerDependencies:
-      - supports-color
-
   '@aklinker1/rollup-plugin-visualizer@5.12.0(rollup@4.63.1)':
     dependencies:
       open: 8.4.2
@@ -5095,6 +5041,7 @@ snapshots:
   '@types/whatwg-url@13.0.0':
     dependencies:
       '@types/webidl-conversions': 7.0.3
+    optional: true
 
   '@vitejs/plugin-react@5.2.0(vite@8.2.2(@types/node@26.4.0)(esbuild@0.28.2)(jiti@1.21.7)(tsx@4.23.12))':
     dependencies:
@@ -5207,16 +5154,6 @@ snapshots:
       express: 5.2.1
 
   adm-zip@0.6.0: {}
-
-  agenda@6.2.6:
-    dependencies:
-      cron-parser: 5.10.0
-      date.js: 0.3.3
-      debug: 4.4.3
-      human-interval: 2.0.1
-      luxon: 3.7.2
-    transitivePeerDependencies:
-      - supports-color
 
   agent-base@7.1.4: {}
 
@@ -5434,7 +5371,8 @@ snapshots:
 
   bson@6.10.4: {}
 
-  bson@7.3.2: {}
+  bson@7.3.2:
+    optional: true
 
   buffer-equal-constant-time@1.0.1: {}
 
@@ -5715,21 +5653,11 @@ snapshots:
 
   d3-timer@3.0.1: {}
 
-  date.js@0.3.3:
-    dependencies:
-      debug: 3.1.0
-    transitivePeerDependencies:
-      - supports-color
-
   dateformat@4.6.3: {}
 
   debounce@1.2.1: {}
 
   debug@2.6.9:
-    dependencies:
-      ms: 2.0.0
-
-  debug@3.1.0:
     dependencies:
       ms: 2.0.0
 
@@ -6222,10 +6150,6 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  human-interval@2.0.1:
-    dependencies:
-      numbered: 1.1.0
-
   iconv-lite@0.6.3:
     dependencies:
       safer-buffer: 2.1.2
@@ -6590,6 +6514,7 @@ snapshots:
     dependencies:
       '@types/whatwg-url': 13.0.0
       whatwg-url: 14.2.0
+    optional: true
 
   mongodb@6.21.0:
     dependencies:
@@ -6602,6 +6527,7 @@ snapshots:
       '@mongodb-js/saslprep': 1.5.0
       bson: 7.3.2
       mongodb-connection-string-url: 7.0.2
+    optional: true
 
   morgan@1.12.1:
     dependencies:
@@ -6753,8 +6679,6 @@ snapshots:
   nth-check@3.0.1:
     dependencies:
       boolbase: 2.0.0
-
-  numbered@1.1.0: {}
 
   nypm@0.6.9:
     dependencies:

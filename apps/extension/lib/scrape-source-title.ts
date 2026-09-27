@@ -1,10 +1,8 @@
 import {
   ebayItemIdFromListingUrl,
   type ItemSpecific,
-  type ListingCategory,
   type ScrapedListingData,
   type ScrapeMode,
-  type StoreCategory,
   type VehicleCompatibility,
 } from "@sell-similar/contracts";
 import {
@@ -20,15 +18,7 @@ import {
 const ITEM_ID_PATTERN = /^\d{6,}$/;
 
 export type ScrapedListing = {
-  title: string;
-  price: string;
-  images: string[];
   itemSpecifics: ItemSpecific[];
-  condition: string;
-  conditionDescription: string;
-  description: string;
-  category: ListingCategory;
-  storeCategories: StoreCategory[];
   fitment: VehicleCompatibility[];
   compatibility: VehicleCompatibility[];
   compatibilityCount: number;
@@ -93,77 +83,24 @@ function toCompatibility(rows: VehicleCompatibility[] | undefined): VehicleCompa
   }));
 }
 
-function isEbayStandardConditionBlurb(text: string): boolean {
-  const compact = text.replace(/[^a-z0-9]/gi, "").toLowerCase();
-  if (!compact) return true;
-  if (compact.includes("seethesellerslistingforfulldetails")) return true;
-  if (compact.includes("abrandnewunusedunopenedundamaged")) return true;
-  if (compact.includes("initsoriginalpackagingwherepackagingisapplicable")) return true;
-  if (compact.includes("anitemthathasbeenusedpreviously")) return true;
-  return false;
-}
-
-function sanitizeConditionDescription(text: string): string {
-  const cleaned = text
-    .replace(/^["']+|["']+$/g, "")
-    .replace(/\s*(read|view|see|show)\s+more(?:\s*about\s+condition)?/gi, " ")
-    .replace(/\s*about condition\s*/gi, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (!cleaned || isEbayStandardConditionBlurb(cleaned)) {
-    return "";
-  }
-  return cleaned;
-}
-
-function sellerNotesDescription(specifics: ItemSpecific[]): string {
-  const notes = specifics.find((item) => item.key.replace(/[^a-z0-9]/gi, "").toLowerCase() === "sellernotes");
-  return sanitizeConditionDescription((notes?.value ?? "").replace(/^["']+|["']+$/g, "").trim());
-}
-
 function toScrapedListing(data: ScrapedListingData): ScrapedListing {
-  // ✅ ADD DEBUGGING
-  console.log("[SellSimilar][price] scraped", {
-    price: data.price,
-  });
-  console.log("[SellSimilar][condition] scraped", {
-    condition: data.condition,
-    conditionDescription: data.conditionDescription,
-  });
-  console.log("[SellSimilar][description] scraped", {
-    length: data.description?.length ?? 0,
-  });
-  console.log("[SellSimilar][item-category] scraped", data.category);
-  console.log('[SellSimilar] 📊 Raw data received:', data);
   console.log('[SellSimilar] 📊 data.compatibility:', data.compatibility);
   console.log('[SellSimilar] 📊 data.compatibility length:', data.compatibility?.length);
   console.log('[SellSimilar] 📊 data.fitment:', data.fitment);
   console.log('[SellSimilar] 📊 data.fitment length:', data.fitment?.length);
   console.log('[SellSimilar] 📊 data.compatibilityCount:', data.compatibilityCount);
-  
+
   const compatibility = toCompatibility(
     data.compatibility?.length ? data.compatibility : data.fitment,
   );
-  
+
   console.log('[SellSimilar] 📊 Final compatibility length:', compatibility.length);
   if (compatibility.length > 0) {
     console.log('[SellSimilar] 📊 First row:', compatibility[0]);
   }
-  
+
   return {
-    title: data.title ?? "",
-    price: data.price ?? "",
-    images: Array.isArray(data.images) ? data.images : [],
     itemSpecifics: Array.isArray(data.itemSpecifics) ? data.itemSpecifics : [],
-    condition: (data.condition ?? "")
-      .replace(/^(used)(\s*\1)+$/i, "Used")
-      .replace(/^(new other \(see details\))\1+$/i, "New other (see details)"),
-    conditionDescription:
-      sanitizeConditionDescription(data.conditionDescription ?? "") ||
-      sellerNotesDescription(Array.isArray(data.itemSpecifics) ? data.itemSpecifics : []),
-    description: data.description ?? "",
-    category: data.category ?? { id: "", name: "", path: [] },
-    storeCategories: Array.isArray(data.storeCategories) ? data.storeCategories : [],
     fitment: compatibility,
     compatibility,
     compatibilityCount: data.compatibilityCount ?? compatibility.length,
@@ -228,11 +165,6 @@ export async function clearSourceListingCache(
     throw new Error(response?.error || "Could not clear the cache");
   }
   return { cleared: response.cleared, ebayItemId: response.ebayItemId };
-}
-
-export async function scrapeSourceTitle(source: string): Promise<string> {
-  const listing = await scrapeSourceListing(source, "full-scrape");
-  return listing.title;
 }
 
 export async function reportApplyResult(input: {
