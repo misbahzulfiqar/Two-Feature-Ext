@@ -24,15 +24,15 @@
     "mongodb": "^6.20.0",
     "morgan": "^1.12.1",
     "nodemailer": "^10.0.10",
-    "zod": "catalog:"
-  },
-  "devDependencies": {
-    "@sell-similar/tsconfig": "workspace:*",
     "@types/express": "^5.0.6",
     "@types/morgan": "^1.9.10",
     "@types/node": "catalog:",
     "@types/nodemailer": "^8.0.2",
-    "tsx": "^4.23.12",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@sell-similar/tsconfig": "workspace:*",
+    "tsx": "^4.23.12"
   }
 }

@@ -93,6 +93,18 @@ importers:
       '@sell-similar/validation':
         specifier: workspace:*
         version: link:../../packages/validation
+      '@types/express':
+        specifier: ^5.0.6
+        version: 5.0.6
+      '@types/morgan':
+        specifier: ^1.9.10
+        version: 1.9.10
+      '@types/node':
+        specifier: 'catalog:'
+        version: 22.20.1
+      '@types/nodemailer':
+        specifier: ^8.0.2
+        version: 8.0.2
       better-auth:
         specifier: ^1.7.2
         version: 1.7.2(mongodb@6.21.0)(next@15.5.25(@types/node@22.20.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -114,6 +126,9 @@ importers:
       nodemailer:
         specifier: ^10.0.10
         version: 10.0.10
+      typescript:
+        specifier: 'catalog:'
+        version: 5.9.3
       zod:
         specifier: 'catalog:'
         version: 4.4.3
@@ -121,24 +136,9 @@ importers:
       '@sell-similar/tsconfig':
         specifier: workspace:*
         version: link:../../packages/tsconfig
-      '@types/express':
-        specifier: ^5.0.6
-        version: 5.0.6
-      '@types/morgan':
-        specifier: ^1.9.10
-        version: 1.9.10
-      '@types/node':
-        specifier: 'catalog:'
-        version: 22.20.1
-      '@types/nodemailer':
-        specifier: ^8.0.2
-        version: 8.0.2
       tsx:
         specifier: ^4.23.12
         version: 4.23.12
-      typescript:
-        specifier: 'catalog:'
-        version: 5.9.3
 
   apps/cron:
     dependencies:

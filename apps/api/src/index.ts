@@ -23,31 +23,59 @@ import { corsMiddleware } from "./cors.js";
 import { apiEnvSchema } from "./env.js";
 import { configureScrapeCache } from "./scrape-cache.js";
 import { mailDeliveryEnabled, peekVerificationLink } from "./mail.js";
-import {
-  readInProcessScrapeProgress,
-  scrapeListingInProcess,
-  scraperRunsInApi,
-} from "./scrape-bridge.js";
 
 loadRootEnv();
-
-const env = loadEnv(apiEnvSchema);
-const logger = createLogger({ name: "api", level: env.LOG_LEVEL });
-
-const liveScrape = scraperRunsInApi()
-  ? {
-      scrapeInProcess: scrapeListingInProcess,
-      readProgress: readInProcessScrapeProgress,
-    }
-  : {};
 
 const app = express();
 app.use(morgan("tiny"));
 app.use(correlationMiddleware);
 app.use(corsMiddleware);
 
-if (env.MONGO_URL) {
-  const auth = await createAuth(env);
+const logger = createLogger({ name: "api", level: process.env.LOG_LEVEL ?? "info" });
+let bootError: string | undefined;
+
+app.get("/health", (req, res) => {
+  if (bootError) {
+    res.status(500).json({ ok: false, service: "api", error: bootError });
+    return;
+  }
+  const body: HealthResponse = { ok: true, service: "api" };
+  withCorrelationId(logger, req.correlationId).info("health check");
+  res.json(body);
+});
+
+let env;
+try {
+  env = loadEnv(apiEnvSchema);
+} catch (error) {
+  bootError = error instanceof Error ? error.message : "Invalid environment configuration";
+  logger.error({ err: bootError }, "api failed to read environment");
+}
+
+const liveScrape = process.env.VERCEL
+  ? await import("./scrape-bridge.js")
+      .then((bridge) => ({
+        scrapeInProcess: bridge.scrapeListingInProcess,
+        readProgress: bridge.readInProcessScrapeProgress,
+      }))
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : "scraper import failed";
+        logger.warn({ err: message }, "in-process scraper unavailable");
+        return {};
+      })
+  : {};
+
+if (env?.MONGO_URL) {
+  let auth;
+  try {
+    auth = await createAuth(env);
+  } catch (error) {
+    bootError = error instanceof Error ? error.message : "Auth failed to start";
+    logger.error({ err: bootError }, "api auth failed to start");
+  }
+  if (!auth) {
+    app.use(express.json({ limit: "20mb" }));
+  } else {
   const account = createAccountHandlers(auth, env.MONGO_URL);
   app.all("/api/auth/{*path}", toNodeHandler(auth));
   app.use(express.json({ limit: "20mb" }));
@@ -97,7 +125,8 @@ if (env.MONGO_URL) {
   const scrapeJobs = createScrapeJobsHandlers({ ...env, auth });
   app.post("/listings/scrape-jobs", scrapeJobs.createScrapeJob);
   app.get("/listings/scrape-jobs/:jobId", scrapeJobs.getScrapeJob);
-} else {
+  }
+} else if (env) {
   logger.warn("MONGO_URL is not set; website login and extension pairing are disabled");
   app.use(express.json({ limit: "20mb" }));
   app.all("/api/auth/{*path}", (_req, res) => {
@@ -115,25 +144,21 @@ if (env.MONGO_URL) {
   app.get("/listings/scrape-jobs/:jobId", scrapeJobs.getScrapeJob);
 }
 
-app.get("/health", (req, res) => {
-  const body: HealthResponse = { ok: true, service: "api" };
-  withCorrelationId(logger, req.correlationId).info("health check");
-  res.json(body);
-});
+if (env) {
+  app.post("/listings", createListing);
+  app.post("/listings/sell-similar", sellSimilar);
+  app.get(
+    "/listings/scrape/progress",
+    createScrapeProgressHandler(env.SCRAPER_WORKER_URL, liveScrape),
+  );
+  app.post("/listings/scrape-cache/clear", clearScrapeCacheHandler);
+}
 
-app.post("/listings", createListing);
-app.post("/listings/sell-similar", sellSimilar);
-app.get(
-  "/listings/scrape/progress",
-  createScrapeProgressHandler(env.SCRAPER_WORKER_URL, liveScrape),
-);
-app.post("/listings/scrape-cache/clear", clearScrapeCacheHandler);
-
-const cacheBackend = await configureScrapeCache(env.REDIS_URL);
+const cacheBackend = env ? await configureScrapeCache(env.REDIS_URL) : "memory";
 
 export default app;
 
-if (!process.env.VERCEL) {
+if (!process.env.VERCEL && env) {
   app.listen(env.API_PORT, () => {
     logger.info({ port: env.API_PORT, cacheBackend }, "api listening");
   });
