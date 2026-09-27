@@ -92,7 +92,17 @@ export function sellSimilar(req, res) {
 }
 
 /** Proxies worker GET /scrape/progress for the panel's short-interval HTTP poll. */
-export function createScrapeProgressHandler(scraperWorkerUrl) {
+export function createScrapeProgressHandler(scraperWorkerUrl, options = {}) {
+  if (typeof options.readProgress === "function") {
+    return async function scrapeProgress(req, res) {
+      return res.status(200).json({
+        ok: true,
+        data: options.readProgress(),
+        correlationId: req.correlationId,
+      });
+    };
+  }
+
   const workerBaseUrl = String(scraperWorkerUrl).replace(/[/]+$/, "");
 
   return async function scrapeProgress(req, res) {
@@ -195,22 +205,32 @@ export function createScrapeListingHandler(scraperWorkerUrl, options = {}) {
     );
 
     try {
-      const workerResponse = await fetch(`${workerBaseUrl}/scrape`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-correlation-id": req.correlationId,
-        },
-        body: JSON.stringify({
+      let payload;
+      let workerOk = true;
+      if (typeof options.scrapeInProcess === "function") {
+        payload = await options.scrapeInProcess({
           listingUrl: parsed.data.listingUrl,
           html: parsed.data.html,
           scrapeMode: parsed.data.scrapeMode,
-        }),
-        signal: AbortSignal.timeout(SCRAPE_TIMEOUT_MS),
-      });
-
-      const payload = await workerResponse.json();
-      if (!workerResponse.ok || payload?.status !== "ok") {
+        });
+      } else {
+        const workerResponse = await fetch(`${workerBaseUrl}/scrape`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-correlation-id": req.correlationId,
+          },
+          body: JSON.stringify({
+            listingUrl: parsed.data.listingUrl,
+            html: parsed.data.html,
+            scrapeMode: parsed.data.scrapeMode,
+          }),
+          signal: AbortSignal.timeout(SCRAPE_TIMEOUT_MS),
+        });
+        payload = await workerResponse.json();
+        workerOk = workerResponse.ok;
+      }
+      if (!workerOk || payload?.status !== "ok") {
         const errorCode = "SCRAPE_FAILED";
         const errorMessage = payload?.message || "Scraper worker failed to scrape listing";
         const jobId = await persistScrape({

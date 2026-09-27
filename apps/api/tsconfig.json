@@ -2,7 +2,10 @@
   "extends": "../../packages/tsconfig/node.json",
   "compilerOptions": {
     "outDir": "dist",
-    "rootDir": "src",
+    "rootDir": "../..",
+    "declaration": false,
+    "declarationMap": false,
+    "noEmit": true,
     "allowJs": true,
     "checkJs": false
   },

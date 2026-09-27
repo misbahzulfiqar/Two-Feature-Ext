@@ -3,6 +3,10 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "exports": {
+    "./run": "./src/run-scrape.ts",
+    "./progress": "./src/scrape-progress-store.ts"
+  },
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
@@ -16,6 +20,7 @@
     "@sell-similar/ebay-models": "workspace:*",
     "@sell-similar/logging": "workspace:*",
     "@sell-similar/validation": "workspace:*",
+    "@sparticuz/chromium": "^153.0.0",
     "bullmq": "^6.3.1",
     "ioredis": "^6.0.0",
     "puppeteer-core": "^25.9.0",

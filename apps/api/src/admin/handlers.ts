@@ -967,7 +967,9 @@ export function createAdminHandlers(auth: Auth, env: ApiEnv) {
           // Redis queue inspection is optional; Mongo counts still return.
         }
       }
-      const workerHealth = await pingJson(`${env.SCRAPER_WORKER_URL}/health`);
+      const workerHealth = process.env.VERCEL
+        ? { ok: true, latencyMs: 0 }
+        : await pingJson(`${env.SCRAPER_WORKER_URL}/health`);
       const configured = settings.scraperConcurrency || WORKER_CONCURRENCY;
       const online = workerHealth.ok ? 1 : 0;
       const busy = Math.min(processing, configured);
@@ -1009,7 +1011,9 @@ export function createAdminHandlers(auth: Auth, env: ApiEnv) {
       const redis = env.REDIS_URL
         ? await pingRedis(env.REDIS_URL)
         : { status: "offline", latencyMs: null, detail: "REDIS_URL not set" };
-      const worker = await pingJson(`${env.SCRAPER_WORKER_URL}/health`);
+      const worker = process.env.VERCEL
+        ? { ok: true, latencyMs: 0 }
+        : await pingJson(`${env.SCRAPER_WORKER_URL}/health`);
       const cron = await pingCron(mongoUrl);
       const checks = {
         api: { status: "online", latencyMs: Date.now() - started, uptimeSeconds: Math.floor(process.uptime()), version: API_VERSION },
@@ -1018,7 +1022,11 @@ export function createAdminHandlers(auth: Auth, env: ApiEnv) {
         scraperWorkers: {
           status: worker.ok ? "online" : "offline",
           latencyMs: worker.latencyMs,
-          detail: worker.ok ? "1 reachable worker process" : "Worker HTTP health failed",
+          detail: process.env.VERCEL
+            ? "Scraper runs inside the API"
+            : worker.ok
+              ? "1 reachable worker process"
+              : "Worker HTTP health failed",
         },
         agenda: cron,
         extensionApi: { status: "online", latencyMs: Date.now() - started, detail: "Admin API is reachable" },

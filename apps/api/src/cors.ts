@@ -1,9 +1,9 @@
 import type { NextFunction, Request, Response } from "express";
 
 const PRODUCTION_WEB_ORIGINS = [
-  "https://two-feature-ext.vercel.app",
-  "https://two-feature-admin.vercel.app",
-  "https://two-feature-api.vercel.app",
+  "https://two-feature-ext-web.vercel.app",
+  "https://two-feature-ext-admin.vercel.app",
+  "https://two-feature-ext-api-jfyp.vercel.app",
 ];
 
 function isAllowedOrigin(origin: string): boolean {

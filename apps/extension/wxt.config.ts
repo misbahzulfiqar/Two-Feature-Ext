@@ -1,8 +1,8 @@
 import { defineConfig } from "wxt";
 
-const WEB_ORIGIN = "https://two-feature-ext.vercel.app";
-const ADMIN_ORIGIN = "https://two-feature-admin.vercel.app";
-const API_ORIGIN = "https://two-feature-api.vercel.app";
+const WEB_ORIGIN = "https://two-feature-ext-web.vercel.app";
+const ADMIN_ORIGIN = "https://two-feature-ext-admin.vercel.app";
+const API_ORIGIN = "https://two-feature-ext-api-jfyp.vercel.app";
 
 const PRODUCTION_WEB_MATCHES = [`${WEB_ORIGIN}/*`, `${ADMIN_ORIGIN}/*`];
 

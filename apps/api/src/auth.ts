@@ -48,9 +48,9 @@ function trustedWebOrigins(env: ApiEnv): string[] {
     "http://127.0.0.1:3004",
     "http://localhost:3005",
     "http://127.0.0.1:3005",
-    "https://two-feature-ext.vercel.app",
-    "https://two-feature-admin.vercel.app",
-    "https://two-feature-api.vercel.app",
+    "https://two-feature-ext-web.vercel.app",
+    "https://two-feature-ext-admin.vercel.app",
+    "https://two-feature-ext-api-jfyp.vercel.app",
   ];
 }
 

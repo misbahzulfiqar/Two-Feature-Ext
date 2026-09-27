@@ -15,6 +15,7 @@
     "@sell-similar/contracts": "workspace:*",
     "@sell-similar/ebay-models": "workspace:*",
     "@sell-similar/logging": "workspace:*",
+    "@sell-similar/scraper-worker": "workspace:*",
     "@sell-similar/validation": "workspace:*",
     "better-auth": "^1.7.2",
     "bullmq": "^6.3.1",

@@ -29,7 +29,7 @@ export function PrivacyPolicyPage() {
         <p className="mt-2 text-sm text-faint">Last updated: {LAST_UPDATED}</p>
 
         <p className="mt-6 text-sm leading-relaxed text-mute">
-          This policy covers the Sell Similar website at two-feature-ext.vercel.app and the Sell
+          This policy covers the Sell Similar website at two-feature-ext-web.vercel.app and the Sell
           Similar Chrome extension. It explains what we collect, why, and what we do not do.
           Sell Similar is an independent tool and is not affiliated with, endorsed by, or
           operated by eBay Inc.

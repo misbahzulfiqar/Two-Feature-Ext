@@ -56,7 +56,29 @@ function rootSandboxArgs(): string[] {
   return ["--no-sandbox", "--disable-setuid-sandbox"];
 }
 
+/**
+ * Vercel has no installed Chrome. The serverless build downloads a matching
+ * Chromium pack on first scrape and extracts it under /tmp.
+ * Imported only in that environment so local Windows runs keep using Chrome.
+ */
+async function launchServerlessBrowser(): Promise<Browser> {
+  const chromium = (await import("@sparticuz/chromium")).default;
+  chromium.setGraphicsMode = false;
+  const arch = process.arch === "arm64" ? "arm64" : "x64";
+  const packUrl = `https://github.com/Sparticuz/chromium/releases/download/v153.0.0/chromium-v153.0.0-pack.${arch}.tar`;
+  return puppeteer.launch({
+    args: chromium.args,
+    executablePath: await chromium.executablePath(packUrl),
+    headless: "shell",
+    defaultViewport: { width: 1366, height: 768 },
+  });
+}
+
 export async function createBrowser(env: ScraperEnv): Promise<Browser> {
+  if (process.env.VERCEL) {
+    return launchServerlessBrowser();
+  }
+
   return puppeteer.launch({
     headless: true,
     executablePath: resolveChromeExecutable(env),

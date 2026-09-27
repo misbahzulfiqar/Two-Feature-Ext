@@ -23,11 +23,23 @@ import { corsMiddleware } from "./cors.js";
 import { apiEnvSchema } from "./env.js";
 import { configureScrapeCache } from "./scrape-cache.js";
 import { mailDeliveryEnabled, peekVerificationLink } from "./mail.js";
+import {
+  readInProcessScrapeProgress,
+  scrapeListingInProcess,
+  scraperRunsInApi,
+} from "./scrape-bridge.js";
 
 loadRootEnv();
 
 const env = loadEnv(apiEnvSchema);
 const logger = createLogger({ name: "api", level: env.LOG_LEVEL });
+
+const liveScrape = scraperRunsInApi()
+  ? {
+      scrapeInProcess: scrapeListingInProcess,
+      readProgress: readInProcessScrapeProgress,
+    }
+  : {};
 
 const app = express();
 app.use(morgan("tiny"));
@@ -76,7 +88,11 @@ if (env.MONGO_URL) {
   }
   app.post(
     "/listings/scrape",
-    createScrapeListingHandler(env.SCRAPER_WORKER_URL, { mongoUrl: env.MONGO_URL, auth }),
+    createScrapeListingHandler(env.SCRAPER_WORKER_URL, {
+      mongoUrl: env.MONGO_URL,
+      auth,
+      ...liveScrape,
+    }),
   );
   const scrapeJobs = createScrapeJobsHandlers({ ...env, auth });
   app.post("/listings/scrape-jobs", scrapeJobs.createScrapeJob);
@@ -90,7 +106,10 @@ if (env.MONGO_URL) {
       error: { code: "AUTH_UNAVAILABLE", message: "Set MONGO_URL to enable accounts" },
     });
   });
-  app.post("/listings/scrape", createScrapeListingHandler(env.SCRAPER_WORKER_URL));
+  app.post(
+    "/listings/scrape",
+    createScrapeListingHandler(env.SCRAPER_WORKER_URL, liveScrape),
+  );
   const scrapeJobs = createScrapeJobsHandlers(env);
   app.post("/listings/scrape-jobs", scrapeJobs.createScrapeJob);
   app.get("/listings/scrape-jobs/:jobId", scrapeJobs.getScrapeJob);
@@ -104,7 +123,10 @@ app.get("/health", (req, res) => {
 
 app.post("/listings", createListing);
 app.post("/listings/sell-similar", sellSimilar);
-app.get("/listings/scrape/progress", createScrapeProgressHandler(env.SCRAPER_WORKER_URL));
+app.get(
+  "/listings/scrape/progress",
+  createScrapeProgressHandler(env.SCRAPER_WORKER_URL, liveScrape),
+);
 app.post("/listings/scrape-cache/clear", clearScrapeCacheHandler);
 
 const cacheBackend = await configureScrapeCache(env.REDIS_URL);
