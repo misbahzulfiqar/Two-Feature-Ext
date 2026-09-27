@@ -341,6 +341,7 @@ export default defineBackground(() => {
   browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (isCollectFitmentPagesRequest(message)) {
       const panelTabId = sender.tab?.id;
+      const expectedCount = Number(message.expectedCount) || 0;
       void openListingAndCollectFitment(message.listingUrl, (progress) => {
         console.log(`[Background] ${progress.message}`);
         if (panelTabId == null) {
@@ -354,7 +355,7 @@ export default defineBackground(() => {
             message: progress.message,
           })
           .catch(() => undefined);
-      })
+      }, expectedCount)
         .then((collected) => {
           console.log(
             `[Background] fitment pages collected: ${collected.tables.length}, vehicles=${collected.vehicles}`,

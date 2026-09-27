@@ -9,6 +9,7 @@ export const SCRAPE_PROGRESS = "scrape-progress";
 export type CollectFitmentPagesRequestMessage = {
   type: typeof COLLECT_FITMENT_PAGES;
   listingUrl: string;
+  expectedCount?: number;
 };
 
 export type CollectFitmentPagesResponseMessage = {

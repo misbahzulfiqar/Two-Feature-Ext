@@ -342,17 +342,25 @@ function canCollectHere(): boolean {
   }
 }
 
-async function collectClickedFitmentPages(listingUrl: string): Promise<CollectedFitmentPages> {
+async function collectClickedFitmentPages(
+  listingUrl: string,
+  expectedCount: number,
+): Promise<CollectedFitmentPages> {
   const empty: CollectedFitmentPages = { tables: [], advertised: 0, vehicles: 0 };
   try {
     if (canCollectHere()) {
-      return await openListingAndCollectFitment(listingUrl, (progress) => {
-        reportFitmentProgress(progress.page, progress.vehicles, progress.message);
-      });
+      return await openListingAndCollectFitment(
+        listingUrl,
+        (progress) => {
+          reportFitmentProgress(progress.page, progress.vehicles, progress.message);
+        },
+        expectedCount,
+      );
     }
     const response = (await browser.runtime.sendMessage({
       type: COLLECT_FITMENT_PAGES,
       listingUrl,
+      expectedCount,
     })) as CollectFitmentPagesResponseMessage | undefined;
     return {
       tables: Array.isArray(response?.tables) ? response.tables : [],
@@ -377,53 +385,16 @@ async function appendFitmentPages(listingUrl: string, html: string): Promise<str
   const section = fitmentSlice(html);
   const firstRows = vehicleRowTexts(section || html);
   const count = Math.max(compatibilityVehicleCount(html), compatibilityVehicleCount(section));
-  const hasNext = /pagination__next|go to next compatibility|next page/i.test(section);
-  const pageCount = count > 20 ? Math.min(40, Math.ceil(count / 20)) : 40;
-
-  const seenRows = new Set(firstRows);
   console.log("[SellSimilar] reading all fitment pages", {
     count,
     firstPageRows: firstRows.length,
-    hasNext,
+    pageCount: count > 20 ? Math.ceil(count / 20) : 1,
   });
-  const clicked = await collectClickedFitmentPages(listingUrl);
+  const clicked = await collectClickedFitmentPages(listingUrl, count);
   console.log("[SellSimilar] fitment tables from listing", clicked.tables.length, clicked.vehicles);
-  let chunks = clicked.tables.filter((table) => table.includes("sell-similar-fitment-page"));
+  const chunks = clicked.tables.filter((table) => table.includes("sell-similar-fitment-page"));
   const clickedVehicles =
     clicked.vehicles || chunks.reduce((total, table) => total + embeddedFitmentCount(table), 0);
-  const stillShort =
-    (clicked.advertised > 0 && clickedVehicles < clicked.advertised) ||
-    (chunks.length <= 1 && (count > 20 || hasNext || firstRows.length >= 20));
-  if (stillShort) {
-    const discovered = extraCompatibilityUrls(listingUrl, html);
-    let runningTotal = clickedVehicles;
-    for (let page = chunks.length > 0 ? chunks.length + 1 : 2; page <= pageCount; page += 1) {
-      console.log("[SellSimilar] fitment page", `${page}/${pageCount}`);
-      const fragment = await readNewFitmentPage(listingUrl, itemId, page, discovered, seenRows);
-      if (!fragment) {
-        console.log("[SellSimilar] fitment page empty, stop", page);
-        break;
-      }
-      const pageRows = parseFitmentRows(fragment);
-      if (pageRows.length === 0) {
-        console.log("[SellSimilar] fitment page empty, stop", page);
-        break;
-      }
-      for (const row of pageRows) {
-        seenRows.add(`${row.year}|${row.make}|${row.model}|${row.trim}|${row.engine}`);
-      }
-      chunks.push(embedFitmentRows(pageRows));
-      runningTotal += pageRows.length;
-      reportFitmentProgress(page, runningTotal);
-      if (count > 20 && runningTotal >= count) {
-        break;
-      }
-      if (pageRows.length < 20) {
-        break;
-      }
-    }
-  }
-
   console.log("[SellSimilar] fitment extra pages captured", chunks.length, "rows", clickedVehicles);
   if (chunks.length === 0) {
     return html;

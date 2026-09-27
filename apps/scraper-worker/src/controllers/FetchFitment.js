@@ -60,6 +60,7 @@ async function extractCompatibilityData(page) {
     const clean = (text) =>
       String(text || "")
         .replace(/\u00a0/g, " ")
+        .replace(/read more|read less|compatibility notes/gi, " ")
         .replace(/\s+/g, " ")
         .trim();
 
@@ -330,6 +331,7 @@ async function extractRowsFromHtmlChunks(page, html) {
       const clean = (text) =>
         String(text || "")
           .replace(/\u00a0/g, " ")
+          .replace(/read more|read less|compatibility notes/gi, " ")
           .replace(/\s+/g, " ")
           .trim();
       const doc = new DOMParser().parseFromString(source, "text/html");
