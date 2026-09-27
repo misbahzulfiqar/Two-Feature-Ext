@@ -76,7 +76,7 @@ export function SellSimilarAssistant() {
       if (!Number.isFinite(page) || !Number.isFinite(vehicles) || page < 1) {
         return;
       }
-      show(`Reading page ${page}, ${vehicles} vehicles`);
+      show(`Page ${page} - ${vehicles} vehicles`);
     };
     const onRuntimeProgress = (message: unknown): void => {
       if (
@@ -96,7 +96,7 @@ export function SellSimilarAssistant() {
       if (!Number.isFinite(page) || !Number.isFinite(vehicles) || page < 1) {
         return;
       }
-      show(`Reading page ${page}, ${vehicles} vehicles`);
+      show(`Page ${page} - ${vehicles} vehicles`);
     };
     window.addEventListener("sell-similar-fitment-progress", onWindowProgress);
     browser.runtime.onMessage.addListener(onRuntimeProgress);
@@ -216,13 +216,7 @@ export function SellSimilarAssistant() {
       return fillEbayListingFitment(rows);
     }
 
-    appendStatus(
-      `Normalizing source fitment. Found ${rows.length} compatible vehicle${rows.length === 1 ? "" : "s"}.`,
-    );
     advanceProgress("normalize");
-    appendStatus(
-      `Preparing target fitment editor. Found ${rows.length} compatible vehicle${rows.length === 1 ? "" : "s"}.`,
-    );
     advanceProgress("target_prepare");
 
     const result = await fillEbayListingFitment(rows);
@@ -250,7 +244,6 @@ export function SellSimilarAssistant() {
       switch (fillMode) {
         case "specs-and-fitment": {
           console.log("[SellSimilar] specs and fitment clicked");
-          appendStatus("Reading every compatibility page before item specifics...");
           setProgress(progressForStage("source_load"));
           const listing = await withLiveScrapeStatus(() =>
             scrapeSourceListing(source, "full-scrape", { fitmentPages: true }),
@@ -260,10 +253,6 @@ export function SellSimilarAssistant() {
             fitment: listing.compatibility.length,
           });
           setProgress(progressForStage("listing_extract"));
-          appendStatus(
-            `All compatibility pages read. ${listing.compatibility.length} vehicle${listing.compatibility.length === 1 ? "" : "s"}. Adding fitment now.`,
-          );
-
           setProgress(progressForStage("target_prepare"));
           const fitmentResult = await applyNormalizedFitment(listing.compatibility);
           if (fitmentResult.filled > 0) {
@@ -327,13 +316,9 @@ export function SellSimilarAssistant() {
         }
         case "fitment-only": {
           console.log("[SellSimilar] fitment only clicked");
-          appendStatus("Reading every compatibility page...");
           setProgress(progressForStage("source_load"));
           const listing = await withLiveScrapeStatus(() =>
             scrapeSourceListing(source, "only-fitment", { fitmentPages: true }),
-          );
-          appendStatus(
-            `All compatibility pages read. ${listing.compatibility.length} vehicle${listing.compatibility.length === 1 ? "" : "s"}. Adding fitment now.`,
           );
           setProgress(progressForStage("fitment_extract"));
           const fitmentResult = await applyNormalizedFitment(listing.compatibility);
