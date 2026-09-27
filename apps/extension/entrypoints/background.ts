@@ -11,6 +11,7 @@ import {
   isRestoreListingPageRequest,
   type RestoreListingPageResponse,
 } from "../lib/restore-messages.ts";
+import { openListingAndCollectFitment } from "../lib/collect-fitment-pages.ts";
 import { fetchListingHtml } from "../lib/fetch-listing-html.ts";
 import {
   isFillFitmentBroadcast,
@@ -30,6 +31,7 @@ import {
 } from "../lib/fitment-main-world.ts";
 import {
   isClearScrapeCacheRequest,
+  isCollectFitmentPagesRequest,
   isReportApplyRequest,
   isScrapeListingRequest,
   isScrapeProgressRequest,
@@ -336,6 +338,22 @@ export default defineBackground(() => {
   });
 
   browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (isCollectFitmentPagesRequest(message)) {
+      void openListingAndCollectFitment(message.listingUrl)
+        .then((tables) => {
+          console.log(`[Background] fitment pages collected: ${tables.length}`);
+          sendResponse({ tables });
+        })
+        .catch((error: unknown) => {
+          console.log(
+            "[Background] fitment page collection failed",
+            error instanceof Error ? error.message : error,
+          );
+          sendResponse({ tables: [] });
+        });
+      return true;
+    }
+
     if (isFillItemYesNoRequest(message)) {
       const tabId = sender.tab?.id;
       if (tabId == null) {

@@ -1,8 +1,31 @@
 import type { ScrapedListingData, ScrapeMode } from "@sell-similar/contracts";
 
 export const SCRAPE_LISTING = "scrape-listing";
+export const COLLECT_FITMENT_PAGES = "collect-fitment-pages";
 export const CLEAR_SCRAPE_CACHE = "clear-scrape-cache";
 export const SCRAPE_PROGRESS = "scrape-progress";
+
+export type CollectFitmentPagesRequestMessage = {
+  type: typeof COLLECT_FITMENT_PAGES;
+  listingUrl: string;
+};
+
+export type CollectFitmentPagesResponseMessage = {
+  tables: string[];
+};
+
+export function isCollectFitmentPagesRequest(
+  message: unknown,
+): message is CollectFitmentPagesRequestMessage {
+  return (
+    typeof message === "object" &&
+    message !== null &&
+    "type" in message &&
+    message.type === COLLECT_FITMENT_PAGES &&
+    "listingUrl" in message &&
+    typeof (message as { listingUrl: unknown }).listingUrl === "string"
+  );
+}
 
 export type ScrapeListingRequestMessage = {
   type: typeof SCRAPE_LISTING;

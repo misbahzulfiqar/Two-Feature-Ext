@@ -180,7 +180,7 @@ export function SellSimilarAssistant() {
       switch (fillMode) {
         case "specs-and-fitment": {
           console.log("[SellSimilar] specs and fitment clicked");
-          setStatusMessage("Reading the source listing...");
+          setStatusMessage("Reading all compatibility pages...");
           setProgress(progressForStage("source_load"));
           const listing = await withLiveScrapeStatus(() =>
             scrapeSourceListing(source, "full-scrape"),
@@ -229,7 +229,7 @@ export function SellSimilarAssistant() {
         }
         case "specs-only": {
           console.log("[SellSimilar] specs only clicked");
-          setStatusMessage("Reading the source listing...");
+          setStatusMessage("Reading all compatibility pages...");
           setProgress(progressForStage("source_load"));
           const listing = await withLiveScrapeStatus(() =>
             scrapeSourceListing(source, "full-scrape"),
@@ -262,7 +262,7 @@ export function SellSimilarAssistant() {
         }
         case "fitment-only": {
           console.log("[SellSimilar] fitment only clicked");
-          setStatusMessage("Reading the source listing...");
+          setStatusMessage("Reading all compatibility pages...");
           setProgress(progressForStage("source_load"));
           const listing = await withLiveScrapeStatus(() =>
             scrapeSourceListing(source, "only-fitment"),
