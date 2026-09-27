@@ -1225,7 +1225,9 @@ export function createAdminHandlers(auth: Auth, env: ApiEnv) {
 async function pingJson(url: string): Promise<{ ok: boolean; latencyMs: number | null }> {
   const started = Date.now();
   try {
-    const response = await fetch(url, { signal: AbortSignal.timeout(2500) });
+    const response = (await fetch(url, { signal: AbortSignal.timeout(2500) })) as unknown as {
+      ok: boolean;
+    };
     return { ok: response.ok, latencyMs: Date.now() - started };
   } catch {
     return { ok: false, latencyMs: null };

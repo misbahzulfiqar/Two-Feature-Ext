@@ -9,11 +9,11 @@ export const apiEnvSchema = z.object({
   API_BASE_URL: z.string().url(),
   BETTER_AUTH_SECRET: z.string().min(32),
   BETTER_AUTH_URL: z.string().url(),
-  WEB_APP_URL: z.string().url().default("http://127.0.0.1:3004"),
+  WEB_APP_URL: z.string().url().default("https://two-feature-ext-web.vercel.app"),
   EXTENSION_INSTALLED_URL: z
     .string()
     .url()
-    .default("http://127.0.0.1:3004/extension-installed"),
+    .default("https://two-feature-ext-web.vercel.app/extension-installed"),
   SCRAPER_WORKER_URL: z.string().url().default("http://127.0.0.1:3003"),
   REDIS_URL: z.preprocess(
     (value) => (value === "" || value === undefined ? undefined : value),
@@ -31,7 +31,7 @@ export const apiEnvSchema = z.object({
     (value) => (value === "" || value === undefined ? undefined : value),
     z.string().min(8).optional(),
   ),
-  ADMIN_APP_URL: z.string().url().default("http://127.0.0.1:3005"),
+  ADMIN_APP_URL: z.string().url().default("https://two-feature-ext-admin.vercel.app"),
   EMAIL_FROM: z.preprocess(
     (value) => (value === "" || value === undefined ? undefined : value),
     z.string().min(1).optional(),

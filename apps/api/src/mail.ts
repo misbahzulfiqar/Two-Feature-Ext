@@ -70,7 +70,7 @@ async function sendWithResend(env: ApiEnv, email: AuthEmail): Promise<void> {
   if (!key) {
     return;
   }
-  const response = await fetch("https://api.resend.com/emails", {
+  const response = (await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${key}`,
@@ -82,7 +82,7 @@ async function sendWithResend(env: ApiEnv, email: AuthEmail): Promise<void> {
       subject: email.subject,
       text: email.text,
     }),
-  });
+  })) as unknown as { ok: boolean; status: number; text: () => Promise<string> };
   if (!response.ok) {
     const body = await response.text();
     throw new Error(`Resend ${response.status}: ${body.slice(0, 300)}`);
