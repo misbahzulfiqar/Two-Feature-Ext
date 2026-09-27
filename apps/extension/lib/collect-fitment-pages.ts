@@ -40,13 +40,31 @@ export function readFitmentPageInListing(): FitmentPageSnapshot | null {
     }
   }
   if (!table) {
+    for (const candidate of Array.from(document.querySelectorAll("table"))) {
+      const text = candidate.textContent || "";
+      if (/year/i.test(text) && /make/i.test(text) && candidate.querySelector("tbody tr")) {
+        table = candidate;
+        break;
+      }
+    }
+  }
+  if (!table) {
     return null;
   }
   table.scrollIntoView({ block: "center" });
 
-  const clean = (text: string): string => text.replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
+  const clean = (text: string): string =>
+    text
+      .replace(/\u00a0/g, " ")
+      .replace(/read more|read less|compatibility notes/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim();
   const escapeCell = (text: string): string =>
     text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const headers = Array.from(table.querySelectorAll("thead th, thead td")).map((cell) =>
+    clean(cell.textContent || "").toLowerCase(),
+  );
+  const headerIndex = (name: string): number => headers.findIndex((header) => header.indexOf(name) >= 0);
   const parsedRows: Array<{
     year: string;
     make: string;
@@ -57,19 +75,34 @@ export function readFitmentPageInListing(): FitmentPageSnapshot | null {
   }> = [];
   for (const row of Array.from(table.querySelectorAll("tbody tr"))) {
     const cells = Array.from(row.querySelectorAll("td")).map((cell) => clean(cell.textContent || ""));
-    if (cells.length < 3 || !cells[0] || !cells[1] || !cells[2]) {
+    if (cells.length < 3) {
       continue;
     }
-    if (/^year$/i.test(cells[0]) && /^make$/i.test(cells[1])) {
+    let yearIdx = headerIndex("year");
+    if (yearIdx < 0 || !/\b(?:19|20)\d{2}\b/.test(cells[yearIdx] || "")) {
+      yearIdx = cells.findIndex((cell) => /\b(?:19|20)\d{2}\b/.test(cell));
+    }
+    if (yearIdx < 0) {
+      continue;
+    }
+    const makeIdx = headerIndex("make") >= 0 ? headerIndex("make") : yearIdx + 1;
+    const modelIdx = headerIndex("model") >= 0 ? headerIndex("model") : yearIdx + 2;
+    const trimIdx = headerIndex("trim") >= 0 ? headerIndex("trim") : yearIdx + 3;
+    const engineIdx = headerIndex("engine") >= 0 ? headerIndex("engine") : yearIdx + 4;
+    const notesIdx = headerIndex("note") >= 0 ? headerIndex("note") : yearIdx + 5;
+    const year = cells[yearIdx] || "";
+    const make = cells[makeIdx] || "";
+    const model = cells[modelIdx] || "";
+    if (!year || !make || !model || /^year$/i.test(year)) {
       continue;
     }
     parsedRows.push({
-      year: cells[0],
-      make: cells[1],
-      model: cells[2],
-      trim: cells[3] || "",
-      engine: cells[4] || "",
-      notes: cells[5] || "",
+      year,
+      make,
+      model,
+      trim: cells[trimIdx] || "",
+      engine: cells[engineIdx] || "",
+      notes: cells[notesIdx] || "",
     });
   }
   const rows = parsedRows;
@@ -87,19 +120,27 @@ export function readFitmentPageInListing(): FitmentPageSnapshot | null {
       return true;
     }
     const host = el.closest("button, a") || el;
+    const className = typeof host.className === "string" ? host.className : "";
     return (
       host.getAttribute("aria-disabled") === "true" ||
       host.hasAttribute("disabled") ||
-      /disabled/i.test(host.className || "")
+      /(?:^|\s)disabled(?:\s|$)|pagination__next--disabled|--disabled/.test(className)
     );
   };
-  const bottom = table.getBoundingClientRect().bottom;
-  const controls = Array.from(document.querySelectorAll("button, a")).filter((el): el is HTMLElement => {
-    if (!(el instanceof HTMLElement) || el.getClientRects().length === 0) {
+  const fitted =
+    table.closest("[data-testid='d-item-compatibility']") ||
+    table.closest("[data-testid='d-motors-compatibility-table']") ||
+    table.closest(".motors-compatibility-table-wrapper") ||
+    table.parentElement ||
+    table;
+  const scope = fitted.parentElement && fitted.parentElement !== document.body ? fitted.parentElement : fitted;
+  const tableBottom = table.getBoundingClientRect().bottom;
+  const controls = Array.from(scope.querySelectorAll("button, a")).filter((el): el is HTMLElement => {
+    if (!(el instanceof HTMLElement)) {
       return false;
     }
     const top = el.getBoundingClientRect().top;
-    return top >= bottom - 40 && top <= bottom + 460;
+    return top >= tableBottom - 80 && top < tableBottom + 700;
   });
   const next = controls.find((el) => {
     const label = el.getAttribute("aria-label") || "";
@@ -158,6 +199,15 @@ export function clickFitmentNextInListing(attempt?: number): boolean {
     }
   }
   if (!table) {
+    for (const candidate of Array.from(document.querySelectorAll("table"))) {
+      const text = candidate.textContent || "";
+      if (/year/i.test(text) && /make/i.test(text) && candidate.querySelector("tbody tr")) {
+        table = candidate;
+        break;
+      }
+    }
+  }
+  if (!table) {
     return false;
   }
   table.scrollIntoView({ block: "center" });
@@ -167,35 +217,34 @@ export function clickFitmentNextInListing(attempt?: number): boolean {
       return true;
     }
     const host = el.closest("button, a") || el;
+    const className = typeof host.className === "string" ? host.className : "";
     return (
       host.getAttribute("aria-disabled") === "true" ||
       host.hasAttribute("disabled") ||
-      /disabled/i.test(host.className || "")
+      /pagination__next--disabled|(?:^|\s)disabled(?:\s|$)/.test(className)
     );
   };
   const press = (el: HTMLElement): void => {
     const host = el.closest("button, a");
     const node = host instanceof HTMLElement ? host : el;
     node.scrollIntoView({ block: "center" });
-    const view = node.ownerDocument.defaultView;
-    if (view) {
-      const init: MouseEventInit = { bubbles: true, cancelable: true, view, button: 0 };
-      node.dispatchEvent(new PointerEvent("pointerdown", { ...init, pointerId: 1, pointerType: "mouse" }));
-      node.dispatchEvent(new MouseEvent("mousedown", init));
-      node.dispatchEvent(new PointerEvent("pointerup", { ...init, pointerId: 1, pointerType: "mouse" }));
-      node.dispatchEvent(new MouseEvent("mouseup", init));
-      node.dispatchEvent(new MouseEvent("click", init));
-    }
     node.click();
   };
 
-  const bottom = table.getBoundingClientRect().bottom;
-  const controls = Array.from(document.querySelectorAll("button, a")).filter((el): el is HTMLElement => {
-    if (!(el instanceof HTMLElement) || el.getClientRects().length === 0) {
+  const fitted =
+    table.closest("[data-testid='d-item-compatibility']") ||
+    table.closest("[data-testid='d-motors-compatibility-table']") ||
+    table.closest(".motors-compatibility-table-wrapper") ||
+    table.parentElement ||
+    table;
+  const scope = fitted.parentElement && fitted.parentElement !== document.body ? fitted.parentElement : fitted;
+  const tableBottom = table.getBoundingClientRect().bottom;
+  const controls = Array.from(scope.querySelectorAll("button, a")).filter((el): el is HTMLElement => {
+    if (!(el instanceof HTMLElement)) {
       return false;
     }
     const top = el.getBoundingClientRect().top;
-    return top >= bottom - 40 && top <= bottom + 460;
+    return top >= tableBottom - 80 && top < tableBottom + 700;
   });
   const next = controls.find((el) => {
     const label = el.getAttribute("aria-label") || "";
@@ -303,9 +352,10 @@ async function advanceFitmentPage(
 export async function openListingAndCollectFitment(
   listingUrl: string,
   onProgress?: (progress: FitmentPageProgress) => void,
+  expectedCount = 0,
 ): Promise<CollectedFitmentPages> {
   const empty: CollectedFitmentPages = { tables: [], advertised: 0, vehicles: 0 };
-  const tab = await browser.tabs.create({ url: listingUrl, active: false });
+  const tab = await browser.tabs.create({ url: listingUrl, active: true });
   const tabId = tab.id;
   if (tabId == null) {
     return empty;
@@ -323,7 +373,7 @@ export async function openListingAndCollectFitment(
     let advertised = 0;
     const readyAt = Date.now();
     let snapshot = await readSnapshot(tabId);
-    while (!snapshot && Date.now() - readyAt < 12000) {
+    while (!snapshot && Date.now() - readyAt < 25000) {
       await browser.scripting.executeScript({
         target: { tabId },
         world: "MAIN",
@@ -357,10 +407,14 @@ export async function openListingAndCollectFitment(
       tables.push(snapshot.html);
       totalVehicles += snapshot.rows;
       advertised = Math.max(advertised, snapshot.advertised);
+      const targetCount = Math.max(advertised, expectedCount, snapshot.advertised);
       onProgress?.({
         page,
         vehicles: totalVehicles,
-        message: `Reading page ${page}, ${totalVehicles} vehicles`,
+        message:
+          targetCount > totalVehicles
+            ? `Reading page ${page}, ${totalVehicles} of ${targetCount} vehicles`
+            : `Reading page ${page}, ${totalVehicles} vehicles`,
       });
 
       if (!snapshot.hasNext && snapshot.rows >= 20 && advertised <= totalVehicles) {
@@ -376,8 +430,8 @@ export async function openListingAndCollectFitment(
         }
       }
 
-      const needMore =
-        snapshot.hasNext || (advertised > 0 && totalVehicles < advertised);
+      const target = Math.max(advertised, expectedCount);
+      const needMore = snapshot.hasNext || (target > 0 && totalVehicles < target);
       if (!needMore) {
         break;
       }
