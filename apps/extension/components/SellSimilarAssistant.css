@@ -103,7 +103,7 @@
 
 .control-leading svg,
 .chevron svg {
-  width: 12px;
+  width: 10px;
   height: 11px;
 }
 
@@ -117,7 +117,7 @@
   background: transparent;
   color: var(--navy);
   font: inherit;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   outline: none;
 }
