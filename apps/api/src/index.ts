@@ -109,6 +109,10 @@ app.post("/listings/scrape-cache/clear", clearScrapeCacheHandler);
 
 const cacheBackend = await configureScrapeCache(env.REDIS_URL);
 
-app.listen(env.API_PORT, () => {
-  logger.info({ port: env.API_PORT, cacheBackend }, "api listening");
-});
+export default app;
+
+if (!process.env.VERCEL) {
+  app.listen(env.API_PORT, () => {
+    logger.info({ port: env.API_PORT, cacheBackend }, "api listening");
+  });
+}

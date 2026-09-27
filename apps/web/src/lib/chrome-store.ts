@@ -6,7 +6,7 @@ import { publicEnv } from "./env";
  * without that key every "Load unpacked" install would get a different ID
  * (derived from the folder path) and this site could never detect it.
  */
-export const PINNED_EXTENSION_ID = "plohbfpfbfppmlnamocnoelnefchplnm";
+export const PINNED_EXTENSION_ID = "affbkhkmichfmceldcndfekiechoilhm";
 
 export function configuredExtensionId(): string {
   // An env override wins, so a differently-keyed build can be pointed at.

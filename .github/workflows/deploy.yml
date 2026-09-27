@@ -1,14 +1,9 @@
-name: Deploy
+name: Check
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
-
-# Never let two deploys interleave on the same box.
-concurrency:
-  group: deploy-production
-  cancel-in-progress: false
 
 jobs:
   verify:
@@ -24,24 +19,3 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm check-types
       - run: pnpm build
-
-  deploy:
-    name: Deploy to VPS
-    needs: verify
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Deploy over SSH
-        env:
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_USER: ${{ secrets.SSH_USER }}
-        run: |
-          set -euo pipefail
-          mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null
-          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes \
-              "$SSH_USER@$SSH_HOST" 'bash -s' < scripts/deploy-remote.sh

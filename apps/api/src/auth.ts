@@ -11,7 +11,7 @@ import { sendAuthEmail, publicAuthUrl, rememberVerificationLink } from "./mail.j
 const authLog = createLogger({ name: "auth" });
 
 /**
- * Registrable domain of the API, as a cookie domain (".carvmax.com").
+ * Registrable domain of the API, as a cookie domain (".example.com").
  *
  * The web app, admin and API live on sibling subdomains, so the session cookie
  * has to be set on the parent domain or the browser will not send it back.
@@ -21,7 +21,12 @@ const authLog = createLogger({ name: "auth" });
 function cookieDomain(env: ApiEnv): string | undefined {
   try {
     const host = new URL(env.API_BASE_URL).hostname;
-    if (host === "localhost" || /^[0-9.]+$/.test(host)) {
+    if (
+      host === "localhost" ||
+      /^[0-9.]+$/.test(host) ||
+      host === "vercel.app" ||
+      host.endsWith(".vercel.app")
+    ) {
       return undefined;
     }
     const labels = host.split(".");
@@ -43,8 +48,9 @@ function trustedWebOrigins(env: ApiEnv): string[] {
     "http://127.0.0.1:3004",
     "http://localhost:3005",
     "http://127.0.0.1:3005",
-    "https://extension.carvmax.com",
-    "https://extension-admin.carvmax.com",
+    "https://two-feature-ext.vercel.app",
+    "https://two-feature-admin.vercel.app",
+    "https://two-feature-api.vercel.app",
   ];
 }
 

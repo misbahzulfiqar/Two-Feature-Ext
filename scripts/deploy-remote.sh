@@ -6,8 +6,13 @@
 # reviewable, and so a heredoc's indentation can never silently change them.
 set -euo pipefail
 
-APP_DIR="${APP_DIR:-/home/faraz/Sell-Similar-Extension}"
+APP_DIR="${APP_DIR:-}"
 BRANCH="${BRANCH:-main}"
+
+if [ -z "$APP_DIR" ] || [ "$APP_DIR" = "/home/faraz/Sell-Similar-Extension" ]; then
+  echo "Refusing to deploy this copy onto the original server."
+  exit 1
+fi
 
 echo "==> Deploying $BRANCH to $APP_DIR"
 cd "$APP_DIR"

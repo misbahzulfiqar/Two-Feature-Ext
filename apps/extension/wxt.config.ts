@@ -1,20 +1,19 @@
 import { defineConfig } from "wxt";
 
-const PRODUCTION_WEB_MATCHES = [
-  "https://extension.carvmax.com/*",
-  "https://extension-admin.carvmax.com/*",
-];
+const WEB_ORIGIN = "https://two-feature-ext.vercel.app";
+const ADMIN_ORIGIN = "https://two-feature-admin.vercel.app";
+const API_ORIGIN = "https://two-feature-api.vercel.app";
+
+const PRODUCTION_WEB_MATCHES = [`${WEB_ORIGIN}/*`, `${ADMIN_ORIGIN}/*`];
 
 const PRODUCTION_HOST_PERMISSIONS = [
   "https://*.ebay.com/*",
   "https://ebay.com/*",
   "https://*.ebayimg.com/*",
   "https://i.ebayimg.com/*",
-  // The background script calls the API directly, so it needs host access to
-  // the API origin as well as the web app.
-  "https://extension.carvmax.com/*",
-  "https://extension-admin.carvmax.com/*",
-  "https://extension-api.carvmax.com/*",
+  `${WEB_ORIGIN}/*`,
+  `${ADMIN_ORIGIN}/*`,
+  `${API_ORIGIN}/*`,
 ];
 
 export default defineConfig({
@@ -30,16 +29,12 @@ export default defineConfig({
     },
   },
   manifest: {
-    // Pins the extension ID to plohbfpfbfppmlnamocnoelnefchplnm.
-    //
-    // Chrome derives the ID from this public key. Without it, every
-    // "Load unpacked" install gets a different ID (derived from the folder
-    // path), which would break externally_connectable messaging and the
-    // website's install detection. Public by design - it ships in manifest.json.
-    key: "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA24wXNLk0wbWF0hPIHaJS9AQY9DB9MVvbGL0rxirvzeV9xskPElID5Vhh3ji6l3n+ofVN66uMiRNIEskuOKyelHJyRSnZg4NoJRrD/aY8arZprXt2+cZlV+S4PmZK2xMOXPUDViceeVJErHcsk5jbXNltv8aEtuQvxhEwIBoGbyW2orVlEMaxL1B/SB0pTRKLqe5ZBU4md3u8EUSvdo5ljctjAcrfFauu47/MEgqHJazXC74UGxJNgu+zE5THvUw4qtycuOfLig9q0VUV8vZg6ucMmwbB/46INJ5Mn1qTE+ocUR45JQjMQQzFpnpK7N4QbUaPUgxN5RP/ozQcda/oxwIDAQAB",
+    // New public key for this copy only. Chrome derives a different extension
+    // ID from it, so this build cannot replace the original published extension.
+    key: "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAmx3y7JOFe/P1Eng7RYSB1TUkpcdvsJbao01iBe53kM+WAQDGuCv3YZB23o4wET9lsZrkaYOXwh9fNHxql5i3Lh5MgTtuuSxfmK/APaUJxMKFrOtVgbbzP+uJn6fW3ludKtUt73uhdtxqAXzYqkmAg4n4IXVxy1UrllZ3tOg9fBd+TDGqJRavrCvOG12ecm8zahyYgDM4fL2fklUFHhiMgPMruP5ALK4Yw7GatE7EuGcR3Uau1lwpWqxMJz7mXHFP8olfL2qm+uXt+QGa9MUx6cshapDfPY5QUaF4cIZPlnbwgp/4Vm9425JwqRTde7RqgVVnkdBHXUCYBZeaDhVoDwIDAQAB",
     name: "Sell Similar",
     description: "Find and list similar items on eBay",
-    homepage_url: "https://extension.carvmax.com",
+    homepage_url: WEB_ORIGIN,
     icons: {
       16: "/icon-16.png",
       32: "/icon-32.png",

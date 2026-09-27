@@ -46,8 +46,8 @@ const extensionInstalledUrl =
   "http://127.0.0.1:3004/extension-installed";
 
 const PRODUCTION_WEB_ORIGINS = [
-  "https://extension.carvmax.com",
-  "https://extension-admin.carvmax.com",
+  "https://two-feature-ext.vercel.app",
+  "https://two-feature-admin.vercel.app",
 ] as const;
 
 function isAllowedWebOrigin(url: string | undefined): boolean {
