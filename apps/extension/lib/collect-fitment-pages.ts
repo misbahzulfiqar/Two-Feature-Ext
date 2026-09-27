@@ -25,15 +25,17 @@ export function readFitmentPageInListing(): FitmentPageSnapshot | null {
   if (!table) {
     return null;
   }
+  table.scrollIntoView({ block: "center" });
 
-  let scope: Element = table;
-  let parent = table.parentElement;
-  for (let depth = 0; depth < 8 && parent; depth += 1) {
-    if (
-      parent.querySelector(
-        ".pagination__next, [aria-label*='Next' i], [aria-label*='next page' i], a[rel='next']",
-      )
-    ) {
+  const scopeStart =
+    document.querySelector("[data-testid='d-item-compatibility']") ||
+    document.querySelector("[data-testid='d-motors-compatibility-table']") ||
+    document.querySelector(".motors-compatibility-table-wrapper") ||
+    table;
+  let scope: Element = scopeStart;
+  let parent: Element | null = scopeStart;
+  for (let depth = 0; depth < 12 && parent; depth += 1) {
+    if (parent.querySelector(".pagination, .pagination__next, [aria-label*='next' i], a[rel='next']")) {
       scope = parent;
       break;
     }
@@ -76,22 +78,28 @@ export function readFitmentPageInListing(): FitmentPageSnapshot | null {
         `<tr><td>${escapeCell(row.year)}</td><td>${escapeCell(row.make)}</td><td>${escapeCell(row.model)}</td><td>${escapeCell(row.trim)}</td><td>${escapeCell(row.engine)}</td><td>${escapeCell(row.notes)}</td></tr>`,
     )
     .join("")}</tbody></table></div><script type="application/json" id="sell-similar-fitment-page">${JSON.stringify(rows).replace(/</g, "\\u003c")}</script>`;
+  const disabled = (el: Element | null): boolean =>
+    !el ||
+    el.getAttribute("aria-disabled") === "true" ||
+    el.hasAttribute("disabled") ||
+    /disabled|pagination__next--disabled/i.test(el.className || "");
   const next =
     scope.querySelector(".pagination__next") ||
     scope.querySelector('[aria-label*="Go to next" i]') ||
     scope.querySelector('[aria-label*="Next page" i]') ||
+    scope.querySelector('[aria-label*="next" i]') ||
     scope.querySelector('a[rel="next"]');
-  const disabled =
-    !next ||
-    next.getAttribute("aria-disabled") === "true" ||
-    next.hasAttribute("disabled") ||
-    /disabled|pagination__next--disabled/i.test(next.className || "");
+  const current = scope.querySelector('[aria-current="page"]');
+  const currentNum = Number.parseInt((current?.textContent || "").trim(), 10) || 1;
+  const pageLink = Array.from(scope.querySelectorAll("a, button")).find(
+    (el) => (el.textContent || "").trim() === String(currentNum + 1),
+  );
 
   return {
     html: tableHtml,
     rows: rows.length,
     signature,
-    hasNext: Boolean(next) && !disabled,
+    hasNext: (Boolean(next) && !disabled(next)) || (Boolean(pageLink) && !disabled(pageLink ?? null)),
   };
 }
 
@@ -105,15 +113,17 @@ export function clickFitmentNextInListing(): boolean {
   if (!table) {
     return false;
   }
+  table.scrollIntoView({ block: "center" });
 
-  let scope: Element = table;
-  let parent = table.parentElement;
-  for (let depth = 0; depth < 8 && parent; depth += 1) {
-    if (
-      parent.querySelector(
-        ".pagination__next, [aria-label*='Next' i], [aria-label*='next page' i], a[rel='next']",
-      )
-    ) {
+  const scopeStart =
+    document.querySelector("[data-testid='d-item-compatibility']") ||
+    document.querySelector("[data-testid='d-motors-compatibility-table']") ||
+    document.querySelector(".motors-compatibility-table-wrapper") ||
+    table;
+  let scope: Element = scopeStart;
+  let parent: Element | null = scopeStart;
+  for (let depth = 0; depth < 12 && parent; depth += 1) {
+    if (parent.querySelector(".pagination, .pagination__next, [aria-label*='next' i], a[rel='next']")) {
       scope = parent;
       break;
     }
@@ -196,7 +206,7 @@ export async function openListingAndCollectFitment(
   listingUrl: string,
   onProgress?: (progress: FitmentPageProgress) => void,
 ): Promise<string[]> {
-  const tab = await browser.tabs.create({ url: listingUrl, active: false });
+  const tab = await browser.tabs.create({ url: listingUrl, active: true });
   const tabId = tab.id;
   if (tabId == null) {
     return [];
@@ -228,6 +238,17 @@ export async function openListingAndCollectFitment(
       tables.push(snapshot.html);
       totalVehicles += snapshot.rows;
       onProgress?.({ page, vehicles: totalVehicles });
+      if (!snapshot.hasNext && snapshot.rows >= 20) {
+        const waitNext = Date.now();
+        while (!snapshot.hasNext && Date.now() - waitNext < 6000) {
+          await sleep(400);
+          const again = await readSnapshot(tabId);
+          if (again?.hasNext) {
+            snapshot = again;
+            break;
+          }
+        }
+      }
       if (!snapshot.hasNext) {
         break;
       }

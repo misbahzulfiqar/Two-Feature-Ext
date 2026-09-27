@@ -245,6 +245,72 @@ async function readNewFitmentPage(
   return undefined;
 }
 
+type FitmentRow = {
+  year: string;
+  make: string;
+  model: string;
+  trim: string;
+  engine: string;
+  notes: string;
+};
+
+function parseFitmentRows(html: string): FitmentRow[] {
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const rows: FitmentRow[] = [];
+  for (const table of Array.from(doc.querySelectorAll("table"))) {
+    for (const tr of Array.from(table.querySelectorAll("tbody tr"))) {
+      const cells = Array.from(tr.querySelectorAll("td")).map((cell) =>
+        (cell.textContent || "").replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim(),
+      );
+      if (cells.length < 3 || !cells[0] || !cells[1] || !cells[2]) {
+        continue;
+      }
+      if (!/\b(?:19|20)\d{2}\b/.test(cells[0])) {
+        continue;
+      }
+      rows.push({
+        year: cells[0],
+        make: cells[1],
+        model: cells[2],
+        trim: cells[3] || "",
+        engine: cells[4] || "",
+        notes: cells[5] || "",
+      });
+    }
+  }
+  return rows;
+}
+
+function embedFitmentRows(rows: FitmentRow[]): string {
+  const escapeCell = (text: string): string =>
+    text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const body = rows
+    .map(
+      (row) =>
+        `<tr><td>${escapeCell(row.year)}</td><td>${escapeCell(row.make)}</td><td>${escapeCell(row.model)}</td><td>${escapeCell(row.trim)}</td><td>${escapeCell(row.engine)}</td><td>${escapeCell(row.notes)}</td></tr>`,
+    )
+    .join("");
+  const json = JSON.stringify(rows).replace(/</g, "\\u003c");
+  return `<div class="motors-compatibility-table"><table class="motors-compatibility-table"><thead><tr><th>Year</th><th>Make</th><th>Model</th><th>Trim</th><th>Engine</th><th>Notes</th></tr></thead><tbody>${body}</tbody></table></div><script type="application/json" id="sell-similar-fitment-page">${json}</script>`;
+}
+
+function embeddedFitmentCount(html: string): number {
+  let total = 0;
+  for (const match of html.matchAll(
+    /<script type="application\/json" id="sell-similar-fitment-page">([\s\S]*?)<\/script>/g,
+  )) {
+    try {
+      const parsed = JSON.parse(match[1] ?? "[]") as unknown;
+      if (Array.isArray(parsed)) {
+        total += parsed.length;
+      }
+    } catch {
+      // Ignore a page whose JSON did not parse.
+    }
+  }
+  return total;
+}
+
 function reportFitmentProgress(page: number, vehicles: number): void {
   console.log(`[SellSimilar] Reading page ${page}, ${vehicles} vehicles`);
   window.dispatchEvent(
@@ -306,23 +372,32 @@ async function appendFitmentPages(listingUrl: string, html: string): Promise<str
   const clicked = await collectClickedFitmentPages(listingUrl);
   console.log("[SellSimilar] fitment tables from listing", clicked.length);
   let chunks = clicked.filter((table) => table.includes("sell-similar-fitment-page"));
-  if (chunks.length === 0) {
+  const clickedVehicles = chunks.reduce((total, table) => total + embeddedFitmentCount(table), 0);
+  const pagesRead = clickedVehicles > 20 ? Math.ceil(clickedVehicles / 20) : chunks.length > 1 ? chunks.length : 1;
+  if (pagesRead <= 1) {
     const discovered = extraCompatibilityUrls(listingUrl, html);
-    const lastPage = clicked.length > 0 ? 2 : pageCount;
-    for (let page = 2; page <= lastPage; page += 1) {
+    for (let page = 2; page <= pageCount; page += 1) {
+      reportFitmentProgress(page, Math.max(seenRows.size, firstPageVehicles));
       console.log("[SellSimilar] fitment page", `${page}/${pageCount}`);
       const fragment = await readNewFitmentPage(listingUrl, itemId, page, discovered, seenRows);
       if (!fragment) {
         console.log("[SellSimilar] fitment page empty, stop", page);
         break;
       }
-      chunks.push(fragment);
-      const pageRows = vehicleRowTexts(fragment).length;
-      reportFitmentProgress(page, seenRows.size);
-      if (count > 20 && chunks.length + 1 >= pageCount) {
+      const pageRows = parseFitmentRows(fragment);
+      if (pageRows.length === 0) {
+        console.log("[SellSimilar] fitment page empty, stop", page);
         break;
       }
-      if (count <= 20 && pageRows < 20) {
+      for (const row of pageRows) {
+        seenRows.add(`${row.year}|${row.make}|${row.model}|${row.trim}|${row.engine}`);
+      }
+      chunks.push(embedFitmentRows(pageRows));
+      reportFitmentProgress(page, seenRows.size);
+      if (count > 20 && page >= pageCount) {
+        break;
+      }
+      if (pageRows.length < 20) {
         break;
       }
     }
