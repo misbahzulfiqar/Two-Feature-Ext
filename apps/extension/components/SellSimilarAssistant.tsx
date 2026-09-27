@@ -124,7 +124,7 @@ export function SellSimilarAssistant() {
     if (!result.sectionFound) {
       return result.warnings[0] ?? "Could not find the fitment section on this editor.";
     }
-    if (result.sectionFound && result.filled >= total && result.skipped === 0) {
+    if (result.sectionFound && result.skipped === 0 && result.filled > 0) {
       const saved = result.filled;
       return `Fitment saved: ${saved} vehicle${saved === 1 ? "" : "s"}`;
     }
