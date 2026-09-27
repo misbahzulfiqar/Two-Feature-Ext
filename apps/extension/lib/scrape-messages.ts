@@ -8,6 +8,7 @@ export type ScrapeListingRequestMessage = {
   type: typeof SCRAPE_LISTING;
   listingUrl: string;
   scrapeMode?: ScrapeMode;
+  html?: string;
 };
 
 export type ScrapeListingResponseMessage =

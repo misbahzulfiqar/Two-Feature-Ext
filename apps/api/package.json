@@ -20,6 +20,7 @@
     "bullmq": "^6.3.1",
     "express": "^5.2.1",
     "ioredis": "^6.0.0",
+    "linkedom": "^0.18.12",
     "mongodb": "^6.20.0",
     "morgan": "^1.12.1",
     "nodemailer": "^10.0.10",

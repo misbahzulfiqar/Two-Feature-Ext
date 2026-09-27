@@ -500,14 +500,20 @@ export default defineBackground(() => {
 
     console.log(`[Background] 📊 Scraping: ${message.listingUrl}`);
     console.log(`[Background] 📊 Scrape mode: ${message.scrapeMode}`);
-    void fetchListingHtml(message.listingUrl)
-      .then((html) =>
-        api.scrapeListing({
+    console.log(`[Background] HTML already captured: ${message.html?.length ?? 0} chars`);
+    const htmlReady =
+      typeof message.html === "string" && message.html.length > 0
+        ? Promise.resolve(message.html)
+        : fetchListingHtml(message.listingUrl);
+    void htmlReady
+      .then((html) => {
+        console.log(`[Background] posting /listings/scrape html=${html?.length ?? 0}`);
+        return api.scrapeListing({
           listingUrl: message.listingUrl,
           html,
           scrapeMode: message.scrapeMode,
-        }),
-      )
+        });
+      })
       .then((response) => {
         if (!response.ok) {
           console.log(`[Background] ❌ Scrape failed:`, response.error);

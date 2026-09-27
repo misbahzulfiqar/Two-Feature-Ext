@@ -179,17 +179,23 @@ export function SellSimilarAssistant() {
     try {
       switch (fillMode) {
         case "specs-and-fitment": {
-          setStatusMessage("Opening eBay listing...");
+          console.log("[SellSimilar] specs and fitment clicked");
+          setStatusMessage("Reading the source listing...");
           setProgress(progressForStage("source_load"));
           const listing = await withLiveScrapeStatus(() =>
             scrapeSourceListing(source, "full-scrape"),
           );
+          console.log("[SellSimilar] scrape ready", {
+            specifics: listing.itemSpecifics.length,
+            fitment: listing.compatibility.length,
+          });
           setProgress(progressForStage("listing_extract"));
           await new Promise((resolve) => {
             window.setTimeout(resolve, 200);
           });
 
           setProgress(progressForStage("target_prepare"));
+          console.log("[SellSimilar] filling item specifics", listing.itemSpecifics.length);
           setStatusMessage("Replacing item specifics...");
           const specResult = await fillEbayListingSpecifics(listing.itemSpecifics);
           setProgress(progressForStage("apply_core"));
@@ -222,7 +228,8 @@ export function SellSimilarAssistant() {
           break;
         }
         case "specs-only": {
-          setStatusMessage("Opening eBay listing...");
+          console.log("[SellSimilar] specs only clicked");
+          setStatusMessage("Reading the source listing...");
           setProgress(progressForStage("source_load"));
           const listing = await withLiveScrapeStatus(() =>
             scrapeSourceListing(source, "full-scrape"),
@@ -233,6 +240,7 @@ export function SellSimilarAssistant() {
           });
 
           setProgress(progressForStage("target_prepare"));
+          console.log("[SellSimilar] filling item specifics", listing.itemSpecifics.length);
           setStatusMessage("Replacing item specifics...");
           const specResult = await fillEbayListingSpecifics(listing.itemSpecifics);
           await restoreListingPage();
@@ -253,7 +261,8 @@ export function SellSimilarAssistant() {
           break;
         }
         case "fitment-only": {
-          setStatusMessage("Opening eBay listing...");
+          console.log("[SellSimilar] fitment only clicked");
+          setStatusMessage("Reading the source listing...");
           setProgress(progressForStage("source_load"));
           const listing = await withLiveScrapeStatus(() =>
             scrapeSourceListing(source, "only-fitment"),
@@ -283,6 +292,10 @@ export function SellSimilarAssistant() {
         }
       }
     } catch (error) {
+      console.log(
+        "[SellSimilar] scrape failed",
+        error instanceof Error ? error.message : error,
+      );
       setProgress(0);
       setIsComplete(false);
       setStatusMessage(

@@ -27,8 +27,35 @@ export async function runScrape(
   const run = scrapeQueue.then(async () => {
     const startedAt = Date.now();
     const html = options.html?.trim() ?? "";
-    if (process.env.VERCEL && html) {
+    if (process.env.VERCEL) {
+      if (!html) {
+        console.log("[runScrape] Vercel scrape has no listing HTML");
+        return {
+          status: "failed",
+          code: "400",
+          message: "The extension did not send the listing page. Reload the extension and scrape again.",
+          listingData: {
+            title: "",
+            sku: "",
+            price: "",
+            images: [],
+            itemSpecifics: [],
+            condition: "",
+            conditionDescription: "",
+            description: "",
+            category: { id: "", name: "", path: [] },
+            storeCategories: [],
+            shipping: { service: "", cost: "", handlingTime: "", location: "", details: "" },
+            weight: { value: "", unit: "" },
+            dimensions: { length: "", width: "", height: "", unit: "", raw: "" },
+            fitment: [],
+            compatibility: [],
+            compatibilityCount: 0,
+          },
+        };
+      }
       try {
+        console.log(`[runScrape] parsing extension HTML (${html.length} chars)`);
         await options.onProgress?.("source_load");
         return await processListing(createSnapshotPage(html, listingUrl), listingUrl, options);
       } finally {

@@ -98,18 +98,12 @@ async function fetchHtml(
     credentials,
     redirect: "follow",
     cache: "no-store",
-    signal: AbortSignal.timeout(20000),
+    signal: AbortSignal.timeout(8000),
   });
   if (!response.ok) {
     return "";
   }
   return response.text();
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
 }
 
 /**
@@ -124,24 +118,24 @@ function sleep(ms: number): Promise<void> {
 export async function fetchListingHtml(
   listingUrl: string,
 ): Promise<string | undefined> {
-  const anonymous = await fetchHtml(listingUrl, "omit");
-  if (looksLikeEbayListing(anonymous)) {
-    return anonymous;
-  }
-
-  // Retry with the user's eBay session, which usually clears the interstitial.
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    if (attempt > 0) {
-      await sleep(700);
-    }
+  const started = Date.now();
+  console.log("[SellSimilar] fetching source listing", listingUrl);
+  try {
     const session = await fetchHtml(listingUrl, "include");
-    if (looksLikeEbayListing(session)) {
+    console.log(
+      "[SellSimilar] source listing fetched",
+      `${session.length} chars`,
+      `${Date.now() - started}ms`,
+      looksLikeEbayListing(session) ? "listing" : "not-a-listing",
+    );
+    if (looksLikeEbayListing(session) || session.length > 1500) {
       return session;
     }
+  } catch (error) {
+    console.log(
+      "[SellSimilar] source listing fetch failed",
+      error instanceof Error ? error.message : error,
+    );
   }
-
-  console.warn(
-    "[SellSimilar] could not fetch source HTML (eBay interstitial?); falling back to a live scrape by the worker",
-  );
   return undefined;
 }

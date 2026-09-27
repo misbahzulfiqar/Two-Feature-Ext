@@ -18,6 +18,10 @@ import { correlationMiddleware } from "./correlation.js";
 import { corsMiddleware } from "./cors.js";
 import { apiEnvSchema } from "./env.js";
 import { configureScrapeCache } from "./scrape-cache.js";
+import {
+  readInProcessScrapeProgress,
+  scrapeListingInProcess,
+} from "./scrape-bridge.js";
 
 loadRootEnv();
 
@@ -48,16 +52,10 @@ try {
 }
 
 const liveScrape = process.env.VERCEL
-  ? await import("./scrape-bridge.js")
-      .then((bridge) => ({
-        scrapeInProcess: bridge.scrapeListingInProcess,
-        readProgress: bridge.readInProcessScrapeProgress,
-      }))
-      .catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : "scraper import failed";
-        logger.warn({ err: message }, "in-process scraper unavailable");
-        return {};
-      })
+  ? {
+      scrapeInProcess: scrapeListingInProcess,
+      readProgress: readInProcessScrapeProgress,
+    }
   : {};
 
 if (env) {

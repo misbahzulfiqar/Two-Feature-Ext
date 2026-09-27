@@ -5,6 +5,7 @@ import {
   type ScrapeMode,
   type VehicleCompatibility,
 } from "@sell-similar/contracts";
+import { fetchListingHtml } from "./fetch-listing-html.ts";
 import {
   CLEAR_SCRAPE_CACHE,
   REPORT_APPLY,
@@ -132,11 +133,26 @@ export async function scrapeSourceListing(
   scrapeMode: ScrapeMode = "full-scrape",
 ): Promise<ScrapedListing> {
   const listingUrl = resolveSourceListingUrl(source);
+  const started = Date.now();
+  console.log("[SellSimilar] scrape start", { listingUrl, scrapeMode });
+  const html = await fetchListingHtml(listingUrl);
+  console.log("[SellSimilar] posting scrape to API", {
+    htmlChars: html?.length ?? 0,
+    elapsedMs: Date.now() - started,
+  });
   const response = (await browser.runtime.sendMessage({
     type: SCRAPE_LISTING,
     listingUrl,
     scrapeMode,
+    html,
   })) as ScrapeListingResponseMessage;
+  console.log("[SellSimilar] API scrape returned", {
+    ok: response?.ok,
+    error: response?.ok ? undefined : response?.error,
+    specifics: response?.ok ? response.data.itemSpecifics?.length : undefined,
+    fitment: response?.ok ? response.data.compatibility?.length : undefined,
+    elapsedMs: Date.now() - started,
+  });
 
   if (!response?.ok) {
     throw new Error(response?.error || "Couldn't scrape listing");
