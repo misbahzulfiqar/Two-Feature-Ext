@@ -158,7 +158,20 @@ export class SellSimilarApiClient {
       ...init,
       headers,
     });
-    const payload: unknown = await response.json();
+    const raw = await response.text();
+    let payload: unknown;
+    try {
+      payload = raw ? JSON.parse(raw) : null;
+    } catch {
+      const snippet = raw.replace(/\s+/g, " ").trim().slice(0, 180);
+      throw new SellSimilarApiError(response.status, {
+        ok: false,
+        error: {
+          code: "API_NOT_JSON",
+          message: snippet || `The API returned ${response.status} without JSON`,
+        },
+      });
+    }
     if (!response.ok) {
       throw new SellSimilarApiError(response.status, payload);
     }

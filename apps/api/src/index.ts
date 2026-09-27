@@ -18,10 +18,6 @@ import { correlationMiddleware } from "./correlation.js";
 import { corsMiddleware } from "./cors.js";
 import { apiEnvSchema } from "./env.js";
 import { configureScrapeCache } from "./scrape-cache.js";
-import {
-  readInProcessScrapeProgress,
-  scrapeListingInProcess,
-} from "./scrape-bridge.js";
 
 loadRootEnv();
 
@@ -53,8 +49,24 @@ try {
 
 const liveScrape = process.env.VERCEL
   ? {
-      scrapeInProcess: scrapeListingInProcess,
-      readProgress: readInProcessScrapeProgress,
+      scrapeInProcess: async (input: {
+        listingUrl: string;
+        html?: string;
+        scrapeMode?: "full-scrape" | "only-fitment";
+      }) => {
+        const { scrapeFromHtml } = await import("./snapshot-scrape.js");
+        return scrapeFromHtml(input);
+      },
+      readProgress: () => ({
+        active: false,
+        listingUrl: "",
+        stage: null,
+        message: "",
+        fitmentPage: 0,
+        fitmentRows: 0,
+        startedAt: null,
+        updatedAt: Date.now(),
+      }),
     }
   : {};
 
