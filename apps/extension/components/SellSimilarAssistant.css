@@ -85,7 +85,7 @@
   gap: 6px;
   padding: 0 10px;
   background: #fff;
-  border: 1px solid #c5d4f5;
+  border: 1px solid #bac7e3;
   border-radius: 10px;
 }
 
@@ -103,7 +103,7 @@
 
 .control-leading svg,
 .chevron svg {
-  width: 11px;
+  width: 12px;
   height: 11px;
 }
 
