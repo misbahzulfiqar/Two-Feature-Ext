@@ -1,10 +1,3 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "installCommand": "NODE_ENV=development pnpm install",
-  "functions": {
-    "src/index.ts": {
-      "maxDuration": 300,
-      "memory": 2048
-    }
-  }
+  "$schema": "https://openapi.vercel.sh/vercel.json"
 }
