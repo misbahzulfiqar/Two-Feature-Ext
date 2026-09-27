@@ -219,6 +219,9 @@ importers:
       ioredis:
         specifier: ^6.0.0
         version: 6.0.0
+      linkedom:
+        specifier: ^0.18.12
+        version: 0.18.13
       puppeteer-core:
         specifier: ^25.9.0
         version: 25.9.0(yauzl@3.4.0)

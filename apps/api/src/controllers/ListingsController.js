@@ -207,12 +207,17 @@ export function createScrapeListingHandler(scraperWorkerUrl, options = {}) {
     try {
       let payload;
       let workerOk = true;
+      let workerStatus = 502;
       if (typeof options.scrapeInProcess === "function") {
         payload = await options.scrapeInProcess({
           listingUrl: parsed.data.listingUrl,
           html: parsed.data.html,
           scrapeMode: parsed.data.scrapeMode,
         });
+      } else if (process.env.VERCEL) {
+        throw new Error(
+          "The scraper did not start inside the API. Redeploy the API and try scrape again.",
+        );
       } else {
         const workerResponse = await fetch(`${workerBaseUrl}/scrape`, {
           method: "POST",
@@ -229,6 +234,7 @@ export function createScrapeListingHandler(scraperWorkerUrl, options = {}) {
         });
         payload = await workerResponse.json();
         workerOk = workerResponse.ok;
+        workerStatus = workerResponse.status;
       }
       if (!workerOk || payload?.status !== "ok") {
         const errorCode = "SCRAPE_FAILED";
@@ -239,7 +245,7 @@ export function createScrapeListingHandler(scraperWorkerUrl, options = {}) {
           errorCode,
           errorMessage,
         });
-        return res.status(Number(payload?.code) || workerResponse.status || 502).json({
+        return res.status(Number(payload?.code) || workerStatus).json({
           ok: false,
           error: {
             code: errorCode,
@@ -292,8 +298,14 @@ export function createScrapeListingHandler(scraperWorkerUrl, options = {}) {
       });
     } catch (error) {
       const errorCode = "SCRAPER_UNAVAILABLE";
+      const cause =
+        error instanceof Error && error.cause instanceof Error ? error.cause.message : "";
       const errorMessage =
-        error instanceof Error ? error.message : "Could not reach scraper worker";
+        error instanceof Error
+          ? cause && !error.message.includes(cause)
+            ? `${error.message}: ${cause}`
+            : error.message
+          : "Could not reach scraper worker";
       const jobId = await persistScrape({
         ...persistBase,
         status: "failed",

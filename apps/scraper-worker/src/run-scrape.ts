@@ -1,7 +1,7 @@
 import type { ScrapeMode, ScrapeProgressStage } from "@sell-similar/contracts";
-import { withPage } from "./browser-pool.js";
-import { processListing } from "./processListing.js";
 import type { ScraperEnv } from "./env.js";
+import { createSnapshotPage } from "./html-page.js";
+import { processListing } from "./processListing.js";
 
 type ScrapeResult = Awaited<ReturnType<typeof processListing>>;
 
@@ -26,6 +26,19 @@ export async function runScrape(
 ): Promise<ScrapeResult> {
   const run = scrapeQueue.then(async () => {
     const startedAt = Date.now();
+    const html = options.html?.trim() ?? "";
+    if (process.env.VERCEL && html) {
+      try {
+        await options.onProgress?.("source_load");
+        return await processListing(createSnapshotPage(html, listingUrl), listingUrl, options);
+      } finally {
+        console.log(`[runScrape] finished from extension HTML in ${Date.now() - startedAt}ms`);
+      }
+    }
+
+    // Chrome is loaded only for a local worker. On Vercel this import pulls a
+    // browser download that fails with "fetch failed".
+    const { withPage } = await import("./browser-pool.js");
     return withPage(env, async (page, resourceStats) => {
       try {
         await options.onProgress?.("source_load");

@@ -503,7 +503,9 @@ export async function fetchFitment(page, listingUrl, options = {}) {
 
     const liveTable = await hasCompatibilityTable(page);
     let rows = [];
-    if (liveTable) {
+    if (page.snapshotOnly) {
+      rows = (await extractCompatibilityData(page)).compatibility;
+    } else if (liveTable) {
       const onLiveListing = /\/itm\//i.test(page.url());
       if (!onLiveListing) {
         console.log(

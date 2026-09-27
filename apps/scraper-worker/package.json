@@ -23,6 +23,7 @@
     "@sparticuz/chromium": "^153.0.0",
     "bullmq": "^6.3.1",
     "ioredis": "^6.0.0",
+    "linkedom": "^0.18.12",
     "puppeteer-core": "^25.9.0",
     "zod": "catalog:"
   },
