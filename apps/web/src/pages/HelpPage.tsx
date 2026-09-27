@@ -6,7 +6,7 @@ import { useSessionUser } from "../lib/session";
 const CARDS = [
   [
     "Getting Started",
-    "Create a free account, sign in, then download the extension from your dashboard and load it into Chrome.",
+    "Download the extension, unzip it, and load the folder into Chrome.",
   ],
   [
     "Installing the Extension",
@@ -28,11 +28,11 @@ const FAQS = [
   ],
   [
     "Is the extension public?",
-    "The extension is distributed directly to customers rather than through the Chrome Web Store. Sign in, download it from your dashboard, and signing in here pairs that install with your account.",
+    "Download the zip from this site, unzip it, and load it in Chrome. No account is required.",
   ],
   [
-    "Why does the extension need authentication?",
-    "Pairing ties the installed extension to your eBay Sell Similar account using a short-lived one-time token. The website never copies your login cookies into eBay pages.",
+    "Do I need an account?",
+    "No. Download the extension and use scrape and fill on an eBay listing page.",
   ],
   [
     "What is Full Scrape?",
@@ -52,7 +52,7 @@ export function HelpPage() {
   const { name, email } = useSessionUser();
   return (
     <AppShell name={name} email={email}>
-      <DashboardHeader title="How can we help?" subtitle="Guides for the extension and your account." />
+      <DashboardHeader title="How can we help?" subtitle="Guides for downloading the extension and using scrape and fill." />
       <div className="grid gap-4 md:grid-cols-2">
         {CARDS.map(([title, copy]) => (
           <DarkCard key={title}>

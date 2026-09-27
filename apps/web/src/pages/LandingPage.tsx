@@ -75,11 +75,8 @@ export function LandingPage() {
           ))}
         </nav>
         <div className="nav-actions">
-          <Link className="btn-text" to="/login">
-            Login
-          </Link>
-          <Link className="btn-pill" to="/register">
-            Sign Up
+          <Link className="btn-pill" to="/onboarding/install">
+            Download
           </Link>
         </div>
       </header>
@@ -374,8 +371,8 @@ export function LandingPage() {
                   <li>Priority scrape throughput</li>
                   <li>Saved fill presets</li>
                 </ul>
-                <Link className="btn-primary" to="/register">
-                  Sign Up
+                <Link className="btn-primary" to="/onboarding/install">
+                  Download
                 </Link>
               </article>
             </Reveal>
@@ -428,8 +425,7 @@ export function LandingPage() {
               <details>
                 <summary>How do I install the extension?</summary>
                 <p>
-                  Create a free account, then download the extension from your dashboard and load it into Chrome.
-                  After install, return here so we can connect the extension to your account. Pin
+                  Download the extension, unzip it, and load it into Chrome. Pin
                   the icon, then open eBay’s Create or Edit Listing page.
                 </p>
               </details>
@@ -478,8 +474,7 @@ export function LandingPage() {
                 {link.label}
               </a>
             ))}
-            <Link to="/login">Login</Link>
-            <Link to="/register">Sign Up</Link>
+            <Link to="/onboarding/install">Download</Link>
           </nav>
         </div>
         <div className="footer-bottom">

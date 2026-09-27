@@ -24,13 +24,13 @@ export function ReadyPage() {
         </div>
         <h1 className="mt-6 text-3xl font-extrabold">You&apos;re All Set!</h1>
         <p className="mt-2 text-mute">
-          Your eBay Sell Similar account is ready
-          {installed ? " and the extension is installed." : "."}
+          The extension is ready to scrape and fill on eBay
+          {installed ? " and it is installed in this browser." : "."}
         </p>
         <DarkCard className="mt-8 text-left">
           <SetupChecklist
             items={[
-              { ok: true, label: "Account created and active" },
+              { ok: true, label: "No account needed" },
               {
                 ok: installed,
                 label: installed

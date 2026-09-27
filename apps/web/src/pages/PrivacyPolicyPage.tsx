@@ -37,22 +37,14 @@ export function PrivacyPolicyPage() {
 
         <Section title="What we collect">
           <p>
-            <strong className="text-ink">Account information.</strong> When you create an
-            account we store your email address and a hashed password. We never store your
-            password in readable form. When you sign in we store a session so you stay signed
-            in.
+            <strong className="text-ink">No account.</strong> You do not create an account or
+            sign in. We do not collect an email address or password to use scrape and fill.
           </p>
           <p>
             <strong className="text-ink">Listings you choose to copy.</strong> When you run
             the extension we receive the eBay listing URL or item ID you enter, and the public
-            listing details read from it: title, price, photos, item specifics, condition,
-            description, and vehicle compatibility. These are stored against your account so
-            you can see your own history.
-          </p>
-          <p>
-            <strong className="text-ink">Local extension state.</strong> The extension records
-            which account it is paired with in your browser&apos;s local storage. That stays on
-            your device.
+            listing details read from it: item specifics and vehicle compatibility. Those
+            details are used to fill the listing you are editing.
           </p>
         </Section>
 
@@ -71,9 +63,8 @@ export function PrivacyPolicyPage() {
 
         <Section title="How we use it">
           <p>
-            To copy listing details into your own eBay draft, to keep a history of your runs so
-            you can revisit them, to sign you in, and to send account emails such as email
-            verification and password resets.
+            To copy item specifics and vehicle compatibility into your own eBay draft when you
+            ask the extension to scrape and fill.
           </p>
           <p>
             Recently scraped listings are cached for a few minutes so repeating the same
@@ -92,9 +83,8 @@ export function PrivacyPolicyPage() {
         <Section title="Who processes data for us">
           <p>
             We use a small number of service providers purely to run the product: a cloud
-            database for accounts and listing history, an email provider for account emails,
-            and hosting providers for the website and API. They process data on our
-            instructions only.
+            hosting providers for the website and API. They process data on our instructions
+            only.
           </p>
         </Section>
 
@@ -114,8 +104,8 @@ export function PrivacyPolicyPage() {
             filled.
           </p>
           <p>
-            <strong className="text-ink">Storage</strong> to remember which account the
-            extension is paired with.
+            <strong className="text-ink">Storage</strong> to remember extension settings in
+            this browser.
           </p>
           <p>
             <strong className="text-ink">Tabs</strong> to open the setup page once, when the
@@ -125,12 +115,12 @@ export function PrivacyPolicyPage() {
 
         <Section title="Retention and deletion">
           <p>
-            We keep your account and listing history until you ask us to delete it. To request
-            deletion of your account and its data, email{" "}
+            Scrape results are cached briefly so the same listing is not fetched again right
+            away. To ask about data, email{" "}
             <a className="text-ink underline" href={`mailto:${CONTACT_EMAIL}`}>
               {CONTACT_EMAIL}
             </a>
-            . Uninstalling the extension removes the local pairing state from your browser
+            . Uninstalling the extension removes its local settings from your browser
             immediately.
           </p>
         </Section>
@@ -145,7 +135,7 @@ export function PrivacyPolicyPage() {
         <Section title="Changes">
           <p>
             If this policy changes materially we will update the date at the top of this page,
-            and where the change is significant we will notify you by email.
+            and where the change is significant we will update this page.
           </p>
         </Section>
 

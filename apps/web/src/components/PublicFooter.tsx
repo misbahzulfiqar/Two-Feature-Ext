@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { AppLogo } from "./AppLogo";
-import { GradientButton, SecondaryButton } from "./Buttons";
+import { GradientButton } from "./Buttons";
 import { PageContainer } from "./LayoutBits";
 
 export function PublicFooter() {
@@ -15,8 +15,7 @@ export function PublicFooter() {
           <a href="/#faq">FAQ</a>
         </nav>
         <div className="flex gap-2">
-          <SecondaryButton href="/login">Login</SecondaryButton>
-          <GradientButton href="/register">Sign Up</GradientButton>
+          <GradientButton href="/onboarding/install">Download</GradientButton>
         </div>
       </PageContainer>
       <PageContainer className="mt-6 flex flex-col gap-2 text-xs text-faint md:flex-row md:justify-between">

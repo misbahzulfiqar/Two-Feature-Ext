@@ -26,7 +26,7 @@ const STORE_STEPS = [
   ],
   [
     "Pin it and come back",
-    "Open Chrome's puzzle-piece menu and pin eBay Sell Similar so it stays visible. Then return here and press Check Again to link it to your account.",
+    "Open Chrome's puzzle-piece menu and pin eBay Sell Similar so it stays visible. Then open an eBay Create or Edit Listing page and use the panel.",
   ],
 ] as const;
 
@@ -67,8 +67,8 @@ export function InstallPage() {
           </>
         ) : (
           <p className="mt-3 text-sm text-mute">
-            Download the extension, load it into Chrome using the steps below, then return here so
-            we can connect it to this account.
+            Download the extension and load it into Chrome using the steps below. No account is
+            required.
           </p>
         )}
         <div className="mt-6">

@@ -12,7 +12,6 @@ import { randomUUID } from "node:crypto";
 import type { Request, Response } from "express";
 import { getScrapeListingQueue } from "../scrape-listing-queue.js";
 import { getAdminSettings } from "../admin/settings.js";
-import type { Auth } from "../auth.js";
 import { persistQueuedJobCreated, resolveScrapeActor } from "../scrape-records.js";
 
 function correlationId(req: Request): CorrelationId {
@@ -22,7 +21,6 @@ function correlationId(req: Request): CorrelationId {
 export function createScrapeJobsHandlers(env: {
   REDIS_URL?: string;
   MONGO_URL?: string;
-  auth?: Auth;
 }) {
   return {
     createScrapeJob: async function createScrapeJob(req: Request, res: Response) {
@@ -96,7 +94,6 @@ export function createScrapeJobsHandlers(env: {
           ? await resolveScrapeActor({
               mongoUrl: env.MONGO_URL,
               req,
-              auth: env.auth,
             })
           : {};
         const record = await createQueuedScrapeJob(env.MONGO_URL, {
@@ -109,7 +106,6 @@ export function createScrapeJobsHandlers(env: {
         await persistQueuedJobCreated({
           mongoUrl: env.MONGO_URL,
           req,
-          auth: env.auth,
           jobId,
           listingUrl: parsed.data.listingUrl,
           scrapeMode,

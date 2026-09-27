@@ -17,7 +17,6 @@
     "@sell-similar/logging": "workspace:*",
     "@sell-similar/scraper-worker": "workspace:*",
     "@sell-similar/validation": "workspace:*",
-    "better-auth": "^1.7.2",
     "bullmq": "^6.3.1",
     "express": "^5.2.1",
     "ioredis": "^6.0.0",

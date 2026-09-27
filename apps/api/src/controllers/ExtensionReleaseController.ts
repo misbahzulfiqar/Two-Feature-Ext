@@ -3,9 +3,7 @@ import { createReadStream } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { findMonorepoRoot } from "@sell-similar/config";
-import { fromNodeHeaders } from "better-auth/node";
 import type { Request, Response } from "express";
-import type { Auth } from "../auth.js";
 
 /**
  * Serves the self-hosted extension build.
@@ -94,32 +92,10 @@ async function releaseHash(release: ExtensionRelease): Promise<string> {
   return digest;
 }
 
-async function requireUser(auth: Auth, req: Request, res: Response) {
-  const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers) });
-  if (!session?.user) {
-    res.status(401).json({
-      ok: false,
-      error: { code: "UNAUTHENTICATED", message: "Sign in to download the extension" },
-    });
-    return null;
-  }
-  if ("banned" in session.user && session.user.banned) {
-    res.status(403).json({
-      ok: false,
-      error: { code: "ACCOUNT_DISABLED", message: "This account has been disabled" },
-    });
-    return null;
-  }
-  return session.user;
-}
-
-export function createExtensionReleaseHandlers(auth: Auth) {
+export function createExtensionReleaseHandlers() {
   return {
     /** Metadata for the dashboard: version, size, build time, checksum. */
-    releaseInfo: async function releaseInfo(req: Request, res: Response) {
-      if (!(await requireUser(auth, req, res))) {
-        return;
-      }
+    releaseInfo: async function releaseInfo(_req: Request, res: Response) {
 
       const release = await findLatestRelease();
       if (!release) {
@@ -145,10 +121,7 @@ export function createExtensionReleaseHandlers(auth: Auth) {
     },
 
     /** Streams the zip. Same stable URL every time; newest build every time. */
-    download: async function download(req: Request, res: Response) {
-      if (!(await requireUser(auth, req, res))) {
-        return;
-      }
+    download: async function download(_req: Request, res: Response) {
 
       const release = await findLatestRelease();
       if (!release) {

@@ -33,7 +33,7 @@ export function ChromeExtensionCard({
             <p className="mt-2 max-w-xl text-sm text-mute">
               {installed
                 ? `eBay Sell Similar ${version ? `v${version}` : ""} is installed and ready inside eBay’s listing editor.`
-                : "Download eBay Sell Similar from here, load it into Chrome, then return to connect it to this account."}
+                : "Download eBay Sell Similar from here and load it into Chrome. Then open an eBay listing page."}
             </p>
           </div>
         </div>

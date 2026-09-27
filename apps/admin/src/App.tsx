@@ -1,6 +1,5 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { AdminRoute } from "./components/admin/layout/AdminRoute";
-import { AdminLoginPage } from "./pages/admin/AdminLoginPage";
 import { AdminDashboardPage } from "./pages/admin/AdminDashboardPage";
 import { AdminUsersPage } from "./pages/admin/AdminUsersPage";
 import { AdminUserDetailsPage } from "./pages/admin/AdminUserDetailsPage";
@@ -17,9 +16,9 @@ import { AdminProfilePage } from "./pages/admin/AdminProfilePage";
 export function App() {
   return (
     <Routes>
-      <Route path="/" element={<AdminLoginPage />} />
-      <Route path="/login" element={<AdminLoginPage />} />
-      <Route path="/admin/login" element={<AdminLoginPage />} />
+      <Route path="/" element={<Navigate to="/admin" replace />} />
+      <Route path="/login" element={<Navigate to="/admin" replace />} />
+      <Route path="/admin/login" element={<Navigate to="/admin" replace />} />
       <Route
         path="/admin"
         element={

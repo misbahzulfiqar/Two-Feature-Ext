@@ -7,8 +7,6 @@ export const apiEnvSchema = z.object({
   LOG_LEVEL: z.string().default("info"),
   API_PORT: z.coerce.number().int().positive().default(3001),
   API_BASE_URL: z.string().url(),
-  BETTER_AUTH_SECRET: z.string().min(32),
-  BETTER_AUTH_URL: z.string().url(),
   WEB_APP_URL: z.string().url().default("https://two-feature-ext-web.vercel.app"),
   EXTENSION_INSTALLED_URL: z
     .string()
@@ -22,14 +20,6 @@ export const apiEnvSchema = z.object({
   MONGO_URL: z.preprocess(
     (value) => (value === "" || value === undefined ? undefined : value),
     z.string().min(1).optional(),
-  ),
-  ADMIN_BOOTSTRAP_EMAIL: z.preprocess(
-    (value) => (value === "" || value === undefined ? undefined : value),
-    z.string().email().optional(),
-  ),
-  ADMIN_BOOTSTRAP_PASSWORD: z.preprocess(
-    (value) => (value === "" || value === undefined ? undefined : value),
-    z.string().min(8).optional(),
   ),
   ADMIN_APP_URL: z.string().url().default("https://two-feature-ext-admin.vercel.app"),
   EMAIL_FROM: z.preprocess(

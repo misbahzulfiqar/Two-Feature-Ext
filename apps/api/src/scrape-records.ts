@@ -1,9 +1,7 @@
 import type { ScrapeMode, ScrapedListingData } from "@sell-similar/contracts";
 import { applyScrapeJobResult, recordFinishedScrapeJob } from "@sell-similar/ebay-models";
-import { fromNodeHeaders } from "better-auth/node";
 import type { Request } from "express";
 import { randomUUID } from "node:crypto";
-import type { Auth } from "./auth.js";
 import { writeAuditEvent } from "./admin/audit.js";
 import { adminCollection } from "./admin/db.js";
 import { getAdminSettings } from "./admin/settings.js";
@@ -32,16 +30,7 @@ export type ScrapeActor = {
 export async function resolveScrapeActor(input: {
   mongoUrl: string;
   req: Request;
-  auth?: Auth;
 }): Promise<ScrapeActor> {
-  if (input.auth) {
-    const session = await input.auth.api.getSession({
-      headers: fromNodeHeaders(input.req.headers),
-    });
-    if (session?.user?.id) {
-      return { userId: session.user.id, userEmail: session.user.email };
-    }
-  }
   const claimedId = String(input.req.headers["x-extension-user-id"] ?? "").trim();
   if (!claimedId) {
     return {};
@@ -98,7 +87,6 @@ async function writeScrapeAudit(input: {
 
 export async function persistHttpScrape(input: {
   mongoUrl?: string;
-  auth?: Auth;
   req: Request;
   listingUrl: string;
   scrapeMode: ScrapeMode;
@@ -115,7 +103,6 @@ export async function persistHttpScrape(input: {
     const actor = await resolveScrapeActor({
       mongoUrl: input.mongoUrl,
       req: input.req,
-      auth: input.auth,
     });
     const settings = await getAdminSettings(input.mongoUrl);
     const record = await recordFinishedScrapeJob(input.mongoUrl, {
@@ -183,7 +170,6 @@ export async function persistHttpScrape(input: {
 export async function persistQueuedJobCreated(input: {
   mongoUrl: string;
   req: Request;
-  auth?: Auth;
   jobId: string;
   listingUrl: string;
   scrapeMode: ScrapeMode;
@@ -192,7 +178,6 @@ export async function persistQueuedJobCreated(input: {
   const actor = await resolveScrapeActor({
     mongoUrl: input.mongoUrl,
     req: input.req,
-    auth: input.auth,
   });
   if (actor.userId) {
     await rememberUserScrapePreference(input.mongoUrl, actor.userId, input.scrapeMode);
@@ -212,7 +197,6 @@ export async function persistQueuedJobCreated(input: {
 export async function persistApplyResult(input: {
   mongoUrl: string;
   req: Request;
-  auth?: Auth;
   jobId: string;
   fitmentCount?: number;
   imageCount?: number;
@@ -230,7 +214,6 @@ export async function persistApplyResult(input: {
   const actor = await resolveScrapeActor({
     mongoUrl: input.mongoUrl,
     req: input.req,
-    auth: input.auth,
   });
   await writeScrapeAudit({
     mongoUrl: input.mongoUrl,
