@@ -30,6 +30,7 @@ import {
   type FitmentMainResponse,
 } from "../lib/fitment-main-world.ts";
 import {
+  FITMENT_PAGE_PROGRESS,
   isClearScrapeCacheRequest,
   isCollectFitmentPagesRequest,
   isReportApplyRequest,
@@ -339,7 +340,22 @@ export default defineBackground(() => {
 
   browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (isCollectFitmentPagesRequest(message)) {
-      void openListingAndCollectFitment(message.listingUrl)
+      const panelTabId = sender.tab?.id;
+      void openListingAndCollectFitment(message.listingUrl, (progress) => {
+        console.log(
+          `[Background] reading page ${progress.page}, ${progress.vehicles} vehicles`,
+        );
+        if (panelTabId == null) {
+          return;
+        }
+        void browser.tabs
+          .sendMessage(panelTabId, {
+            type: FITMENT_PAGE_PROGRESS,
+            page: progress.page,
+            vehicles: progress.vehicles,
+          })
+          .catch(() => undefined);
+      })
         .then((tables) => {
           console.log(`[Background] fitment pages collected: ${tables.length}`);
           sendResponse({ tables });

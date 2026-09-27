@@ -2,6 +2,7 @@ import type { ScrapedListingData, ScrapeMode } from "@sell-similar/contracts";
 
 export const SCRAPE_LISTING = "scrape-listing";
 export const COLLECT_FITMENT_PAGES = "collect-fitment-pages";
+export const FITMENT_PAGE_PROGRESS = "fitment-page-progress";
 export const CLEAR_SCRAPE_CACHE = "clear-scrape-cache";
 export const SCRAPE_PROGRESS = "scrape-progress";
 

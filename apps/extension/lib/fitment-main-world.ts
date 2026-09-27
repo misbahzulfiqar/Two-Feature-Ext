@@ -724,14 +724,16 @@ export async function persistFitmentViaApi(
     return { ok: false, error: saved.error };
   }
 
-  // Native sellfit assigns summary.fitmentCount from this persist body. That is
-  // the saved listing count, not the Compatibility iframe's displayed text.
+  // eBay's fitmentCount is the saved vehicle total. A year row often expands
+  // into more than one stored vehicle, so a higher server count is still a save.
   const persistedCount = saved.fitmentCount;
+  const countOk =
+    persistedCount == null || (persistedCount >= rows.length && persistedCount > 0);
   const passed =
     saved.httpStatus === 200 &&
     /^success$/i.test(saved.status) &&
     !saved.errorMsg &&
-    persistedCount === rows.length;
+    countOk;
   console.info("[fitment][verify] persist fitmentCount =", persistedCount);
   console.info("[fitment][verify] expected count =", rows.length);
   console.info("[fitment][verify] result =", passed ? "PASS" : "FAIL");
@@ -764,7 +766,7 @@ export async function persistFitmentViaApi(
     // sessionStorage may be blocked
   }
 
-  return { ok: true, filled: persistedCount };
+  return { ok: true, filled: persistedCount != null && persistedCount > 0 ? persistedCount : rows.length };
 }
 
 

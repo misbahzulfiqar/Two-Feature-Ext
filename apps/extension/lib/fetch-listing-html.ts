@@ -245,6 +245,15 @@ async function readNewFitmentPage(
   return undefined;
 }
 
+function reportFitmentProgress(page: number, vehicles: number): void {
+  console.log(`[SellSimilar] Reading page ${page}, ${vehicles} vehicles`);
+  window.dispatchEvent(
+    new CustomEvent("sell-similar-fitment-progress", {
+      detail: { page, vehicles },
+    }),
+  );
+}
+
 function canOpenTabs(): boolean {
   try {
     return typeof browser.tabs?.create === "function";
@@ -303,6 +312,8 @@ async function appendFitmentPages(listingUrl: string, html: string): Promise<str
   }
 
   const seenRows = new Set(firstRows);
+  const firstPageVehicles = firstRows.length || Math.min(count, 20);
+  reportFitmentProgress(1, firstPageVehicles);
   console.log("[SellSimilar] reading all fitment pages", {
     count,
     firstPageRows: firstRows.length,
@@ -323,6 +334,7 @@ async function appendFitmentPages(listingUrl: string, html: string): Promise<str
       }
       chunks.push(fragment);
       const pageRows = vehicleRowTexts(fragment).length;
+      reportFitmentProgress(page, seenRows.size);
       if (count > 20 && chunks.length + 1 >= pageCount) {
         break;
       }

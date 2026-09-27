@@ -1,4 +1,4 @@
-import { useId, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import type { ScrapeProgressStage, VehicleCompatibility } from "@sell-similar/contracts";
 import {
   captureFitmentTargetEditor,
@@ -8,6 +8,7 @@ import {
 import { fillEbayListingSpecifics } from "../lib/fill-ebay-specifics.ts";
 import { fitmentLog } from "../lib/fitment-debug.ts";
 import { progressForStage } from "../lib/scrape-progress.ts";
+import { FITMENT_PAGE_PROGRESS } from "../lib/scrape-messages.ts";
 import {
   captureListingScroll,
   restoreListingPage,
@@ -44,6 +45,38 @@ export function SellSimilarAssistant() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isComplete, setIsComplete] = useState(false);
   const [showFitmentReload, setShowFitmentReload] = useState(false);
+
+  useEffect(() => {
+    const showPage = (page: number, vehicles: number): void => {
+      if (!Number.isFinite(page) || !Number.isFinite(vehicles) || page < 1) {
+        return;
+      }
+      setStatusMessage(`Reading page ${page}, ${vehicles} vehicles`);
+    };
+    const onWindowProgress = (event: Event): void => {
+      const detail = (event as CustomEvent<{ page?: number; vehicles?: number }>).detail;
+      showPage(Number(detail?.page), Number(detail?.vehicles));
+    };
+    const onRuntimeProgress = (message: unknown): void => {
+      if (
+        !message ||
+        typeof message !== "object" ||
+        !("type" in message) ||
+        message.type !== FITMENT_PAGE_PROGRESS
+      ) {
+        return;
+      }
+      const page = "page" in message ? Number(message.page) : 0;
+      const vehicles = "vehicles" in message ? Number(message.vehicles) : 0;
+      showPage(page, vehicles);
+    };
+    window.addEventListener("sell-similar-fitment-progress", onWindowProgress);
+    browser.runtime.onMessage.addListener(onRuntimeProgress);
+    return () => {
+      window.removeEventListener("sell-similar-fitment-progress", onWindowProgress);
+      browser.runtime.onMessage.removeListener(onRuntimeProgress);
+    };
+  }, []);
 
   const rootRef = useRef<HTMLElement | null>(null);
   const isBusy = isProcessing;
@@ -92,7 +125,8 @@ export function SellSimilarAssistant() {
       return result.warnings[0] ?? "Could not find the fitment section on this editor.";
     }
     if (result.sectionFound && result.filled >= total && result.skipped === 0) {
-      return `✅ Fitment saved: ${total} vehicle${total === 1 ? "" : "s"}`;
+      const saved = result.filled;
+      return `Fitment saved: ${saved} vehicle${saved === 1 ? "" : "s"}`;
     }
     const pickerFailed = result.warnings.find(
       (warning) =>
