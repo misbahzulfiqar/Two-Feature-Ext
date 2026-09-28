@@ -38,6 +38,18 @@ function applyFitment(listingData, fitmentResult) {
   return listingData;
 }
 
+function rejectedFitment(listingData, fitmentResult) {
+  if (!fitmentResult || fitmentResult.success !== false) {
+    return null;
+  }
+  return {
+    status: "failed",
+    code: fitmentResult.blocked ? "403" : "502",
+    message: fitmentResult.error || "FITMENT_SCRAPE_FAILED",
+    listingData,
+  };
+}
+
 function applyFetchedListing(listingData, fetched) {
   listingData.itemSpecifics = fetched.itemSpecifics || [];
   return listingData;
@@ -57,6 +69,10 @@ export async function processListing(page, listingUrl, options = {}) {
       await onProgress("media_extract");
       await onProgress("fitment_extract");
       const fitmentResult = await fetchFitment(page, listingUrl, options);
+      const rejected = rejectedFitment(listingData, fitmentResult);
+      if (rejected) {
+        return rejected;
+      }
       applyFitment(listingData, fitmentResult);
       await onProgress("normalize");
 
@@ -96,6 +112,10 @@ export async function processListing(page, listingUrl, options = {}) {
       await onProgress("fitment_extract");
       const fitmentResult = await fetchFitment(page, listingUrl, options);
       console.log(`[processListing] 📊 Fitment result:`, fitmentResult);
+      const rejected = rejectedFitment(listingData, fitmentResult);
+      if (rejected) {
+        return rejected;
+      }
 
       applyFitment(listingData, fitmentResult);
       await onProgress("normalize");

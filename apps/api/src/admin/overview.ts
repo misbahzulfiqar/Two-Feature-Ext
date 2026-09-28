@@ -1,5 +1,18 @@
 import { Router, type Request, type Response } from "express";
-import { loadAccounts, registerAccount, updateAccount, type PublicAccount } from "../accounts.js";
+import { runPrivilegedCreate, type AccessAuth } from "../access.js";
+import { adminCollection } from "./db.js";
+import { USERS_COLLECTION, type AuthUserDoc } from "./types.js";
+
+type PublicAccount = {
+  id: string;
+  name: string;
+  email: string;
+  role: "user" | "admin";
+  status: "active" | "disabled";
+  createdAt: string;
+  jobs: number;
+  lastActive: string | null;
+};
 
 function sendData(res: Response, data: unknown): void {
   res.json({ ok: true, data });
@@ -28,7 +41,12 @@ function monthStart(now: Date): number {
   return new Date(now.getFullYear(), now.getMonth(), 1).getTime();
 }
 
-export function createAdminOverviewRouter(mongoUrl: string | undefined): Router {
+export function createAdminOverviewRouter(options: {
+  mongoUrl: string;
+  auth: AccessAuth;
+  adminAppUrl: string;
+}): Router {
+  const { mongoUrl, auth, adminAppUrl } = options;
   const router = Router();
 
   router.get("/dashboard", async (_req, res) => {
@@ -86,17 +104,44 @@ export function createAdminOverviewRouter(mongoUrl: string | undefined): Router 
 
   router.post("/users", async (req, res) => {
     const body = readBody(req);
-    const created = await registerAccount(mongoUrl, {
-      name: body.name,
-      email: body.email,
-      password: body.password,
-      role: body.role === "admin" ? "admin" : "user",
-    });
-    if (created.error || !created.account) {
-      res.status(400).json({ ok: false, error: { code: "INVALID_REQUEST", message: created.error ?? "Could not create user" } });
+    const email = body.email.trim().toLowerCase();
+    const name = body.name.trim();
+    if (!name || !email.includes("@") || body.password.length < 8) {
+      res.status(400).json({
+        ok: false,
+        error: { code: "INVALID_REQUEST", message: "Enter a name, email, and a password of at least 8 characters." },
+      });
       return;
     }
-    sendData(res, created.account);
+    try {
+      const created = await runPrivilegedCreate(() =>
+        auth.api.signUpEmail({
+          body: { name, email, password: body.password },
+        }),
+      );
+      const userId = created?.user?.id;
+      if (!userId) {
+        res.status(400).json({
+          ok: false,
+          error: { code: "INVALID_REQUEST", message: "Could not create user" },
+        });
+        return;
+      }
+      const role = body.role === "admin" ? "admin" : "user";
+      await usersCollection(mongoUrl).then((col) =>
+        col.updateOne({ id: userId }, { $set: { role, emailVerified: true, banned: false } }),
+      );
+      const account = (await loadAccounts(mongoUrl)).find((row) => row.id === userId);
+      sendData(res, account);
+    } catch (error) {
+      res.status(400).json({
+        ok: false,
+        error: {
+          code: "INVALID_REQUEST",
+          message: error instanceof Error ? error.message : "Could not create user",
+        },
+      });
+    }
   });
 
   router.get("/users/:userId", async (req, res) => {
@@ -116,27 +161,52 @@ export function createAdminOverviewRouter(mongoUrl: string | undefined): Router 
 
   router.patch("/users/:userId", async (req, res) => {
     const body = readBody(req);
-    const user = await updateAccount(mongoUrl, String(req.params.userId), { name: body.name });
-    if (!user) {
+    const userId = String(req.params.userId);
+    const name = body.name.trim();
+    if (!name) {
+      res.status(400).json({ ok: false, error: { code: "INVALID_REQUEST", message: "Enter a name." } });
+      return;
+    }
+    const col = await usersCollection(mongoUrl);
+    const updated = await col.findOneAndUpdate({ id: userId }, { $set: { name } }, { returnDocument: "after" });
+    if (!updated) {
       res.status(404).json({ ok: false, error: { code: "NOT_FOUND", message: "User not found" } });
       return;
     }
-    sendData(res, user);
+    sendData(res, toAccount(updated));
   });
 
   router.patch("/users/:userId/status", async (req, res) => {
     const body = readBody(req);
-    const status = body.status === "disabled" ? "disabled" : "active";
-    const user = await updateAccount(mongoUrl, String(req.params.userId), { status });
-    if (!user) {
+    const userId = String(req.params.userId);
+    const banned = body.status === "disabled";
+    const col = await usersCollection(mongoUrl);
+    const updated = await col.findOneAndUpdate(
+      { id: userId },
+      { $set: { banned } },
+      { returnDocument: "after" },
+    );
+    if (!updated) {
       res.status(404).json({ ok: false, error: { code: "NOT_FOUND", message: "User not found" } });
       return;
     }
-    sendData(res, user);
+    sendData(res, toAccount(updated));
   });
 
-  router.post("/users/:userId/password-reset", (_req, res) => {
-    sendData(res, { sent: false });
+  router.post("/users/:userId/password-reset", async (req, res) => {
+    const userId = String(req.params.userId);
+    const account = (await loadAccounts(mongoUrl)).find((row) => row.id === userId);
+    if (!account) {
+      res.status(404).json({ ok: false, error: { code: "NOT_FOUND", message: "User not found" } });
+      return;
+    }
+    await auth.api.requestPasswordReset({
+      body: {
+        email: account.email,
+        redirectTo: `${adminAppUrl}/admin/login`,
+      },
+    });
+    sendData(res, { sent: true });
   });
 
   router.get("/search", async (req, res) => {
@@ -236,23 +306,33 @@ export function createAdminOverviewRouter(mongoUrl: string | undefined): Router 
   });
 
   router.get("/profile", (req, res) => {
-    const email = String(req.header("x-admin-email") ?? "admin@local");
-    const name = String(req.header("x-admin-name") ?? email.split("@")[0] ?? "Admin");
+    const user = req.accessUser;
     sendData(res, {
-      user: { id: "admin", name, email, role: "admin", lastLogin: new Date().toISOString() },
+      user: {
+        id: user?.id ?? "",
+        name: user?.name ?? "",
+        email: user?.email ?? "",
+        role: "admin",
+        lastLogin: new Date().toISOString(),
+      },
       sessions: [],
       activity: [],
     });
   });
 
-  router.patch("/profile", (req, res) => {
+  router.patch("/profile", async (req, res) => {
     const body = readBody(req);
-    const email = String(req.header("x-admin-email") ?? "admin@local");
+    const user = req.accessUser;
+    const name = body.name.trim() || user?.name || "";
+    if (user?.id && name) {
+      const col = await usersCollection(mongoUrl);
+      await col.updateOne({ id: user.id }, { $set: { name } });
+    }
     sendData(res, {
       user: {
-        id: "admin",
-        name: body.name || email.split("@")[0],
-        email,
+        id: user?.id ?? "",
+        name,
+        email: user?.email ?? "",
         role: "admin",
         lastLogin: new Date().toISOString(),
       },
@@ -262,6 +342,42 @@ export function createAdminOverviewRouter(mongoUrl: string | undefined): Router 
   });
 
   return router;
+}
+
+async function usersCollection(mongoUrl: string) {
+  return adminCollection<AuthUserDoc>(mongoUrl, USERS_COLLECTION);
+}
+
+function stamp(value: Date | string | undefined): string {
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+  if (typeof value === "string" && value) {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toISOString();
+    }
+  }
+  return new Date(0).toISOString();
+}
+
+function toAccount(doc: AuthUserDoc): PublicAccount {
+  return {
+    id: doc.id,
+    name: doc.name || doc.email,
+    email: doc.email,
+    role: doc.role === "admin" ? "admin" : "user",
+    status: doc.banned ? "disabled" : "active",
+    createdAt: stamp(doc.createdAt),
+    jobs: 0,
+    lastActive: doc.updatedAt ? stamp(doc.updatedAt) : null,
+  };
+}
+
+async function loadAccounts(mongoUrl: string): Promise<PublicAccount[]> {
+  const col = await usersCollection(mongoUrl);
+  const docs = await col.find({}).toArray().catch(() => []);
+  return docs.filter((doc) => doc.id && doc.email).map(toAccount);
 }
 
 function publicView(account: PublicAccount): PublicAccount {

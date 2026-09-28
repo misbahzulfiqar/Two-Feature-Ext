@@ -3,7 +3,6 @@ import { defineConfig } from "vite";
 
 const apiOrigin = "http://127.0.0.1:3001";
 const proxy = {
-  "/api/auth": { target: apiOrigin, changeOrigin: true },
   "/api/v1": { target: apiOrigin, changeOrigin: true },
   "/me": { target: apiOrigin, changeOrigin: true },
   "/extension": { target: apiOrigin, changeOrigin: true },

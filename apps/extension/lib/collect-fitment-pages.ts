@@ -27,7 +27,7 @@ type PageWalkProgress = {
  * Self-contained: Chrome runs this function in the page, so it cannot use outer helpers.
  * Next sits beside the table, so the search walks up from the table and ignores the photo pager.
  */
-export async function walkFitmentPagesInListing(): Promise<PageWalkResult> {
+export async function walkFitmentPagesInListing(expectedCount = 0): Promise<PageWalkResult> {
   const sleep = (ms: number): Promise<void> =>
     new Promise((resolve) => {
       setTimeout(resolve, ms);
@@ -62,9 +62,9 @@ export async function walkFitmentPagesInListing(): Promise<PageWalkResult> {
       ),
     );
 
-  const findTable = (): Element | null => {
+  const findTableIn = (root: ParentNode): Element | null => {
     const candidates = Array.from(
-      document.querySelectorAll(
+      root.querySelectorAll(
         ".motors-compatibility-table, [data-testid='d-motors-compatibility-table'], [data-testid='d-item-compatibility'], .motors-compatibility-table-wrapper, .vim.d-motors-compatibility-table",
       ),
     );
@@ -82,7 +82,7 @@ export async function walkFitmentPagesInListing(): Promise<PageWalkResult> {
     if (best) {
       return best;
     }
-    for (const candidate of Array.from(document.querySelectorAll("table"))) {
+    for (const candidate of Array.from(root.querySelectorAll("table"))) {
       const text = candidate.textContent || "";
       if (/year/i.test(text) && /make/i.test(text) && candidate.querySelector("tbody tr")) {
         return candidate;
@@ -90,6 +90,8 @@ export async function walkFitmentPagesInListing(): Promise<PageWalkResult> {
     }
     return null;
   };
+
+  const findTable = (): Element | null => findTableIn(document);
 
   const readRows = (
     table: Element,
@@ -158,21 +160,31 @@ export async function walkFitmentPagesInListing(): Promise<PageWalkResult> {
     return `<div class="motors-compatibility-table"><table class="motors-compatibility-table"><thead><tr><th>Year</th><th>Make</th><th>Model</th><th>Trim</th><th>Engine</th><th>Notes</th></tr></thead><tbody>${body}</tbody></table></div><script type="application/json" id="sell-similar-fitment-page">${json}</script>`;
   };
 
+  const clickable = (el: Element): HTMLElement | null => {
+    const inner = el.matches("button, a") ? null : el.querySelector("button, a");
+    const host = el.matches("button, a")
+      ? el
+      : inner || el.closest("button, a") || el;
+    if (!(host instanceof HTMLElement) || disabled(host) || inPhotoPager(host)) {
+      return null;
+    }
+    return host;
+  };
+
   const findNext = (table: Element): HTMLElement | null => {
     let node: Element | null = table;
     for (let depth = 0; depth < 14 && node; depth += 1) {
       const arrows = Array.from(
         node.querySelectorAll(
-          ".pagination__next, [aria-label*='next page' i], [aria-label*='Go to next' i], a[rel='next']",
+          ".pagination__next, [aria-label*='next page' i], [aria-label*='Go to next' i], [aria-label='Next' i], a[rel='next'], [data-testid='pagination-next']",
         ),
       );
       for (const arrow of arrows) {
         if (inPhotoPager(arrow)) {
           continue;
         }
-        const host = arrow.closest("button, a");
-        const target = host instanceof HTMLElement ? host : arrow;
-        if (target instanceof HTMLElement && !disabled(target)) {
+        const target = clickable(arrow);
+        if (target) {
           return target;
         }
       }
@@ -193,6 +205,50 @@ export async function walkFitmentPagesInListing(): Promise<PageWalkResult> {
       node = node.parentElement;
     }
     return null;
+  };
+
+  const press = (target: HTMLElement): void => {
+    target.scrollIntoView({ block: "center" });
+    if (target instanceof HTMLAnchorElement) {
+      target.addEventListener(
+        "click",
+        (event) => {
+          event.preventDefault();
+        },
+        { capture: true },
+      );
+    }
+    target.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
+    target.click();
+    target.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
+  };
+
+  const absoluteHref = (target: HTMLElement): string => {
+    if (target instanceof HTMLAnchorElement && target.href) {
+      return target.href;
+    }
+    const raw = target.getAttribute("href") || "";
+    if (!raw || raw === "#" || raw.startsWith("javascript:")) {
+      return "";
+    }
+    try {
+      return new URL(raw, window.location.href).toString();
+    } catch {
+      return "";
+    }
+  };
+
+  const fetchTable = async (url: string): Promise<Element | null> => {
+    try {
+      const response = await fetch(url, { credentials: "include", redirect: "follow", cache: "no-store" });
+      if (!response.ok) {
+        return null;
+      }
+      const doc = new DOMParser().parseFromString(await response.text(), "text/html");
+      return findTableIn(doc);
+    } catch {
+      return null;
+    }
   };
 
   const advertisedCount = (table: Element): number => {
@@ -231,19 +287,32 @@ export async function walkFitmentPagesInListing(): Promise<PageWalkResult> {
   const htmls: string[] = [];
   const seen = new Set<string>();
   let total = 0;
-  let advertised = 0;
+  let advertised = Math.max(0, Number(expectedCount) || 0);
+  const pageLimit = advertised > 20 ? Math.min(250, Math.ceil(advertised / 20) + 2) : 200;
 
-  for (let page = 1; page <= 40 && table; page += 1) {
-    const rows = readRows(table);
+  const remember = (rows: ReturnType<typeof readRows>, page: number): boolean => {
     const signature = signatureOf(rows);
     if (!signature || seen.has(signature)) {
-      break;
+      return false;
     }
     seen.add(signature);
     htmls.push(embed(rows));
     total += rows.length;
-    advertised = Math.max(advertised, advertisedCount(table));
     progress.__sellSimilarFitmentProgress = { page, vehicles: total, done: false };
+    return true;
+  };
+
+  const finished = (): boolean => advertised > 0 && total >= advertised;
+
+  for (let page = 1; page <= pageLimit && table; page += 1) {
+    const rows = readRows(table);
+    if (!remember(rows, page)) {
+      break;
+    }
+    advertised = Math.max(advertised, advertisedCount(table));
+    if (finished()) {
+      break;
+    }
 
     let next = findNext(table);
     const waitNext = Date.now();
@@ -252,13 +321,28 @@ export async function walkFitmentPagesInListing(): Promise<PageWalkResult> {
       table = findTable() || table;
       next = findNext(table);
     }
+    if (!next && !finished() && rows.length >= 20) {
+      const seeAll = Array.from(document.querySelectorAll("a, button")).find((el) => {
+        if (inPhotoPager(el)) {
+          return false;
+        }
+        const text = clean(el.textContent || "");
+        return /see all|show all|view all/i.test(text) && /vehicle|compat|fit/i.test(text);
+      });
+      if (seeAll instanceof HTMLElement && !disabled(seeAll)) {
+        press(seeAll);
+        await sleep(900);
+        table = findTable() || table;
+        next = findNext(table);
+      }
+    }
     if (!next) {
       break;
     }
 
     const before = firstRowText(table);
-    next.scrollIntoView({ block: "center" });
-    next.click();
+    const href = absoluteHref(next);
+    press(next);
     const changedAt = Date.now();
     let moved = false;
     while (Date.now() - changedAt < 15000) {
@@ -270,9 +354,38 @@ export async function walkFitmentPagesInListing(): Promise<PageWalkResult> {
         break;
       }
     }
-    if (!moved) {
+    if (moved) {
+      continue;
+    }
+
+    const fetched = href ? await fetchTable(href) : null;
+    if (!fetched || !firstRowText(fetched) || firstRowText(fetched) === before) {
       break;
     }
+
+    let fetchedTable: Element | null = fetched;
+    for (let fetchedPage = page + 1; fetchedPage <= pageLimit && fetchedTable; fetchedPage += 1) {
+      const fetchedRows = readRows(fetchedTable);
+      if (!remember(fetchedRows, fetchedPage)) {
+        fetchedTable = null;
+        break;
+      }
+      advertised = Math.max(advertised, advertisedCount(fetchedTable));
+      if (finished()) {
+        break;
+      }
+      const fetchedNext = findNext(fetchedTable);
+      const fetchedHref = fetchedNext ? absoluteHref(fetchedNext) : "";
+      if (!fetchedHref) {
+        break;
+      }
+      const beforeFetched = firstRowText(fetchedTable);
+      fetchedTable = await fetchTable(fetchedHref);
+      if (!fetchedTable || firstRowText(fetchedTable) === beforeFetched) {
+        break;
+      }
+    }
+    break;
   }
 
   progress.__sellSimilarFitmentProgress = {
@@ -337,7 +450,7 @@ async function readWalkProgress(tabId: number): Promise<PageWalkProgress | null>
 export async function openListingAndCollectFitment(
   listingUrl: string,
   onProgress?: (progress: FitmentPageProgress) => void,
-  _expectedCount = 0,
+  expectedCount = 0,
 ): Promise<CollectedFitmentPages> {
   const empty: CollectedFitmentPages = { tables: [], advertised: 0, vehicles: 0 };
   let tabId: number | undefined;
@@ -356,6 +469,7 @@ export async function openListingAndCollectFitment(
         target: { tabId },
         world: "MAIN",
         func: walkFitmentPagesInListing,
+        args: [expectedCount],
       })
       .finally(() => {
         settled = true;

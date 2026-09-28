@@ -1,10 +1,14 @@
 import { loadEnv, loadRootEnv } from "@sell-similar/config";
 import type { HealthResponse } from "@sell-similar/contracts";
 import { createLogger, withCorrelationId } from "@sell-similar/logging";
+import { toNodeHandler } from "better-auth/node";
 import express from "express";
 import morgan from "morgan";
-import { loginAccount, registerAccount } from "./accounts.js";
+import { ACCESS_PATH, createAccess, type AccessAuth } from "./access.js";
+import { ensureAdminAccount } from "./admin/ensure-admin.js";
 import { createAdminOverviewRouter } from "./admin/overview.js";
+import { requireAdmin } from "./admin/require-admin.js";
+import { ensureAdminDataStores } from "./admin/ensure-db.js";
 import { createExtensionReleaseHandlers } from "./controllers/ExtensionReleaseController.js";
 import {
   clearScrapeCacheHandler,
@@ -70,40 +74,57 @@ const liveScrape = process.env.VERCEL
     }
   : {};
 
+let accessAuth: AccessAuth | undefined;
+if (env?.MONGO_URL) {
+  try {
+    accessAuth = await createAccess(env);
+  } catch (error) {
+    logger.error(
+      { err: error instanceof Error ? error.message : "access failed" },
+      "account sign-in failed to start",
+    );
+  }
+}
+
 if (env) {
+  if (accessAuth) {
+    app.all(`${ACCESS_PATH}/{*path}`, toNodeHandler(accessAuth));
+  } else {
+    app.all(`${ACCESS_PATH}/{*path}`, (_req, res) => {
+      res.status(503).json({
+        ok: false,
+        error: { code: "AUTH_UNAVAILABLE", message: "Set MONGO_URL to enable accounts." },
+      });
+    });
+  }
   app.use(express.json({ limit: "20mb" }));
-  app.post("/api/accounts/register", async (req, res) => {
-    const body = req.body as { name?: string; email?: string; password?: string };
-    const created = await registerAccount(env.MONGO_URL, {
-      name: body?.name ?? "",
-      email: body?.email ?? "",
-      password: body?.password ?? "",
+  if (accessAuth && env.MONGO_URL) {
+    const auth = accessAuth;
+    const mongoUrl = env.MONGO_URL;
+    await ensureAdminDataStores(mongoUrl).catch((error: unknown) => {
+      logger.warn(
+        { err: error instanceof Error ? error.message : "store setup failed" },
+        "mongo stores",
+      );
     });
-    if (created.error || !created.account) {
-      res.status(400).json({
-        ok: false,
-        error: { code: "INVALID_REQUEST", message: created.error ?? "Could not create the account" },
-      });
-      return;
-    }
-    res.json({ ok: true, data: created.account });
-  });
-  app.post("/api/accounts/login", async (req, res) => {
-    const body = req.body as { email?: string; password?: string };
-    const signedIn = await loginAccount(env.MONGO_URL, {
-      email: body?.email ?? "",
-      password: body?.password ?? "",
+    await ensureAdminAccount({
+      auth,
+      mongoUrl,
+      email: env.ADMIN_BOOTSTRAP_EMAIL,
+      password: env.ADMIN_BOOTSTRAP_PASSWORD,
+      logger,
+    }).catch((error: unknown) => {
+      logger.warn(
+        { err: error instanceof Error ? error.message : "admin setup failed" },
+        "admin account",
+      );
     });
-    if (signedIn.error || !signedIn.account) {
-      res.status(401).json({
-        ok: false,
-        error: { code: "INVALID_CREDENTIALS", message: signedIn.error ?? "Invalid email or password." },
-      });
-      return;
-    }
-    res.json({ ok: true, data: signedIn.account });
-  });
-  app.use("/api/v1/admin", createAdminOverviewRouter(env.MONGO_URL));
+    app.use(
+      "/api/v1/admin",
+      requireAdmin(auth),
+      createAdminOverviewRouter({ mongoUrl, auth, adminAppUrl: env.ADMIN_APP_URL }),
+    );
+  }
   const extensionRelease = createExtensionReleaseHandlers();
   app.get("/extension/release", extensionRelease.releaseInfo);
   app.get("/extension/download", extensionRelease.download);
