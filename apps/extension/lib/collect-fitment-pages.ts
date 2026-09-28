@@ -469,21 +469,6 @@ function frameRoot(doc: Document): Element | null {
   );
 }
 
-function frameScope(doc: Document): Element {
-  let node = frameRoot(doc);
-  for (let depth = 0; depth < 10 && node; depth += 1) {
-    if (
-      node.querySelector(
-        ".pagination__next, [aria-label*='Go to next' i], [aria-label*='Next page' i], a[rel='next']",
-      )
-    ) {
-      return node;
-    }
-    node = node.parentElement;
-  }
-  return frameRoot(doc) || doc.body;
-}
-
 function frameRows(doc: Document): FrameFitmentRow[] {
   const root = frameRoot(doc);
   const table =
@@ -527,31 +512,79 @@ function frameFirstRow(doc: Document): string {
   return row ? frameClean(row.textContent || "") : "";
 }
 
-function frameClickNext(doc: Document): boolean {
-  const scope = frameScope(doc);
-  const next =
-    scope.querySelector(".pagination__next") ||
-    scope.querySelector("[aria-label*='Go to next' i]") ||
-    scope.querySelector("[aria-label*='Next page' i]") ||
-    scope.querySelector("a[rel='next']");
-  const host = next?.closest("button, a") || next;
-  if (host instanceof HTMLElement && !frameDisabled(host)) {
-    host.scrollIntoView({ block: "center" });
-    host.click();
-    return true;
+function deepElements(root: ParentNode): Element[] {
+  const found: Element[] = [];
+  for (const node of Array.from(root.querySelectorAll("*"))) {
+    found.push(node);
+    if (node.shadowRoot) {
+      found.push(...deepElements(node.shadowRoot));
+    }
   }
-  const current = scope.querySelector("[aria-current='page']");
-  const currentNum = Number.parseInt(frameClean(current?.textContent || ""), 10) || 1;
-  const wanted = String(currentNum + 1);
-  const pageLink = Array.from(scope.querySelectorAll("a, button")).find(
-    (el) => frameClean(el.textContent || "") === wanted && !frameDisabled(el),
+  return found;
+}
+
+function frameSearchRoots(doc: Document): ParentNode[] {
+  const roots: ParentNode[] = [];
+  let node: Element | null = frameRoot(doc);
+  for (let depth = 0; depth < 6 && node; depth += 1) {
+    roots.push(node);
+    node = node.parentElement;
+  }
+  if (roots.length === 0) {
+    roots.push(doc.body);
+  }
+  return roots;
+}
+
+function inPhotoControl(el: Element): boolean {
+  return Boolean(
+    el.closest(
+      ".ux-image-carousel, .x-photos, #PicturePanel, .filmstrip, [class*='carousel'], [class*='image-treatment']",
+    ),
   );
-  if (pageLink instanceof HTMLElement) {
-    pageLink.scrollIntoView({ block: "center" });
-    pageLink.click();
-    return true;
+}
+
+function frameNextControl(doc: Document): HTMLElement | null {
+  const controls: Element[] = [];
+  for (const root of frameSearchRoots(doc)) {
+    controls.push(...deepElements(root).filter((el) => el.matches("button, a, [role='button']")));
   }
-  return false;
+  const current = controls.find((el) => el.getAttribute("aria-current") === "page" && !inPhotoControl(el));
+  const wanted = String((Number.parseInt(frameClean(current?.textContent || ""), 10) || 1) + 1);
+  const ranked = controls.filter((el) => {
+    if (!(el instanceof HTMLElement) || frameDisabled(el) || inPhotoControl(el)) {
+      return false;
+    }
+    const label = `${el.getAttribute("aria-label") || ""} ${el.getAttribute("title") || ""}`;
+    const text = frameClean(el.textContent || "");
+    const cls = frameClassText(el);
+    if (/next image|next photo|next slide|previous/i.test(label)) {
+      return false;
+    }
+    return (
+      /pagination__next/i.test(cls) ||
+      el.getAttribute("rel") === "next" ||
+      /next page|go to next/i.test(label) ||
+      text === wanted ||
+      new RegExp(`^go to page ${wanted}$`, "i").test(label.trim())
+    );
+  });
+  const nextArrow = ranked.find((el) => {
+    const label = `${el.getAttribute("aria-label") || ""} ${frameClassText(el)}`;
+    return /pagination__next|next page|go to next/i.test(label);
+  });
+  const chosen = (nextArrow || ranked[0]) ?? null;
+  return chosen instanceof HTMLElement ? chosen : null;
+}
+
+function frameClickNext(doc: Document): boolean {
+  const host = frameNextControl(doc);
+  if (!host) {
+    return false;
+  }
+  host.scrollIntoView({ block: "center" });
+  host.click();
+  return true;
 }
 
 function frameEmbed(rows: FrameFitmentRow[]): string {
@@ -583,7 +616,7 @@ export async function collectFitmentPagesInFrame(
   const iframe = document.createElement("iframe");
   iframe.setAttribute("aria-hidden", "true");
   iframe.style.cssText =
-    "position:fixed;right:16px;bottom:16px;width:920px;height:560px;border:0;z-index:2147483646;background:#fff;box-shadow:0 8px 28px rgba(0,0,0,.28);";
+    "position:fixed;left:0;top:0;width:1280px;height:900px;border:0;opacity:0;pointer-events:none;";
   iframe.src = listingUrl;
   document.documentElement.appendChild(iframe);
   try {
@@ -646,6 +679,27 @@ export async function collectFitmentPagesInFrame(
         break;
       }
       const before = frameFirstRow(doc);
+      let foundNext = frameNextControl(doc);
+      const waitNext = Date.now();
+      while (!foundNext && all.length < advertised && Date.now() - waitNext < 8000) {
+        frameRoot(doc)?.scrollIntoView({ block: "center" });
+        frameWindow.scrollBy(0, 700);
+        await frameSleep(400);
+        foundNext = frameNextControl(doc);
+      }
+      if (!foundNext) {
+        const sample = frameSearchRoots(doc)
+          .flatMap((root) => deepElements(root))
+          .filter((el) => el.matches("button, a"))
+          .slice(0, 12)
+          .map((el) => {
+            const label = el.getAttribute("aria-label") || "";
+            const text = frameClean(el.textContent || "").slice(0, 24);
+            return `${el.tagName}:${label || text || frameClassText(el).slice(0, 40)}`;
+          });
+        console.log("[SellSimilar] no next compatibility page", page, all.length, sample);
+        break;
+      }
       if (!frameClickNext(doc)) {
         console.log("[SellSimilar] no next compatibility page", page, all.length);
         break;
