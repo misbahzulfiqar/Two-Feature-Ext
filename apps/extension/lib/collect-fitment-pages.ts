@@ -646,7 +646,7 @@ async function readLiveSnapshot(tabId: number): Promise<LiveFitmentSnapshot | nu
     return value;
   } catch (error) {
     console.log(
-      "[SellSimilar] fitment read failed",
+      "[SellSimilar] fitment read failed!!!!!",
       error instanceof Error ? error.message : error,
     );
     return null;
