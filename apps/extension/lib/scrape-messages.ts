@@ -16,6 +16,7 @@ export type CollectFitmentPagesResponseMessage = {
   tables: string[];
   advertised?: number;
   vehicles?: number;
+  note?: string;
 };
 
 export function isCollectFitmentPagesRequest(

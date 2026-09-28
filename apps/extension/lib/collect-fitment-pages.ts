@@ -8,6 +8,7 @@ export type CollectedFitmentPages = {
   tables: string[];
   advertised: number;
   vehicles: number;
+  note?: string;
 };
 
 type FitmentRow = {
@@ -366,6 +367,218 @@ function pageMessage(state: PageWalkProgress): string {
   return state.message || `Scraped page ${state.page} — ${state.vehicles} vehicles found so far`;
 }
 
+type LiveFitmentRow = {
+  year: string;
+  make: string;
+  model: string;
+  trim: string;
+  engine: string;
+  notes: string;
+};
+
+export type LiveFitmentSnapshot = {
+  rows: LiveFitmentRow[];
+  signature: string;
+  advertised: number;
+  nextLabel: string;
+  controls: string[];
+};
+
+/** One compatibility page. Self-contained so Chrome can inject it. */
+export function readLiveFitmentSnapshot(): LiveFitmentSnapshot {
+  const clean = (text: string): string =>
+    String(text || "")
+      .replace(/\u00a0/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  const classText = (el: Element): string => (typeof el.className === "string" ? el.className : "");
+  const disabled = (el: Element | null): boolean =>
+    !el ||
+    el.getAttribute("aria-disabled") === "true" ||
+    el.hasAttribute("disabled") ||
+    /disabled|pagination__next--disabled/i.test(classText(el));
+  const inPhotos = (el: Element): boolean =>
+    Boolean(el.closest(".ux-image-carousel, .x-photos, #PicturePanel, .filmstrip, [class*='carousel']"));
+
+  const root =
+    document.querySelector(".motors-compatibility-table") ||
+    document.querySelector("[data-testid='d-motors-compatibility-table']") ||
+    document.querySelector("[data-testid='d-item-compatibility']") ||
+    document.querySelector(".motors-compatibility-table-wrapper") ||
+    document.querySelector(".comp-fitment-selector");
+  root?.scrollIntoView({ block: "center" });
+
+  const table =
+    (root?.tagName === "TABLE" ? root : root?.querySelector("table")) ||
+    document.querySelector(".motors-compatibility-table tbody")?.closest("table") ||
+    document.querySelector("[data-testid='d-item-compatibility'] table") ||
+    document.querySelector(".comp-fitment-selector table");
+
+  const rows: LiveFitmentRow[] = [];
+  const seen = new Set<string>();
+  if (table) {
+    for (const row of Array.from(table.querySelectorAll("tbody tr"))) {
+      const cells = Array.from(row.querySelectorAll("td")).map((cell) => clean(cell.textContent || ""));
+      if (cells.length < 3 || !cells[0] || !cells[1] || !cells[2]) {
+        continue;
+      }
+      const entry = {
+        year: cells[0],
+        make: cells[1],
+        model: cells[2],
+        trim: cells[3] || "",
+        engine: cells[4] || "",
+        notes: cells[5] || "",
+      };
+      const key = `${entry.year}|${entry.make}|${entry.model}|${entry.trim}|${entry.engine}`;
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      rows.push(entry);
+    }
+  }
+
+  const scopes: ParentNode[] = [];
+  let node: Element | null = root;
+  for (let depth = 0; depth < 12 && node; depth += 1) {
+    scopes.push(node);
+    node = node.parentElement;
+  }
+  if (scopes.length === 0 && document.body) {
+    scopes.push(document.body);
+  }
+  const controls: HTMLElement[] = [];
+  for (const scope of scopes) {
+    for (const el of Array.from(scope.querySelectorAll("button, a, [role='button']"))) {
+      if (el instanceof HTMLElement && !inPhotos(el)) {
+        controls.push(el);
+      }
+      if (el.shadowRoot) {
+        for (const inner of Array.from(el.shadowRoot.querySelectorAll("button, a, [role='button']"))) {
+          if (inner instanceof HTMLElement) {
+            controls.push(inner);
+          }
+        }
+      }
+    }
+  }
+  const described = controls.slice(0, 25).map((el) => {
+    const label = el.getAttribute("aria-label") || "";
+    const text = clean(el.textContent || "").slice(0, 24);
+    return `${el.tagName} label="${label}" text="${text}" class="${classText(el).slice(0, 50)}"`;
+  });
+  const current = controls.find((el) => el.getAttribute("aria-current") === "page");
+  const wanted = String((Number.parseInt(clean(current?.textContent || ""), 10) || 1) + 1);
+  const next = controls.find((el) => {
+    if (disabled(el)) {
+      return false;
+    }
+    const label = `${el.getAttribute("aria-label") || ""} ${el.getAttribute("title") || ""}`;
+    const text = clean(el.textContent || "");
+    if (/next image|next photo|next slide|previous/i.test(label)) {
+      return false;
+    }
+    return /pagination__next/i.test(classText(el)) || /next page|go to next/i.test(label) || text === wanted;
+  });
+  const hay = clean(`${root?.textContent || ""}`).slice(0, 2500);
+  const advertisedMatch =
+    hay.match(/compatible with\s+(\d+)\s+vehicle/i) || hay.match(/(\d+)\s+vehicle\(s\)/i);
+  const advertised = advertisedMatch ? Number.parseInt(advertisedMatch[1] ?? "", 10) : 0;
+  const first = rows[0];
+  const last = rows[rows.length - 1];
+  return {
+    rows,
+    signature: first ? `${rows.length}|${first.year}|${first.make}|${first.model}|${last?.year ?? ""}|${last?.model ?? ""}` : "",
+    advertised: Number.isFinite(advertised) ? advertised : 0,
+    nextLabel: next ? next.getAttribute("aria-label") || clean(next.textContent || "") || classText(next) : "",
+    controls: described,
+  };
+}
+
+/** Clicks the compatibility Next control. Self-contained so Chrome can inject it. */
+export function clickLiveFitmentNext(): boolean {
+  const clean = (text: string): string => String(text || "").replace(/\s+/g, " ").trim();
+  const classText = (el: Element): string => (typeof el.className === "string" ? el.className : "");
+  const disabled = (el: Element | null): boolean =>
+    !el ||
+    el.getAttribute("aria-disabled") === "true" ||
+    el.hasAttribute("disabled") ||
+    /disabled|pagination__next--disabled/i.test(classText(el));
+  const root =
+    document.querySelector(".motors-compatibility-table") ||
+    document.querySelector("[data-testid='d-motors-compatibility-table']") ||
+    document.querySelector("[data-testid='d-item-compatibility']") ||
+    document.querySelector(".motors-compatibility-table-wrapper") ||
+    document.querySelector(".comp-fitment-selector") ||
+    document.body;
+  const controls: HTMLElement[] = [];
+  let node: Element | null = root;
+  for (let depth = 0; depth < 12 && node; depth += 1) {
+    for (const el of Array.from(node.querySelectorAll("button, a, [role='button']"))) {
+      if (
+        el instanceof HTMLElement &&
+        !el.closest(".ux-image-carousel, .x-photos, #PicturePanel, .filmstrip, [class*='carousel']")
+      ) {
+        controls.push(el);
+      }
+    }
+    node = node.parentElement;
+  }
+  const current = controls.find((el) => el.getAttribute("aria-current") === "page");
+  const wanted = String((Number.parseInt(clean(current?.textContent || ""), 10) || 1) + 1);
+  const next = controls.find((el) => {
+    if (disabled(el)) {
+      return false;
+    }
+    const label = `${el.getAttribute("aria-label") || ""} ${el.getAttribute("title") || ""}`;
+    if (/next image|next photo|previous/i.test(label)) {
+      return false;
+    }
+    return /pagination__next/i.test(classText(el)) || /next page|go to next/i.test(label) || clean(el.textContent || "") === wanted;
+  });
+  if (!next) {
+    return false;
+  }
+  next.scrollIntoView({ block: "center" });
+  next.click();
+  return true;
+}
+
+function embedLiveRows(rows: LiveFitmentRow[]): string {
+  const escapeCell = (text: string): string =>
+    text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const body = rows
+    .map(
+      (row) =>
+        `<tr><td>${escapeCell(row.year)}</td><td>${escapeCell(row.make)}</td><td>${escapeCell(row.model)}</td><td>${escapeCell(row.trim)}</td><td>${escapeCell(row.engine)}</td><td>${escapeCell(row.notes)}</td></tr>`,
+    )
+    .join("");
+  const json = JSON.stringify(rows).replace(/</g, "\\u003c");
+  return `<div class="motors-compatibility-table"><table class="motors-compatibility-table"><thead><tr><th>Year</th><th>Make</th><th>Model</th><th>Trim</th><th>Engine</th><th>Notes</th></tr></thead><tbody>${body}</tbody></table></div><script type="application/json" id="sell-similar-fitment-page">${json}</script>`;
+}
+
+async function readLiveSnapshot(tabId: number): Promise<LiveFitmentSnapshot | null> {
+  try {
+    const injected = await browser.scripting.executeScript({
+      target: { tabId },
+      world: "MAIN",
+      func: readLiveFitmentSnapshot,
+    });
+    const value = injected[0]?.result;
+    if (!value || !Array.isArray(value.rows)) {
+      return null;
+    }
+    return value;
+  } catch (error) {
+    console.log(
+      "[SellSimilar] fitment read failed",
+      error instanceof Error ? error.message : error,
+    );
+    return null;
+  }
+}
+
 /** Opens the source listing and clicks through every compatibility page. */
 export async function openListingAndCollectFitment(
   listingUrl: string,
@@ -381,57 +594,108 @@ export async function openListingAndCollectFitment(
       return empty;
     }
     await waitForTabComplete(tabId);
-    await sleep(800);
+    await sleep(1200);
 
-    let settled = false;
-    const walk = browser.scripting
-      .executeScript({
-        target: { tabId },
-        world: "MAIN",
-        func: walkFitmentPagesInListing,
-        args: [expectedCount],
-      })
-      .catch((error: unknown) => {
-        console.log(
-          "[SellSimilar] fitment tab walk failed",
-          error instanceof Error ? error.message : error,
-        );
-        return null;
-      })
-      .finally(() => {
-        settled = true;
-      });
+    const all: LiveFitmentRow[] = [];
+    const seen = new Set<string>();
+    const seenSignatures = new Set<string>();
+    let advertised = Math.max(0, expectedCount);
+    let note = "";
+    const readyAt = Date.now();
+    let snapshot = await readLiveSnapshot(tabId);
+    while ((!snapshot || snapshot.rows.length === 0) && Date.now() - readyAt < 25000) {
+      await browser.scripting
+        .executeScript({
+          target: { tabId },
+          world: "MAIN",
+          func: () => {
+            window.scrollBy(0, 900);
+          },
+        })
+        .catch(() => undefined);
+      await sleep(500);
+      snapshot = await readLiveSnapshot(tabId);
+    }
+    if (!snapshot || snapshot.rows.length === 0) {
+      note = "The listing tab did not show the compatibility table.";
+      console.log("[SellSimilar][fitment-pages]", note, snapshot?.controls ?? []);
+      return { ...empty, note };
+    }
 
-    let lastPage = 0;
-    const watchUntil = Date.now() + 180000;
-    while (!settled && Date.now() < watchUntil) {
-      const state = await readWalkProgress(tabId);
-      if (state && state.page >= 1 && state.vehicles > 0 && state.page !== lastPage) {
-        lastPage = state.page;
-        onProgress?.({
-          page: state.page,
-          vehicles: state.vehicles,
-          message: pageMessage(state),
-        });
+    for (let page = 1; page <= 40 && snapshot; page += 1) {
+      if (!snapshot.signature || seenSignatures.has(snapshot.signature)) {
+        note = `Page ${page} repeated the same vehicles.`;
+        break;
       }
-      await sleep(400);
+      seenSignatures.add(snapshot.signature);
+      for (const row of snapshot.rows) {
+        const key = `${row.year}|${row.make}|${row.model}|${row.trim}|${row.engine}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          all.push(row);
+        }
+      }
+      advertised = Math.max(advertised, snapshot.advertised);
+      const message = `Scraped page ${page} — ${all.length} vehicles found so far`;
+      console.log("[SellSimilar][fitment-pages]", message, "next:", snapshot.nextLabel || "none", snapshot.controls.slice(0, 8));
+      onProgress?.({ page, vehicles: all.length, message });
+      if (advertised > 0 && all.length >= advertised) {
+        note = "";
+        break;
+      }
+
+      let nextLabel = snapshot.nextLabel;
+      const waitNext = Date.now();
+      while (!nextLabel && advertised > all.length && Date.now() - waitNext < 8000) {
+        await sleep(400);
+        snapshot = (await readLiveSnapshot(tabId)) ?? snapshot;
+        nextLabel = snapshot.nextLabel;
+        advertised = Math.max(advertised, snapshot.advertised);
+      }
+      if (!nextLabel) {
+        note = `No Next control after page ${page}. Controls: ${snapshot.controls.slice(0, 6).join(" | ") || "none"}`;
+        console.log("[SellSimilar][fitment-pages]", note);
+        break;
+      }
+
+      const before = snapshot.signature;
+      const clicked = await browser.scripting
+        .executeScript({
+          target: { tabId },
+          world: "MAIN",
+          func: clickLiveFitmentNext,
+        })
+        .catch(() => null);
+      if (!clicked?.[0]?.result) {
+        note = `Next control could not be clicked on page ${page}.`;
+        break;
+      }
+      const changedAt = Date.now();
+      let moved = false;
+      while (Date.now() - changedAt < 20000) {
+        await sleep(350);
+        const next = await readLiveSnapshot(tabId);
+        if (next?.signature && next.signature !== before) {
+          snapshot = next;
+          moved = true;
+          break;
+        }
+      }
+      if (!moved) {
+        note = `Page ${page + 1} did not load after clicking Next.`;
+        console.log("[SellSimilar][fitment-pages]", note);
+        break;
+      }
     }
 
-    const injected = await walk;
-    const finalState = await readWalkProgress(tabId);
-    if (finalState && finalState.page >= 1 && finalState.vehicles > 0 && finalState.page !== lastPage) {
-      onProgress?.({
-        page: finalState.page,
-        vehicles: finalState.vehicles,
-        message: pageMessage(finalState),
-      });
+    if (all.length === 0) {
+      return { ...empty, note: note || "No compatibility rows were read." };
     }
-    const result = injected?.[0]?.result;
-    const tables = Array.isArray(result?.htmls) ? result.htmls : [];
     return {
-      tables,
-      advertised: Number(result?.advertised) || 0,
-      vehicles: Number(result?.vehicles) || 0,
+      tables: [embedLiveRows(all)],
+      advertised,
+      vehicles: all.length,
+      note,
     };
   } catch (error) {
     console.log(

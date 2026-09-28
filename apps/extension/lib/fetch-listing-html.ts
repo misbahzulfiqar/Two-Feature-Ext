@@ -343,6 +343,7 @@ async function collectClickedFitmentPages(
       tables: Array.isArray(response?.tables) ? response.tables : [],
       advertised: Number(response?.advertised) || 0,
       vehicles: Number(response?.vehicles) || 0,
+      note: typeof response?.note === "string" ? response.note : "",
     };
   } catch (error) {
     console.log(
@@ -368,14 +369,20 @@ async function appendFitmentPages(listingUrl: string, html: string): Promise<str
     pageCount: count > 20 ? Math.ceil(count / 20) : 1,
   });
   const clicked = await collectClickedFitmentPages(listingUrl, count);
-  console.log("[SellSimilar] fitment tables from listing", clicked.tables.length, clicked.vehicles);
+  console.log(
+    "[SellSimilar] fitment tables from listing",
+    clicked.tables.length,
+    clicked.vehicles,
+    clicked.note || "",
+  );
   const chunks = clicked.tables.filter((table) => table.includes("sell-similar-fitment-page"));
   const clickedVehicles =
     clicked.vehicles || chunks.reduce((total, table) => total + embeddedFitmentCount(table), 0);
   console.log("[SellSimilar] fitment extra pages captured", chunks.length, "rows", clickedVehicles);
   if (count > 20 && clickedVehicles <= Math.max(firstRows.length, 20)) {
     throw new Error(
-      `Read ${clickedVehicles || firstRows.length} of ${count} compatible vehicles. The next compatibility page did not open.`,
+      clicked.note ||
+        `Read ${clickedVehicles || firstRows.length} of ${count} compatible vehicles. The next compatibility page did not open.`,
     );
   }
   if (chunks.length === 0) {
