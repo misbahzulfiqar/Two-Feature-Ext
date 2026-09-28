@@ -1,3 +1,6 @@
+import type { FitmentPageRow, FitmentPageSnapshot } from "./fitment-page.ts";
+import { CLICK_FITMENT_NEXT, EXPAND_FITMENT, READ_FITMENT_PAGE } from "./scrape-messages.ts";
+
 export type FitmentPageProgress = {
   page: number;
   vehicles: number;
@@ -314,6 +317,77 @@ function sleep(ms: number): Promise<void> {
   });
 }
 
+function isFitmentSnapshot(value: unknown): value is FitmentPageSnapshot {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const snapshot = value as FitmentPageSnapshot;
+  return Array.isArray(snapshot.rows) && typeof snapshot.signature === "string";
+}
+
+async function frameIds(tabId: number): Promise<number[]> {
+  const frames = await browser.webNavigation.getAllFrames({ tabId }).catch(() => null);
+  const ids = frames?.map((frame) => frame.frameId) ?? [];
+  return ids.length > 0 ? ids : [0];
+}
+
+async function readFitmentFrame(
+  tabId: number,
+): Promise<{ frameId: number; snapshot: FitmentPageSnapshot } | null> {
+  let best: { frameId: number; snapshot: FitmentPageSnapshot } | null = null;
+  for (const frameId of await frameIds(tabId)) {
+    try {
+      const value = await browser.tabs.sendMessage(tabId, { type: READ_FITMENT_PAGE }, { frameId });
+      if (!isFitmentSnapshot(value)) {
+        continue;
+      }
+      if (!best || value.rows.length > best.snapshot.rows.length) {
+        best = { frameId, snapshot: value };
+      }
+    } catch {
+      // This frame has no fitment reader yet.
+    }
+  }
+  return best;
+}
+
+async function messageFitmentFrames(tabId: number, type: string): Promise<void> {
+  for (const frameId of await frameIds(tabId)) {
+    await browser.tabs.sendMessage(tabId, { type }, { frameId }).catch(() => undefined);
+  }
+}
+
+async function messageFitmentFrame(
+  tabId: number,
+  frameId: number,
+  type: string,
+): Promise<{ clicked?: boolean } | null> {
+  try {
+    const value = await browser.tabs.sendMessage(tabId, { type }, { frameId });
+    if (!value || typeof value !== "object") {
+      return null;
+    }
+    return value as { clicked?: boolean };
+  } catch {
+    return null;
+  }
+}
+
+async function waitForItemPage(tabId: number): Promise<void> {
+  const started = Date.now();
+  while (Date.now() - started < 25000) {
+    const tab = await browser.tabs.get(tabId).catch(() => null);
+    if (!tab) {
+      return;
+    }
+    if (tab.status === "complete" && /\/itm\//i.test(tab.url || "")) {
+      await sleep(800);
+      return;
+    }
+    await sleep(300);
+  }
+}
+
 function waitForTabComplete(tabId: number): Promise<void> {
   return new Promise((resolve) => {
     const finish = (): void => {
@@ -593,34 +667,29 @@ export async function openListingAndCollectFitment(
     if (tabId == null) {
       return empty;
     }
-    await waitForTabComplete(tabId);
-    await sleep(1200);
+    await waitForItemPage(tabId);
 
-    const all: LiveFitmentRow[] = [];
+    const all: FitmentPageRow[] = [];
     const seen = new Set<string>();
     const seenSignatures = new Set<string>();
     let advertised = Math.max(0, expectedCount);
     let note = "";
+    let frameId = 0;
     const readyAt = Date.now();
-    let snapshot = await readLiveSnapshot(tabId);
-    while ((!snapshot || snapshot.rows.length === 0) && Date.now() - readyAt < 25000) {
-      await browser.scripting
-        .executeScript({
-          target: { tabId },
-          world: "MAIN",
-          func: () => {
-            window.scrollBy(0, 900);
-          },
-        })
-        .catch(() => undefined);
-      await sleep(500);
-      snapshot = await readLiveSnapshot(tabId);
+    let read = await readFitmentFrame(tabId);
+    while ((!read || read.snapshot.rows.length === 0) && Date.now() - readyAt < 25000) {
+      await messageFitmentFrames(tabId, EXPAND_FITMENT);
+      await sleep(600);
+      read = await readFitmentFrame(tabId);
     }
-    if (!snapshot || snapshot.rows.length === 0) {
-      note = "The listing tab did not show the compatibility table.";
-      console.log("[SellSimilar][fitment-pages]", note, snapshot?.controls ?? []);
+    if (!read || read.snapshot.rows.length === 0) {
+      const tab = await browser.tabs.get(tabId).catch(() => null);
+      note = `The listing tab did not show the compatibility table. ${tab?.url || ""}`.trim();
+      console.log("[SellSimilar][fitment-pages]", note, read?.snapshot.controls ?? []);
       return { ...empty, note };
     }
+    frameId = read.frameId;
+    let snapshot = read.snapshot;
 
     for (let page = 1; page <= 40 && snapshot; page += 1) {
       if (!snapshot.signature || seenSignatures.has(snapshot.signature)) {
@@ -648,7 +717,11 @@ export async function openListingAndCollectFitment(
       const waitNext = Date.now();
       while (!nextLabel && advertised > all.length && Date.now() - waitNext < 8000) {
         await sleep(400);
-        snapshot = (await readLiveSnapshot(tabId)) ?? snapshot;
+        const again = await readFitmentFrame(tabId);
+        if (again && again.snapshot.rows.length > 0) {
+          frameId = again.frameId;
+          snapshot = again.snapshot;
+        }
         nextLabel = snapshot.nextLabel;
         advertised = Math.max(advertised, snapshot.advertised);
       }
@@ -659,14 +732,8 @@ export async function openListingAndCollectFitment(
       }
 
       const before = snapshot.signature;
-      const clicked = await browser.scripting
-        .executeScript({
-          target: { tabId },
-          world: "MAIN",
-          func: clickLiveFitmentNext,
-        })
-        .catch(() => null);
-      if (!clicked?.[0]?.result) {
+      const clicked = await messageFitmentFrame(tabId, frameId, CLICK_FITMENT_NEXT);
+      if (!clicked || clicked.clicked !== true) {
         note = `Next control could not be clicked on page ${page}.`;
         break;
       }
@@ -674,9 +741,10 @@ export async function openListingAndCollectFitment(
       let moved = false;
       while (Date.now() - changedAt < 20000) {
         await sleep(350);
-        const next = await readLiveSnapshot(tabId);
-        if (next?.signature && next.signature !== before) {
-          snapshot = next;
+        const next = await readFitmentFrame(tabId);
+        if (next?.snapshot.signature && next.snapshot.signature !== before) {
+          frameId = next.frameId;
+          snapshot = next.snapshot;
           moved = true;
           break;
         }
