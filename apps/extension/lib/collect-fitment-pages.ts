@@ -577,6 +577,32 @@ function frameNextControl(doc: Document): HTMLElement | null {
   return chosen instanceof HTMLElement ? chosen : null;
 }
 
+function logFitmentControls(doc: Document, note: string): void {
+  const root = frameRoot(doc);
+  const markup = (root?.parentElement || root)?.outerHTML || "";
+  const paginationAt = markup.search(/pagination|next page|go to next|aria-label="[^"]*next/i);
+  const snippet =
+    paginationAt >= 0
+      ? markup.slice(Math.max(0, paginationAt - 180), paginationAt + 700)
+      : markup.slice(Math.max(0, markup.length - 1200));
+  const controls = frameSearchRoots(doc)
+    .flatMap((node) => deepElements(node))
+    .filter((el) => el.matches("button, a, [role='button']"))
+    .slice(0, 40)
+    .map((el) => {
+      const label = el.getAttribute("aria-label") || "";
+      const text = frameClean(el.textContent || "").slice(0, 30);
+      const cls = frameClassText(el).slice(0, 70);
+      return `${el.tagName} class="${cls}" label="${label}" text="${text}"${frameDisabled(el) ? " disabled" : ""}`;
+    });
+  console.log("[SellSimilar][fitment-pages]", note, {
+    root: root ? `${root.tagName} ${frameClassText(root).slice(0, 80)}` : "none",
+    rows: frameRows(doc).length,
+    controls,
+  });
+  console.log("[SellSimilar][fitment-pages] markup", snippet);
+}
+
 function frameClickNext(doc: Document): boolean {
   const host = frameNextControl(doc);
   if (!host) {
@@ -619,6 +645,7 @@ export async function collectFitmentPagesInFrame(
     "position:fixed;left:0;top:0;width:1280px;height:900px;border:0;opacity:0;pointer-events:none;";
   iframe.src = listingUrl;
   document.documentElement.appendChild(iframe);
+  console.log("[SellSimilar][fitment-pages] reading hidden listing", listingUrl, "expected", expectedCount);
   try {
     await new Promise<void>((resolve) => {
       const done = (): void => {
@@ -631,9 +658,10 @@ export async function collectFitmentPagesInFrame(
     const doc = iframe.contentDocument;
     const frameWindow = iframe.contentWindow;
     if (!doc || !frameWindow) {
-      console.log("[SellSimilar] fitment frame was blocked");
+      console.log("[SellSimilar][fitment-pages] frame blocked", iframe.src);
       return empty;
     }
+    console.log("[SellSimilar][fitment-pages] frame loaded", doc.location?.href || iframe.src);
 
     const readyAt = Date.now();
     while (!frameRoot(doc) && Date.now() - readyAt < 20000) {
@@ -641,6 +669,11 @@ export async function collectFitmentPagesInFrame(
       await frameSleep(400);
     }
     frameRoot(doc)?.scrollIntoView({ block: "center" });
+    if (!frameRoot(doc)) {
+      console.log("[SellSimilar][fitment-pages] compatibility table not found", doc.title);
+      return empty;
+    }
+    logFitmentControls(doc, "table ready");
 
     const all: FrameFitmentRow[] = [];
     const seen = new Set<string>();
@@ -688,20 +721,16 @@ export async function collectFitmentPagesInFrame(
         foundNext = frameNextControl(doc);
       }
       if (!foundNext) {
-        const sample = frameSearchRoots(doc)
-          .flatMap((root) => deepElements(root))
-          .filter((el) => el.matches("button, a"))
-          .slice(0, 12)
-          .map((el) => {
-            const label = el.getAttribute("aria-label") || "";
-            const text = frameClean(el.textContent || "").slice(0, 24);
-            return `${el.tagName}:${label || text || frameClassText(el).slice(0, 40)}`;
-          });
-        console.log("[SellSimilar] no next compatibility page", page, all.length, sample);
+        logFitmentControls(doc, `no next control after page ${page}, vehicles ${all.length}`);
         break;
       }
+      console.log(
+        "[SellSimilar][fitment-pages] clicking next",
+        foundNext.getAttribute("aria-label") || frameClean(foundNext.textContent || ""),
+        frameClassText(foundNext).slice(0, 80),
+      );
       if (!frameClickNext(doc)) {
-        console.log("[SellSimilar] no next compatibility page", page, all.length);
+        logFitmentControls(doc, `click missed after page ${page}`);
         break;
       }
       const changedAt = Date.now();
@@ -715,9 +744,11 @@ export async function collectFitmentPagesInFrame(
         }
       }
       if (!moved) {
-        console.log("[SellSimilar] compatibility page did not change", page, all.length);
+        console.log("[SellSimilar][fitment-pages] next click did not change the table", page, all.length);
+        logFitmentControls(doc, "table unchanged");
         break;
       }
+      console.log("[SellSimilar][fitment-pages] page changed", page + 1, frameFirstRow(doc).slice(0, 80));
     }
 
     console.log("[SellSimilar] fitment frame collected", all.length, "of", advertised || "unknown");
