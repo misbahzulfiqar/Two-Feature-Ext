@@ -83,6 +83,7 @@ export async function processListing(page, listingUrl, options = {}) {
       return {
         status: "ok",
         code: "200",
+        message: "",
         listingData,
       };
     }
@@ -126,6 +127,7 @@ export async function processListing(page, listingUrl, options = {}) {
       return {
         status: "ok",
         code: "200",
+        message: "",
         listingData,
       };
     }
