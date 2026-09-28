@@ -301,13 +301,18 @@ function waitForTabComplete(tabId: number): Promise<void> {
         finish();
       }
     };
-    void browser.tabs.get(tabId).then((tab) => {
-      if (tab.status === "complete") {
+    void browser.tabs
+      .get(tabId)
+      .then((tab) => {
+        if (tab.status === "complete") {
+          finish();
+          return;
+        }
+        browser.tabs.onUpdated.addListener(onUpdated);
+      })
+      .catch(() => {
         finish();
-        return;
-      }
-      browser.tabs.onUpdated.addListener(onUpdated);
-    });
+      });
   });
 }
 
@@ -361,6 +366,13 @@ export async function openListingAndCollectFitment(
         func: walkFitmentPagesInListing,
         args: [expectedCount],
       })
+      .catch((error: unknown) => {
+        console.log(
+          "[SellSimilar] fitment tab walk failed",
+          error instanceof Error ? error.message : error,
+        );
+        return null;
+      })
       .finally(() => {
         settled = true;
       });
@@ -389,7 +401,7 @@ export async function openListingAndCollectFitment(
         message: pageMessage(finalState),
       });
     }
-    const result = injected[0]?.result;
+    const result = injected?.[0]?.result;
     const tables = Array.isArray(result?.htmls) ? result.htmls : [];
     return {
       tables,
@@ -406,5 +418,264 @@ export async function openListingAndCollectFitment(
     if (tabId != null) {
       await browser.tabs.remove(tabId).catch(() => undefined);
     }
+  }
+}
+
+type FrameFitmentRow = {
+  year: string;
+  make: string;
+  model: string;
+  trim: string;
+  engine: string;
+  notes: string;
+};
+
+function frameSleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function frameClean(text: string): string {
+  return text
+    .replace(/\u00a0/g, " ")
+    .replace(/read more|read less|compatibility notes/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function frameClassText(el: Element): string {
+  const value = el.className;
+  return typeof value === "string" ? value : "";
+}
+
+function frameDisabled(el: Element | null): boolean {
+  if (!el) {
+    return true;
+  }
+  return (
+    el.getAttribute("aria-disabled") === "true" ||
+    el.hasAttribute("disabled") ||
+    /disabled|pagination__next--disabled/i.test(frameClassText(el))
+  );
+}
+
+function frameRoot(doc: Document): Element | null {
+  return (
+    doc.querySelector(".motors-compatibility-table") ||
+    doc.querySelector("[data-testid='d-motors-compatibility-table']") ||
+    doc.querySelector("[data-testid='d-item-compatibility']") ||
+    doc.querySelector(".motors-compatibility-table-wrapper")
+  );
+}
+
+function frameScope(doc: Document): Element {
+  let node = frameRoot(doc);
+  for (let depth = 0; depth < 10 && node; depth += 1) {
+    if (
+      node.querySelector(
+        ".pagination__next, [aria-label*='Go to next' i], [aria-label*='Next page' i], a[rel='next']",
+      )
+    ) {
+      return node;
+    }
+    node = node.parentElement;
+  }
+  return frameRoot(doc) || doc.body;
+}
+
+function frameRows(doc: Document): FrameFitmentRow[] {
+  const root = frameRoot(doc);
+  const table =
+    (root?.tagName === "TABLE" ? root : root?.querySelector("table")) ||
+    doc.querySelector(".motors-compatibility-table tbody")?.closest("table") ||
+    doc.querySelector("[data-testid='d-motors-compatibility-table'] table") ||
+    doc.querySelector("[data-testid='d-item-compatibility'] table");
+  if (!table) {
+    return [];
+  }
+  const rows: FrameFitmentRow[] = [];
+  const seen = new Set<string>();
+  for (const row of Array.from(table.querySelectorAll("tbody tr"))) {
+    const cells = Array.from(row.querySelectorAll("td")).map((cell) => frameClean(cell.textContent || ""));
+    if (cells.length < 3 || !cells[0] || !cells[1] || !cells[2]) {
+      continue;
+    }
+    const entry = {
+      year: cells[0],
+      make: cells[1],
+      model: cells[2],
+      trim: cells[3] || "",
+      engine: cells[4] || "",
+      notes: cells[5] || "",
+    };
+    const key = `${entry.year}|${entry.make}|${entry.model}|${entry.trim}|${entry.engine}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    rows.push(entry);
+  }
+  return rows;
+}
+
+function frameFirstRow(doc: Document): string {
+  const row =
+    doc.querySelector(".motors-compatibility-table tbody tr") ||
+    doc.querySelector("[data-testid='d-motors-compatibility-table'] tbody tr") ||
+    doc.querySelector("[data-testid='d-item-compatibility'] tbody tr");
+  return row ? frameClean(row.textContent || "") : "";
+}
+
+function frameClickNext(doc: Document): boolean {
+  const scope = frameScope(doc);
+  const next =
+    scope.querySelector(".pagination__next") ||
+    scope.querySelector("[aria-label*='Go to next' i]") ||
+    scope.querySelector("[aria-label*='Next page' i]") ||
+    scope.querySelector("a[rel='next']");
+  const host = next?.closest("button, a") || next;
+  if (host instanceof HTMLElement && !frameDisabled(host)) {
+    host.scrollIntoView({ block: "center" });
+    host.click();
+    return true;
+  }
+  const current = scope.querySelector("[aria-current='page']");
+  const currentNum = Number.parseInt(frameClean(current?.textContent || ""), 10) || 1;
+  const wanted = String(currentNum + 1);
+  const pageLink = Array.from(scope.querySelectorAll("a, button")).find(
+    (el) => frameClean(el.textContent || "") === wanted && !frameDisabled(el),
+  );
+  if (pageLink instanceof HTMLElement) {
+    pageLink.scrollIntoView({ block: "center" });
+    pageLink.click();
+    return true;
+  }
+  return false;
+}
+
+function frameEmbed(rows: FrameFitmentRow[]): string {
+  const escapeCell = (text: string): string =>
+    text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const body = rows
+    .map(
+      (row) =>
+        `<tr><td>${escapeCell(row.year)}</td><td>${escapeCell(row.make)}</td><td>${escapeCell(row.model)}</td><td>${escapeCell(row.trim)}</td><td>${escapeCell(row.engine)}</td><td>${escapeCell(row.notes)}</td></tr>`,
+    )
+    .join("");
+  const json = JSON.stringify(rows).replace(/</g, "\\u003c");
+  return `<div class="motors-compatibility-table"><table class="motors-compatibility-table"><thead><tr><th>Year</th><th>Make</th><th>Model</th><th>Trim</th><th>Engine</th><th>Notes</th></tr></thead><tbody>${body}</tbody></table></div><script type="application/json" id="sell-similar-fitment-page">${json}</script>`;
+}
+
+/**
+ * Reads compatibility pages in a hidden frame on the eBay page.
+ * No extra browser tab, so the walk cannot die with "No tab with id".
+ */
+export async function collectFitmentPagesInFrame(
+  listingUrl: string,
+  onProgress?: (progress: FitmentPageProgress) => void,
+  expectedCount = 0,
+): Promise<CollectedFitmentPages> {
+  const empty: CollectedFitmentPages = { tables: [], advertised: 0, vehicles: 0 };
+  if (typeof document === "undefined") {
+    return empty;
+  }
+  const iframe = document.createElement("iframe");
+  iframe.setAttribute("aria-hidden", "true");
+  iframe.style.cssText =
+    "position:fixed;right:16px;bottom:16px;width:920px;height:560px;border:0;z-index:2147483646;background:#fff;box-shadow:0 8px 28px rgba(0,0,0,.28);";
+  iframe.src = listingUrl;
+  document.documentElement.appendChild(iframe);
+  try {
+    await new Promise<void>((resolve) => {
+      const done = (): void => {
+        iframe.removeEventListener("load", done);
+        resolve();
+      };
+      iframe.addEventListener("load", done);
+      window.setTimeout(done, 20000);
+    });
+    const doc = iframe.contentDocument;
+    const frameWindow = iframe.contentWindow;
+    if (!doc || !frameWindow) {
+      console.log("[SellSimilar] fitment frame was blocked");
+      return empty;
+    }
+
+    const readyAt = Date.now();
+    while (!frameRoot(doc) && Date.now() - readyAt < 20000) {
+      frameWindow.scrollBy(0, 1000);
+      await frameSleep(400);
+    }
+    frameRoot(doc)?.scrollIntoView({ block: "center" });
+
+    const all: FrameFitmentRow[] = [];
+    const seen = new Set<string>();
+    const pageLimit = expectedCount > 20 ? Math.min(40, Math.ceil(expectedCount / 20) + 1) : 40;
+    let advertised = expectedCount;
+
+    const addRows = (rows: FrameFitmentRow[]): number => {
+      let added = 0;
+      for (const row of rows) {
+        const key = `${row.year}|${row.make}|${row.model}|${row.trim}|${row.engine}`;
+        if (seen.has(key)) {
+          continue;
+        }
+        seen.add(key);
+        all.push(row);
+        added += 1;
+      }
+      return added;
+    };
+
+    for (let page = 1; page <= pageLimit; page += 1) {
+      const rows = frameRows(doc);
+      const added = addRows(rows);
+      if (page > 1 && added === 0) {
+        break;
+      }
+      if (all.length === 0) {
+        break;
+      }
+      onProgress?.({
+        page,
+        vehicles: all.length,
+        message: `Scraped page ${page} — ${all.length} vehicles found so far`,
+      });
+      if (advertised > 0 && all.length >= advertised) {
+        break;
+      }
+      const before = frameFirstRow(doc);
+      if (!frameClickNext(doc)) {
+        console.log("[SellSimilar] no next compatibility page", page, all.length);
+        break;
+      }
+      const changedAt = Date.now();
+      let moved = false;
+      while (Date.now() - changedAt < 12000) {
+        await frameSleep(300);
+        const now = frameFirstRow(doc);
+        if (now && now !== before) {
+          moved = true;
+          break;
+        }
+      }
+      if (!moved) {
+        console.log("[SellSimilar] compatibility page did not change", page, all.length);
+        break;
+      }
+    }
+
+    console.log("[SellSimilar] fitment frame collected", all.length, "of", advertised || "unknown");
+    if (all.length === 0) {
+      return empty;
+    }
+    return {
+      tables: [frameEmbed(all)],
+      advertised,
+      vehicles: all.length,
+    };
+  } finally {
+    iframe.remove();
   }
 }

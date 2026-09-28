@@ -1,11 +1,7 @@
 import {
-  openListingAndCollectFitment,
+  collectFitmentPagesInFrame,
   type CollectedFitmentPages,
 } from "./collect-fitment-pages.ts";
-import {
-  COLLECT_FITMENT_PAGES,
-  type CollectFitmentPagesResponseMessage,
-} from "./scrape-messages.ts";
 
 function decodeHref(href: string): string {
   return href.replace(/&amp;/g, "&").replace(/&quot;/g, '"').trim();
@@ -331,48 +327,24 @@ function reportFitmentProgress(page: number, vehicles: number, message?: string)
   );
 }
 
-function canCollectHere(): boolean {
-  try {
-    return (
-      typeof browser.scripting?.executeScript === "function" &&
-      typeof browser.tabs?.create === "function"
-    );
-  } catch {
-    return false;
-  }
-}
-
 async function collectClickedFitmentPages(
   listingUrl: string,
   expectedCount: number,
 ): Promise<CollectedFitmentPages> {
-  const empty: CollectedFitmentPages = { tables: [], advertised: 0, vehicles: 0 };
   try {
-    if (canCollectHere()) {
-      return await openListingAndCollectFitment(
-        listingUrl,
-        (progress) => {
-          reportFitmentProgress(progress.page, progress.vehicles, progress.message);
-        },
-        expectedCount,
-      );
-    }
-    const response = (await browser.runtime.sendMessage({
-      type: COLLECT_FITMENT_PAGES,
+    return await collectFitmentPagesInFrame(
       listingUrl,
+      (progress) => {
+        reportFitmentProgress(progress.page, progress.vehicles, progress.message);
+      },
       expectedCount,
-    })) as CollectFitmentPagesResponseMessage | undefined;
-    return {
-      tables: Array.isArray(response?.tables) ? response.tables : [],
-      advertised: Number(response?.advertised) || 0,
-      vehicles: Number(response?.vehicles) || 0,
-    };
+    );
   } catch (error) {
     console.log(
-      "[SellSimilar] fitment page click failed",
+      "[SellSimilar] fitment page read failed",
       error instanceof Error ? error.message : error,
     );
-    return empty;
+    return { tables: [], advertised: 0, vehicles: 0 };
   }
 }
 
