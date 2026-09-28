@@ -66,7 +66,7 @@ export function ExtensionDownloadActions({
       ) : null}
 
       <p className={textClass}>
-        Chrome cannot install this straight from a link. After downloading, follow the{" "}
+        Chrome cannot install the zip by opening it. Unzip chrome-mv3.zip, then follow the{" "}
         <Link className="text-ink underline" to="/install">
           installation guide
         </Link>

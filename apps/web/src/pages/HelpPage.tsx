@@ -10,7 +10,7 @@ const CARDS = [
   ],
   [
     "Installing the Extension",
-    "Download the zip, unzip it, open chrome://extensions, turn on Developer mode, then Load unpacked and pick the unzipped folder.",
+    "Download chrome-mv3.zip, unzip it, open chrome://extensions, turn on Developer mode, remove any older Sell Similar, then Load unpacked and pick the chrome-mv3 folder.",
   ],
   ["Full Scrape", "Copies title, photos, specifics, description, and compatibility when enabled."],
   ["Fitment Only", "Scrapes vehicle compatibility only and leaves other fields alone."],

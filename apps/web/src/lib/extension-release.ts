@@ -16,9 +16,9 @@ export const EXTENSION_DOWNLOAD_PATH = "/extension.zip";
 export async function fetchExtensionRelease(): Promise<ExtensionRelease> {
   return {
     version: "1.0.0",
-    filename: "sell-similarextension-1.0.0-chrome.zip",
-    sizeBytes: 204924,
-    builtAt: "2026-09-27T09:17:00.000Z",
+    filename: "chrome-mv3.zip",
+    sizeBytes: 211994,
+    builtAt: "2026-09-28T07:09:00.000Z",
     sha256: "",
   };
 }
@@ -51,7 +51,7 @@ export function formatBuildDate(iso: string): string {
 export function startExtensionDownload(): void {
   const link = document.createElement("a");
   link.href = EXTENSION_DOWNLOAD_PATH;
-  link.download = "sell-similarextension-1.0.0-chrome.zip";
+  link.download = "chrome-mv3.zip";
   document.body.append(link);
   link.click();
   link.remove();

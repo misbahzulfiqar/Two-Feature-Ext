@@ -14,7 +14,7 @@ import { useExtensionPairing } from "../lib/use-extension-pairing";
 const STORE_STEPS = [
   [
     "Download and unzip",
-    "Press Download extension above, then unzip the file. Keep the unzipped folder somewhere permanent — Chrome loads the extension from that folder every time it starts, so deleting it uninstalls the extension.",
+    "Press Download extension above, then unzip chrome-mv3.zip. Keep the chrome-mv3 folder somewhere permanent — Chrome loads the extension from that folder every time it starts, so deleting it uninstalls the extension.",
   ],
   [
     "Open chrome://extensions",
@@ -22,7 +22,7 @@ const STORE_STEPS = [
   ],
   [
     "Load unpacked",
-    "Click Load unpacked, then select the unzipped folder — the one containing manifest.json. eBay Sell Similar now appears in your extensions list.",
+    "If Sell Similar is already listed, click Remove on it first. Then click Load unpacked and select the unzipped chrome-mv3 folder, the one that contains manifest.json. That is the same build that is working now.",
   ],
   [
     "Pin it and come back",
