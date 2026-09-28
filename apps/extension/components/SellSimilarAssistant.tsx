@@ -76,7 +76,7 @@ export function SellSimilarAssistant() {
       if (!Number.isFinite(page) || !Number.isFinite(vehicles) || page < 1) {
         return;
       }
-      show(`Page ${page} - ${vehicles} vehicles`);
+      show(`Scraped page ${page} — ${vehicles} vehicles found so far`);
     };
     const onRuntimeProgress = (message: unknown): void => {
       if (
@@ -96,7 +96,7 @@ export function SellSimilarAssistant() {
       if (!Number.isFinite(page) || !Number.isFinite(vehicles) || page < 1) {
         return;
       }
-      show(`Page ${page} - ${vehicles} vehicles`);
+      show(`Scraped page ${page} — ${vehicles} vehicles found so far`);
     };
     window.addEventListener("sell-similar-fitment-progress", onWindowProgress);
     browser.runtime.onMessage.addListener(onRuntimeProgress);
@@ -254,16 +254,15 @@ export function SellSimilarAssistant() {
           });
           setProgress(progressForStage("listing_extract"));
           setProgress(progressForStage("target_prepare"));
+          console.log("[SellSimilar] filling item specifics", listing.itemSpecifics.length);
+          appendStatus("Replacing item specifics...");
+          const specResult = await fillEbayListingSpecifics(listing.itemSpecifics);
+          setProgress(progressForStage("apply_core"));
+
           const fitmentResult = await applyNormalizedFitment(listing.compatibility);
           if (fitmentResult.filled > 0) {
             setShowFitmentReload(true);
           }
-          appendStatus(fitmentSummary(fitmentResult, listing.compatibility.length));
-
-          console.log("[SellSimilar] filling item specifics", listing.itemSpecifics.length);
-          appendStatus("Fitment added. Replacing item specifics...");
-          const specResult = await fillEbayListingSpecifics(listing.itemSpecifics);
-          setProgress(progressForStage("apply_core"));
 
           await restoreListingPage();
           setProgress(progressForStage("complete"));
