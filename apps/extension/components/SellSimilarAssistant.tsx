@@ -88,6 +88,7 @@ export function SellSimilarAssistant() {
         return;
       }
       if ("message" in message && typeof message.message === "string" && message.message.trim()) {
+        console.log(`[SellSimilar][fitment-pages] ${message.message}`);
         show(message.message);
         return;
       }

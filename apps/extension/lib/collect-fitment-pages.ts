@@ -36,7 +36,7 @@ type PageWalkProgress = {
  * Same Next-click walk FetchFitment.handlePagination used before the live deploy.
  * Self-contained: Chrome runs this function in the page, so it cannot use outer helpers.
  */
-export async function walkFitmentPagesInListing(_expectedCount = 0): Promise<PageWalkResult> {
+export async function walkFitmentPagesInListing(expectedCount = 0): Promise<PageWalkResult> {
   const sleep = (ms: number): Promise<void> =>
     new Promise((resolve) => {
       setTimeout(resolve, ms);
@@ -69,18 +69,12 @@ export async function walkFitmentPagesInListing(_expectedCount = 0): Promise<Pag
     };
   };
 
-  const tableSelectors = [
-    ".motors-compatibility-table",
-    "[data-testid='d-motors-compatibility-table']",
-    ".motors-compatibility-table-wrapper",
-    "[data-testid='d-item-compatibility']",
-  ];
-
   const compatibilityRoot = (): Element | null =>
     document.querySelector(".motors-compatibility-table") ||
     document.querySelector("[data-testid='d-motors-compatibility-table']") ||
     document.querySelector("[data-testid='d-item-compatibility']") ||
-    document.querySelector(".motors-compatibility-table-wrapper");
+    document.querySelector(".motors-compatibility-table-wrapper") ||
+    document.querySelector(".comp-fitment-selector");
 
   const extractRows = (): { rows: FitmentRow[]; advertised: number } => {
     const root = compatibilityRoot();
@@ -127,37 +121,65 @@ export async function walkFitmentPagesInListing(_expectedCount = 0): Promise<Pag
     return { rows, advertised: Number.isFinite(advertised) ? advertised : 0 };
   };
 
-  const paginationScope = (): Element => {
-    const root = compatibilityRoot();
-    let node: Element | null = root;
-    for (let depth = 0; depth < 8 && node; depth += 1) {
-      if (
-        node.querySelector(
-          ".pagination__next, [aria-label*='Go to next' i], [aria-label*='Next page' i], a[rel='next']",
-        )
-      ) {
-        return node;
+  const inPhotos = (el: Element): boolean =>
+    Boolean(
+      el.closest(
+        ".ux-image-carousel, .x-photos, #PicturePanel, .filmstrip, [class*='carousel']",
+      ),
+    );
+
+  const controlsUnder = (root: ParentNode): HTMLElement[] => {
+    const found: HTMLElement[] = [];
+    const visit = (node: ParentNode): void => {
+      for (const el of Array.from(node.querySelectorAll("button, a, [role='button']"))) {
+        if (el instanceof HTMLElement) {
+          found.push(el);
+        }
       }
-      node = node.parentElement;
-    }
-    return root || document.body;
+      for (const el of Array.from(node.querySelectorAll("*"))) {
+        if (el.shadowRoot) {
+          visit(el.shadowRoot);
+        }
+      }
+    };
+    visit(root);
+    return found;
   };
 
-  const readState = (): { hasNext: boolean; pageLinkCount: number; advertised: number } => {
-    const scope = paginationScope();
-    const next =
-      scope.querySelector(".pagination__next") ||
-      scope.querySelector("[aria-label*='Go to next' i]") ||
-      scope.querySelector("[aria-label*='Next page' i]") ||
-      scope.querySelector("a[rel='next']");
-    const pageNumbers = Array.from(scope.querySelectorAll("a, button"))
-      .map((el) => clean(el.textContent || ""))
-      .filter((text) => /^\d+$/.test(text));
-    return {
-      hasNext: Boolean(next) && !disabled(next),
-      pageLinkCount: new Set(pageNumbers).size,
-      advertised: extractRows().advertised,
-    };
+  const nextControl = (): HTMLElement | null => {
+    const pools: HTMLElement[] = [];
+    let node: Element | null = compatibilityRoot();
+    for (let depth = 0; depth < 14 && node; depth += 1) {
+      pools.push(...controlsUnder(node));
+      node = node.parentElement;
+    }
+    if (pools.length === 0) {
+      pools.push(...controlsUnder(document.body));
+    }
+    const current = pools.find((el) => el.getAttribute("aria-current") === "page" && !inPhotos(el));
+    const wanted = String((Number.parseInt(clean(current?.textContent || ""), 10) || 1) + 1);
+    const ranked = pools.filter((el) => {
+      if (disabled(el) || inPhotos(el)) {
+        return false;
+      }
+      const label = `${el.getAttribute("aria-label") || ""} ${el.getAttribute("title") || ""}`;
+      const text = clean(el.textContent || "");
+      const cls = classText(el);
+      if (/next image|next photo|next slide|previous/i.test(label)) {
+        return false;
+      }
+      return (
+        /pagination__next/i.test(cls) ||
+        el.getAttribute("rel") === "next" ||
+        /next page|go to next/i.test(label) ||
+        text === wanted
+      );
+    });
+    return (
+      ranked.find((el) => /pagination__next|next page|go to next/i.test(`${el.getAttribute("aria-label") || ""} ${classText(el)}`)) ||
+      ranked[0] ||
+      null
+    );
   };
 
   const firstRowText = (): string => {
@@ -170,27 +192,13 @@ export async function walkFitmentPagesInListing(_expectedCount = 0): Promise<Pag
   };
 
   const clickNext = (): boolean => {
-    const root = paginationScope();
-    const next =
-      root.querySelector(".pagination__next") ||
-      root.querySelector("[aria-label*='Go to next' i]") ||
-      root.querySelector("[aria-label*='Next page' i]") ||
-      root.querySelector("a[rel='next']");
-    if (next instanceof HTMLElement && !disabled(next)) {
-      next.click();
-      return true;
+    const next = nextControl();
+    if (!next) {
+      return false;
     }
-    const current = root.querySelector("[aria-current='page']");
-    const currentNum = Number.parseInt(clean(current?.textContent || ""), 10) || 1;
-    const wanted = String(currentNum + 1);
-    const pageLink = Array.from(root.querySelectorAll("a, button")).find(
-      (el) => clean(el.textContent || "") === wanted,
-    );
-    if (pageLink instanceof HTMLElement && !disabled(pageLink)) {
-      pageLink.click();
-      return true;
-    }
-    return false;
+    next.scrollIntoView({ block: "center" });
+    next.click();
+    return true;
   };
 
   const embed = (rows: FitmentRow[]): string => {
@@ -216,7 +224,7 @@ export async function walkFitmentPagesInListing(_expectedCount = 0): Promise<Pag
     const seen = new Set<string>();
     let currentPage = 1;
     let retryCount = 0;
-    let advertised = 0;
+    let advertised = Math.max(0, Number(expectedCount) || 0);
     let shownPage = 0;
     const addRows = (rows: FitmentRow[]): void => {
       for (const row of rows) {
@@ -231,14 +239,30 @@ export async function walkFitmentPagesInListing(_expectedCount = 0): Promise<Pag
 
     while (currentPage <= 100 && retryCount < 5) {
       const pageData = extractRows();
-      const state = readState();
-      advertised = Math.max(advertised, pageData.advertised, state.advertised);
+      advertised = Math.max(advertised, pageData.advertised);
+      const beforeCount = all.length;
       addRows(pageData.rows);
+      if (currentPage > 1 && all.length === beforeCount) {
+        break;
+      }
       shownPage = currentPage;
       report(currentPage, all.length, false);
+      console.log("[SellSimilar][fitment-pages] page", currentPage, "vehicles", all.length, "of", advertised || "unknown");
 
-      const moreNumberedPages = state.pageLinkCount > currentPage;
-      if (!state.hasNext && !moreNumberedPages) {
+      if (advertised > 0 && all.length >= advertised) {
+        break;
+      }
+
+      let next = nextControl();
+      const waitNext = Date.now();
+      while (!next && advertised > all.length && Date.now() - waitNext < 10000) {
+        compatibilityRoot()?.scrollIntoView({ block: "center" });
+        window.scrollBy(0, 600);
+        await sleep(400);
+        next = nextControl();
+      }
+      if (!next) {
+        console.log("[SellSimilar][fitment-pages] no next control", currentPage, all.length, "of", advertised);
         break;
       }
 
@@ -246,7 +270,6 @@ export async function walkFitmentPagesInListing(_expectedCount = 0): Promise<Pag
       if (!clickNext()) {
         break;
       }
-      currentPage += 1;
       const changedAt = Date.now();
       let moved = false;
       while (Date.now() - changedAt < 30000) {
@@ -259,13 +282,15 @@ export async function walkFitmentPagesInListing(_expectedCount = 0): Promise<Pag
       }
       if (!moved) {
         retryCount += 1;
+        console.log("[SellSimilar][fitment-pages] table did not change", currentPage, "retry", retryCount);
         if (retryCount < 5) {
-          await sleep(3000);
+          await sleep(1000);
           continue;
         }
         break;
       }
       retryCount = 0;
+      currentPage += 1;
       await sleep(250);
     }
 

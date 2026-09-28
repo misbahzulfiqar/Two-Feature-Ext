@@ -1,7 +1,8 @@
+import { type CollectedFitmentPages } from "./collect-fitment-pages.ts";
 import {
-  collectFitmentPagesInFrame,
-  type CollectedFitmentPages,
-} from "./collect-fitment-pages.ts";
+  COLLECT_FITMENT_PAGES,
+  type CollectFitmentPagesResponseMessage,
+} from "./scrape-messages.ts";
 
 function decodeHref(href: string): string {
   return href.replace(/&amp;/g, "&").replace(/&quot;/g, '"').trim();
@@ -331,20 +332,24 @@ async function collectClickedFitmentPages(
   listingUrl: string,
   expectedCount: number,
 ): Promise<CollectedFitmentPages> {
+  const empty: CollectedFitmentPages = { tables: [], advertised: 0, vehicles: 0 };
   try {
-    return await collectFitmentPagesInFrame(
+    const response = (await browser.runtime.sendMessage({
+      type: COLLECT_FITMENT_PAGES,
       listingUrl,
-      (progress) => {
-        reportFitmentProgress(progress.page, progress.vehicles, progress.message);
-      },
       expectedCount,
-    );
+    })) as CollectFitmentPagesResponseMessage | undefined;
+    return {
+      tables: Array.isArray(response?.tables) ? response.tables : [],
+      advertised: Number(response?.advertised) || 0,
+      vehicles: Number(response?.vehicles) || 0,
+    };
   } catch (error) {
     console.log(
       "[SellSimilar] fitment page read failed",
       error instanceof Error ? error.message : error,
     );
-    return { tables: [], advertised: 0, vehicles: 0 };
+    return empty;
   }
 }
 
@@ -368,6 +373,11 @@ async function appendFitmentPages(listingUrl: string, html: string): Promise<str
   const clickedVehicles =
     clicked.vehicles || chunks.reduce((total, table) => total + embeddedFitmentCount(table), 0);
   console.log("[SellSimilar] fitment extra pages captured", chunks.length, "rows", clickedVehicles);
+  if (count > 20 && clickedVehicles <= Math.max(firstRows.length, 20)) {
+    throw new Error(
+      `Read ${clickedVehicles || firstRows.length} of ${count} compatible vehicles. The next compatibility page did not open.`,
+    );
+  }
   if (chunks.length === 0) {
     return html;
   }
