@@ -52,6 +52,7 @@ function rejectedFitment(listingData, fitmentResult) {
 
 function applyFetchedListing(listingData, fetched) {
   listingData.itemSpecifics = fetched.itemSpecifics || [];
+  listingData.images = Array.isArray(fetched.images) ? fetched.images : [];
   return listingData;
 }
 

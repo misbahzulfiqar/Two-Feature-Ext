@@ -419,6 +419,147 @@ export async function getItemSpecifics(page) {
   return page.evaluate(extractListingSpecificsInPage);
 }
 
+/**
+ * Image-related selectors. Listed for the gallery, but prepareListingPage
+ * waits on title/specifics/fitment surfaces instead of this selector.
+ */
+export const IMAGE_WAIT_SELECTOR = [
+  ".ux-image-grid-item.image-treatment.rounded-edges img",
+  "#PicturePanel .ux-image-grid-item img",
+  ".x-photos-min-view img",
+  ".ux-image-carousel img",
+  'script[type="application/ld+json"]',
+  'meta[property="og:image"]',
+].join(", ");
+
+export function extractListingImagesInPage() {
+  const primarySelector = ".ux-image-grid-item.image-treatment.rounded-edges img";
+  const alternateSelectors = [
+    "#PicturePanel .ux-image-grid-item img",
+    ".x-photos-min-view img",
+    ".ux-image-carousel img",
+  ];
+
+  const qualityRank = (url) => {
+    if (/s-l(?:1600|1500)(?:\D|$)/i.test(url)) return 3;
+    if (/s-l500(?:\D|$)/i.test(url)) return 2;
+    if (/s-l140(?:\D|$)/i.test(url)) return 1;
+    return 0;
+  };
+
+  const imageIdentity = (url) => {
+    const gallery = url.match(/\/g\/([^/?#]+)/i)?.[1];
+    if (gallery) return `g:${gallery}`;
+    const zoom = url.match(/\/z\/([^/?#]+)/i)?.[1];
+    if (zoom) return `z:${zoom}`;
+    const withoutSuffix = url.split("#")[0]?.split("?")[0] ?? url;
+    return withoutSuffix.replace(/s-l\d+/gi, "");
+  };
+
+  const isRejected = (url) =>
+    !url ||
+    /^data:image/i.test(url) ||
+    /placeholder|spacer|pixel\.gif|1x1|blank\.gif/i.test(url);
+
+  const resolveUrl = (raw) => {
+    const value = String(raw || "").trim();
+    if (!value || /^data:image/i.test(value)) return "";
+    const base = document.baseURI || "https://www.ebay.com/";
+    try {
+      const url = new URL(value, base).href;
+      if (!/^https?:/i.test(url) || isRejected(url)) return "";
+      return url;
+    } catch {
+      return "";
+    }
+  };
+
+  const byIdentity = new Map();
+
+  const pushImage = (raw) => {
+    const url = resolveUrl(raw);
+    if (!url) return;
+    const identity = imageIdentity(url);
+    const current = byIdentity.get(identity);
+    if (!current || qualityRank(url) > qualityRank(current)) {
+      byIdentity.set(identity, url);
+    }
+  };
+
+  const collectImgSrc = (img) => {
+    const candidates = [];
+    for (const attr of ["src", "data-src", "data-zoom-src", "data-lazy-src"]) {
+      const value = img.getAttribute(attr);
+      if (value) candidates.push(value);
+    }
+    for (const attr of ["srcset", "data-srcset"]) {
+      const value = img.getAttribute(attr);
+      if (!value) continue;
+      for (const part of value.split(",")) {
+        const candidate = part.trim().split(/\s+/)[0];
+        if (candidate) candidates.push(candidate);
+      }
+    }
+    return candidates;
+  };
+
+  const collectSelector = (selector) => {
+    document.querySelectorAll(selector).forEach((img) => {
+      collectImgSrc(img).forEach(pushImage);
+    });
+  };
+
+  collectSelector(primarySelector);
+  if (byIdentity.size === 0) {
+    alternateSelectors.forEach(collectSelector);
+  }
+
+  if (byIdentity.size === 0) {
+    document.querySelectorAll('script[type="application/ld+json"]').forEach((script) => {
+      let payload;
+      try {
+        payload = JSON.parse(script.textContent || "");
+      } catch {
+        return;
+      }
+      const queue = Array.isArray(payload) ? [...payload] : [payload];
+      while (queue.length > 0) {
+        const node = queue.shift();
+        if (!node || typeof node !== "object") continue;
+        if (Array.isArray(node)) {
+          queue.push(...node);
+          continue;
+        }
+        if (node["@graph"]) queue.push(node["@graph"]);
+        const type = node["@type"];
+        const types = Array.isArray(type) ? type : type ? [type] : [];
+        if (!types.includes("Product") || node.image == null) continue;
+        const images = Array.isArray(node.image) ? node.image : [node.image];
+        images.forEach((image) => {
+          if (typeof image === "string") {
+            pushImage(image);
+            return;
+          }
+          if (image && typeof image === "object" && typeof image.url === "string") {
+            pushImage(image.url);
+          }
+        });
+      }
+    });
+  }
+
+  if (byIdentity.size === 0) {
+    const og = document.querySelector('meta[property="og:image"]')?.getAttribute("content");
+    if (og) pushImage(og);
+  }
+
+  const urls = [...byIdentity.values()].map((url) => url.replace(/s-l\d+/gi, "s-l1600"));
+  if (urls.length > 1 && imageIdentity(urls[0]) === imageIdentity(urls[urls.length - 1])) {
+    urls.pop();
+  }
+  return urls;
+}
+
 export async function prepareListingPage(page, listingUrl, options = {}) {
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const html = typeof options.html === "string" ? options.html : "";
@@ -471,12 +612,13 @@ export async function fetchEbayListing(page, listingUrl, options = {}) {
 
   await prepareListingPage(page, listingUrl, options);
   const itemSpecifics = await evaluate(extractListingSpecificsInPage);
+  const images = await evaluate(extractListingImagesInPage);
 
   return {
     title: "",
     sku: "",
     price: "",
-    images: [],
+    images: Array.isArray(images) ? images : [],
     itemSpecifics: Array.isArray(itemSpecifics) ? itemSpecifics : [],
     condition: "",
     conditionDescription: "",

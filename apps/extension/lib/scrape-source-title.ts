@@ -20,6 +20,7 @@ const ITEM_ID_PATTERN = /^\d{6,}$/;
 
 export type ScrapedListing = {
   itemSpecifics: ItemSpecific[];
+  images: string[];
   fitment: VehicleCompatibility[];
   compatibility: VehicleCompatibility[];
   compatibilityCount: number;
@@ -102,6 +103,7 @@ function toScrapedListing(data: ScrapedListingData): ScrapedListing {
 
   return {
     itemSpecifics: Array.isArray(data.itemSpecifics) ? data.itemSpecifics : [],
+    images: Array.isArray(data.images) ? data.images : [],
     fitment: compatibility,
     compatibility,
     compatibilityCount: data.compatibilityCount ?? compatibility.length,

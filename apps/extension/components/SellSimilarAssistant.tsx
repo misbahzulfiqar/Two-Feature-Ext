@@ -5,6 +5,7 @@ import {
   fillEbayListingFitment,
   type FillFitmentResult,
 } from "../lib/fill-ebay-fitment.ts";
+import { clearEbayListingImages, fillEbayListingImages } from "../lib/fill-ebay-images.ts";
 import { fillEbayListingSpecifics } from "../lib/fill-ebay-specifics.ts";
 import { fitmentLog } from "../lib/fitment-debug.ts";
 import { progressForStage } from "../lib/scrape-progress.ts";
@@ -21,7 +22,7 @@ import {
 } from "../lib/scrape-source-title.ts";
 import { ControlField } from "./ControlField.tsx";
 import { FieldRow } from "./FieldRow.tsx";
-import { CheckCircleIcon, ChevronIcon, SparkleIcon } from "./Icons.tsx";
+import { CheckCircleIcon, ChevronIcon, GearIcon, SparkleIcon } from "./Icons.tsx";
 import { ProgressBar } from "./ProgressBar.tsx";
 import "./SellSimilarAssistant.css";
 
@@ -35,10 +36,23 @@ const FILL_MODES = [
 
 type FillMode = (typeof FILL_MODES)[number]["id"];
 
+function imageStatus(sourceCount: number, filled: number): string {
+  if (sourceCount === 0) {
+    return "No photos found";
+  }
+  if (filled === 0) {
+    return `Found ${sourceCount} photos, but the photo uploader was not on this page`;
+  }
+  return `Added ${filled} photo${filled === 1 ? "" : "s"}`;
+}
+
 export function SellSimilarAssistant() {
   const [fillMode, setFillMode] = useState<FillMode>("specs-and-fitment");
   const [fillMenuOpen, setFillMenuOpen] = useState(false);
+  const [applyImages, setApplyImages] = useState(true);
+  const [fieldsMenuOpen, setFieldsMenuOpen] = useState(false);
   const fillMenuId = useId();
+  const fieldsMenuId = useId();
   const [source, setSource] = useState("");
   const [progress, setProgress] = useState(0);
   const [statusMessage, setStatusMessage] = useState("");
@@ -210,6 +224,32 @@ export function SellSimilarAssistant() {
     setProgress((current) => (next >= current ? next : current));
   }
 
+  async function applySelectedImages(urls: string[]): Promise<number> {
+    if (!applyImages) {
+      return 0;
+    }
+    appendStatus("Adding photos...");
+    const filled = await fillEbayListingImages(urls);
+    appendStatus(imageStatus(urls.length, filled));
+    return filled;
+  }
+
+  async function clearFilledListingFields(): Promise<void> {
+    if (isProcessing) {
+      return;
+    }
+    if (!applyImages) {
+      appendStatus("No fields selected to clear.");
+      return;
+    }
+    try {
+      const cleared = await clearEbayListingImages();
+      appendStatus(`Photos: ${cleared}`);
+    } catch (error) {
+      appendStatus(error instanceof Error ? `Photos failed. ${error.message}` : "Photos failed.");
+    }
+  }
+
   async function applyNormalizedFitment(rows: VehicleCompatibility[]): Promise<FillFitmentResult> {
     if (rows.length === 0) {
       appendStatus("FITMENT_EMPTY. Existing target fitment left unchanged.");
@@ -255,6 +295,7 @@ export function SellSimilarAssistant() {
           });
           setProgress(progressForStage("listing_extract"));
           setProgress(progressForStage("target_prepare"));
+          const filledImages = await applySelectedImages(listing.images);
           console.log("[SellSimilar] filling item specifics", listing.itemSpecifics.length);
           appendStatus("Replacing item specifics...");
           const specResult = await fillEbayListingSpecifics(listing.itemSpecifics);
@@ -277,7 +318,7 @@ export function SellSimilarAssistant() {
           await reportApplyResult({
             jobId: listing.jobId,
             fitmentCount: fitmentResult.filled,
-            imageCount: 0,
+            imageCount: filledImages,
             warningCount: fitmentResult.warnings.length,
             warnings: fitmentResult.warnings,
           });
@@ -294,6 +335,7 @@ export function SellSimilarAssistant() {
           setProgress(progressForStage("listing_extract"));
 
           setProgress(progressForStage("target_prepare"));
+          const filledImages = await applySelectedImages(listing.images);
           console.log("[SellSimilar] filling item specifics", listing.itemSpecifics.length);
           appendStatus("Replacing item specifics...");
           const specResult = await fillEbayListingSpecifics(listing.itemSpecifics);
@@ -307,7 +349,7 @@ export function SellSimilarAssistant() {
           await reportApplyResult({
             jobId: listing.jobId,
             fitmentCount: 0,
-            imageCount: 0,
+            imageCount: filledImages,
             warningCount: 0,
             warnings: [],
           });
@@ -430,6 +472,61 @@ export function SellSimilarAssistant() {
         </FieldRow>
 
         <div className="form-actions">
+          <div className="options-menu">
+            <button
+              type="button"
+              className={fieldsMenuOpen ? "icon-button is-active" : "icon-button"}
+              disabled={isProcessing}
+              aria-haspopup="dialog"
+              aria-expanded={fieldsMenuOpen}
+              aria-controls={fieldsMenuId}
+              aria-label="Fields to fill"
+              onClick={() => setFieldsMenuOpen((open) => !open)}
+            >
+              <GearIcon />
+              {applyImages ? null : <span className="icon-button-dot" aria-hidden="true" />}
+            </button>
+            {fieldsMenuOpen ? (
+              <>
+                <div
+                  className="options-backdrop"
+                  onClick={() => setFieldsMenuOpen(false)}
+                  aria-hidden="true"
+                />
+                <div className="options-popover" id={fieldsMenuId} role="dialog" aria-label="Fields to fill">
+                  <div className="options-popover-head">
+                    <span>Fields</span>
+                    <div className="options-popover-actions">
+                      <button type="button" onClick={() => setApplyImages(true)}>
+                        All
+                      </button>
+                      <button type="button" onClick={() => setApplyImages(false)}>
+                        None
+                      </button>
+                    </div>
+                  </div>
+                  <label className="options-item">
+                    <input
+                      type="checkbox"
+                      checked={applyImages}
+                      onChange={(event) => setApplyImages(event.target.checked)}
+                    />
+                    <span className="options-item-label">Images</span>
+                  </label>
+                </div>
+              </>
+            ) : null}
+          </div>
+          <button
+            className="clear-form-button"
+            type="button"
+            disabled={isProcessing}
+            onClick={() => {
+              void clearFilledListingFields();
+            }}
+          >
+            Clear form
+          </button>
           <button className="process-button" type="submit" disabled={isProcessing}>
             <SparkleIcon />
             {isProcessing ? "Processing..." : "Scrape & fill"}
