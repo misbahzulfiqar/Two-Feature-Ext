@@ -242,7 +242,8 @@ async function handlePagination(page, onProgress) {
   let currentPage = 1;
   let retryCount = 0;
   const maxRetries = 5;
-  const maxPages = 100;
+  const maxVehicles = 3000;
+  const maxPages = 155;
   const tableSelectors = [
     ".motors-compatibility-table",
     '[data-testid="d-motors-compatibility-table"]',
@@ -260,6 +261,9 @@ async function handlePagination(page, onProgress) {
       const pageData = await extractCompatibilityData(page);
       const state = await readFitmentPaginationState(page);
       allCompatibility = uniqueRows(allCompatibility.concat(pageData.compatibility));
+      if (allCompatibility.length > maxVehicles) {
+        allCompatibility = allCompatibility.slice(0, maxVehicles);
+      }
       console.log(
         `[FetchFitment] Page ${currentPage}: extracted ${pageData.compatibility.length} rows in ${Date.now() - pageStartedAt}ms (total: ${allCompatibility.length}${state.advertisedCount ? ` of ${state.advertisedCount}` : ""})`,
       );
@@ -269,6 +273,10 @@ async function handlePagination(page, onProgress) {
           allCompatibility.length,
           `Scraped page ${currentPage} — ${allCompatibility.length} vehicles found so far`,
         );
+      }
+
+      if (allCompatibility.length >= maxVehicles) {
+        break;
       }
 
       const moreNumberedPages = state.pageLinkCount > currentPage;

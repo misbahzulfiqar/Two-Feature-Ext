@@ -63,7 +63,7 @@ export function extraCompatibilityUrls(listingUrl: string, html: string): string
   }
 
   const count = compatibilityVehicleCount(html);
-  const pageCount = count > 20 ? Math.min(40, Math.ceil(count / 20)) : 1;
+  const pageCount = count > 20 ? Math.min(155, Math.ceil(Math.min(count, 3000) / 20)) : 1;
 
   if (itemId) {
     if (pageCount > 1) {

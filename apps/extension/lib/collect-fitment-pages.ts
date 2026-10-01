@@ -672,7 +672,8 @@ export async function openListingAndCollectFitment(
     const all: FitmentPageRow[] = [];
     const seen = new Set<string>();
     const seenSignatures = new Set<string>();
-    let advertised = Math.max(0, expectedCount);
+    const maxVehicles = 3000;
+    let advertised = Math.min(maxVehicles, Math.max(0, expectedCount));
     let note = "";
     let frameId = 0;
     const readyAt = Date.now();
@@ -691,7 +692,7 @@ export async function openListingAndCollectFitment(
     frameId = read.frameId;
     let snapshot = read.snapshot;
 
-    for (let page = 1; page <= 40 && snapshot; page += 1) {
+    for (let page = 1; page <= 155 && snapshot; page += 1) {
       if (!snapshot.signature || seenSignatures.has(snapshot.signature)) {
         note = `Page ${page} repeated the same vehicles.`;
         break;
@@ -704,11 +705,14 @@ export async function openListingAndCollectFitment(
           all.push(row);
         }
       }
-      advertised = Math.max(advertised, snapshot.advertised);
+      advertised = Math.min(maxVehicles, Math.max(advertised, snapshot.advertised));
+      if (all.length > maxVehicles) {
+        all.length = maxVehicles;
+      }
       const message = `Scraped page ${page} — ${all.length} vehicles found so far`;
       console.log("[SellSimilar][fitment-pages]", message, "next:", snapshot.nextLabel || "none", snapshot.controls.slice(0, 8));
       onProgress?.({ page, vehicles: all.length, message });
-      if (advertised > 0 && all.length >= advertised) {
+      if (all.length >= maxVehicles || (advertised > 0 && all.length >= advertised)) {
         note = "";
         break;
       }
@@ -1034,8 +1038,14 @@ export async function collectFitmentPagesInFrame(
 
     const all: FrameFitmentRow[] = [];
     const seen = new Set<string>();
-    const pageLimit = expectedCount > 20 ? Math.min(40, Math.ceil(expectedCount / 20) + 1) : 40;
-    let advertised = expectedCount;
+    const maxVehicles = 3000;
+    const maxPages = 155;
+    const vehicleTarget = expectedCount > 0 ? Math.min(expectedCount, maxVehicles) : maxVehicles;
+    const pageLimit =
+      expectedCount > 20
+        ? Math.min(maxPages, Math.ceil(vehicleTarget / 20) + 1)
+        : maxPages;
+    let advertised = expectedCount > 0 ? Math.min(expectedCount, maxVehicles) : expectedCount;
 
     const addRows = (rows: FrameFitmentRow[]): number => {
       let added = 0;
@@ -1060,11 +1070,17 @@ export async function collectFitmentPagesInFrame(
       if (all.length === 0) {
         break;
       }
+      if (all.length > maxVehicles) {
+        all.length = maxVehicles;
+      }
       onProgress?.({
         page,
         vehicles: all.length,
         message: `Scraped page ${page} — ${all.length} vehicles found so far`,
       });
+      if (all.length >= maxVehicles) {
+        break;
+      }
       if (advertised > 0 && all.length >= advertised) {
         break;
       }

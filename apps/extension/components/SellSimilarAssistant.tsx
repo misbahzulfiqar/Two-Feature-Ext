@@ -22,7 +22,7 @@ import {
 } from "../lib/scrape-source-title.ts";
 import { ControlField } from "./ControlField.tsx";
 import { FieldRow } from "./FieldRow.tsx";
-import { CheckCircleIcon, ChevronIcon, GearIcon, SparkleIcon } from "./Icons.tsx";
+import { CheckCircleIcon, ChevronIcon, SparkleIcon } from "./Icons.tsx";
 import { ProgressBar } from "./ProgressBar.tsx";
 import "./SellSimilarAssistant.css";
 
@@ -34,7 +34,13 @@ const FILL_MODES = [
   { id: "specs-only", label: "Specs only" },
 ] as const;
 
+const IMAGE_MODES = [
+  { id: "add", label: "Add images" },
+  { id: "skip", label: "Skip images" },
+] as const;
+
 type FillMode = (typeof FILL_MODES)[number]["id"];
+type ImageMode = (typeof IMAGE_MODES)[number]["id"];
 
 function imageStatus(sourceCount: number, filled: number): string {
   if (sourceCount === 0) {
@@ -49,10 +55,11 @@ function imageStatus(sourceCount: number, filled: number): string {
 export function SellSimilarAssistant() {
   const [fillMode, setFillMode] = useState<FillMode>("specs-and-fitment");
   const [fillMenuOpen, setFillMenuOpen] = useState(false);
-  const [applyImages, setApplyImages] = useState(true);
-  const [fieldsMenuOpen, setFieldsMenuOpen] = useState(false);
+  const [imageMode, setImageMode] = useState<ImageMode>("add");
+  const [imageMenuOpen, setImageMenuOpen] = useState(false);
   const fillMenuId = useId();
-  const fieldsMenuId = useId();
+  const imageMenuId = useId();
+  const applyImages = imageMode === "add";
   const [source, setSource] = useState("");
   const [progress, setProgress] = useState(0);
   const [statusMessage, setStatusMessage] = useState("");
@@ -134,6 +141,11 @@ export function SellSimilarAssistant() {
   function selectFillMode(mode: FillMode): void {
     setFillMode(mode);
     setFillMenuOpen(false);
+  }
+
+  function selectImageMode(mode: ImageMode): void {
+    setImageMode(mode);
+    setImageMenuOpen(false);
   }
 
   function handleSourceChange(event: ChangeEvent<HTMLInputElement>): void {
@@ -360,9 +372,12 @@ export function SellSimilarAssistant() {
           console.log("[SellSimilar] fitment only clicked");
           setProgress(progressForStage("source_load"));
           const listing = await withLiveScrapeStatus(() =>
-            scrapeSourceListing(source, "only-fitment", { fitmentPages: true }),
+            scrapeSourceListing(source, applyImages ? "full-scrape" : "only-fitment", {
+              fitmentPages: true,
+            }),
           );
           setProgress(progressForStage("fitment_extract"));
+          const filledImages = await applySelectedImages(listing.images);
           const fitmentResult = await applyNormalizedFitment(listing.compatibility);
           await restoreListingPage();
           setProgress(progressForStage("complete"));
@@ -373,7 +388,7 @@ export function SellSimilarAssistant() {
           await reportApplyResult({
             jobId: listing.jobId,
             fitmentCount: fitmentResult.filled,
-            imageCount: 0,
+            imageCount: filledImages,
             warningCount: fitmentResult.warnings.length,
             warnings: fitmentResult.warnings,
           });
@@ -417,7 +432,10 @@ export function SellSimilarAssistant() {
               aria-haspopup="listbox"
               aria-expanded={fillMenuOpen}
               aria-controls={fillMenuId}
-              onClick={() => setFillMenuOpen((open) => !open)}
+              onClick={() => {
+                setFillMenuOpen((open) => !open);
+                setImageMenuOpen(false);
+              }}
             >
               <span className="mode-dropdown-value">
                 {FILL_MODES.find((mode) => mode.id === fillMode)?.label}
@@ -456,6 +474,58 @@ export function SellSimilarAssistant() {
           </div>
         </FieldRow>
 
+        <FieldRow label="Images" htmlFor="image-mode">
+          <div className={imageMenuOpen ? "mode-dropdown is-open" : "mode-dropdown"}>
+            <button
+              type="button"
+              id="image-mode"
+              className="mode-dropdown-trigger"
+              disabled={isProcessing}
+              aria-haspopup="listbox"
+              aria-expanded={imageMenuOpen}
+              aria-controls={imageMenuId}
+              onClick={() => {
+                setImageMenuOpen((open) => !open);
+                setFillMenuOpen(false);
+              }}
+            >
+              <span className="mode-dropdown-value">
+                {IMAGE_MODES.find((mode) => mode.id === imageMode)?.label}
+              </span>
+              <span className="chevron" aria-hidden="true">
+                <ChevronIcon />
+              </span>
+            </button>
+            {imageMenuOpen ? (
+              <>
+                <div
+                  className="options-backdrop"
+                  onClick={() => setImageMenuOpen(false)}
+                  aria-hidden="true"
+                />
+                <div className="mode-dropdown-menu" id={imageMenuId} role="listbox" aria-label="Images">
+                  {IMAGE_MODES.map((mode) => (
+                    <button
+                      key={mode.id}
+                      type="button"
+                      role="option"
+                      className={
+                        mode.id === imageMode
+                          ? "mode-dropdown-option is-selected"
+                          : "mode-dropdown-option"
+                      }
+                      aria-selected={mode.id === imageMode}
+                      onClick={() => selectImageMode(mode.id)}
+                    >
+                      {mode.label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : null}
+          </div>
+        </FieldRow>
+
         <FieldRow label="Source URL / ID" htmlFor="source-url">
           <ControlField>
             <input
@@ -472,51 +542,6 @@ export function SellSimilarAssistant() {
         </FieldRow>
 
         <div className="form-actions">
-          <div className="options-menu">
-            <button
-              type="button"
-              className={fieldsMenuOpen ? "icon-button is-active" : "icon-button"}
-              disabled={isProcessing}
-              aria-haspopup="dialog"
-              aria-expanded={fieldsMenuOpen}
-              aria-controls={fieldsMenuId}
-              aria-label="Fields to fill"
-              onClick={() => setFieldsMenuOpen((open) => !open)}
-            >
-              <GearIcon />
-              {applyImages ? null : <span className="icon-button-dot" aria-hidden="true" />}
-            </button>
-            {fieldsMenuOpen ? (
-              <>
-                <div
-                  className="options-backdrop"
-                  onClick={() => setFieldsMenuOpen(false)}
-                  aria-hidden="true"
-                />
-                <div className="options-popover" id={fieldsMenuId} role="dialog" aria-label="Fields to fill">
-                  <div className="options-popover-head">
-                    <span>Fields</span>
-                    <div className="options-popover-actions">
-                      <button type="button" onClick={() => setApplyImages(true)}>
-                        All
-                      </button>
-                      <button type="button" onClick={() => setApplyImages(false)}>
-                        None
-                      </button>
-                    </div>
-                  </div>
-                  <label className="options-item">
-                    <input
-                      type="checkbox"
-                      checked={applyImages}
-                      onChange={(event) => setApplyImages(event.target.checked)}
-                    />
-                    <span className="options-item-label">Images</span>
-                  </label>
-                </div>
-              </>
-            ) : null}
-          </div>
           <button
             className="clear-form-button"
             type="button"
