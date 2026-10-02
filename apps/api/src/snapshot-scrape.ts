@@ -36,8 +36,11 @@ export async function scrapeFromHtml(input: {
     };
   }
   console.log(`[snapshot-scrape] parsing ${html.length} chars mode=${input.scrapeMode ?? "full-scrape"}`);
-  return processListing(createSnapshotPage(html, input.listingUrl), input.listingUrl, {
+  const result = await processListing(createSnapshotPage(html, input.listingUrl), input.listingUrl, {
     html,
     scrapeMode: input.scrapeMode,
   });
+  const imageCount = Array.isArray(result.listingData?.images) ? result.listingData.images.length : 0;
+  console.log(`[snapshot-scrape] images=${imageCount}`);
+  return result;
 }

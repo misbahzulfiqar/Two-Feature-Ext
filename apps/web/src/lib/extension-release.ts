@@ -17,8 +17,8 @@ export async function fetchExtensionRelease(): Promise<ExtensionRelease> {
   return {
     version: "1.0.0",
     filename: "chrome-mv3.zip",
-    sizeBytes: 211994,
-    builtAt: "2026-09-28T07:09:00.000Z",
+    sizeBytes: 213534,
+    builtAt: "2026-10-02T01:15:00.000Z",
     sha256: "",
   };
 }

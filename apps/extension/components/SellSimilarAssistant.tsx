@@ -308,7 +308,9 @@ export function SellSimilarAssistant() {
           });
           setProgress(progressForStage("listing_extract"));
           setProgress(progressForStage("target_prepare"));
-          const filledImages = await applySelectedImages(listing.images);
+          appendStatus("Adding photos...");
+          const filledImages = await fillEbayListingImages(listing.images);
+          appendStatus(imageStatus(listing.images.length, filledImages));
           console.log("[SellSimilar] filling item specifics", listing.itemSpecifics.length);
           appendStatus("Replacing item specifics...");
           const specResult = await fillEbayListingSpecifics(listing.itemSpecifics);
@@ -348,7 +350,9 @@ export function SellSimilarAssistant() {
           setProgress(progressForStage("listing_extract"));
 
           setProgress(progressForStage("target_prepare"));
-          const filledImages = await applySelectedImages(listing.images);
+          appendStatus("Adding photos...");
+          const filledImages = await fillEbayListingImages(listing.images);
+          appendStatus(imageStatus(listing.images.length, filledImages));
           console.log("[SellSimilar] filling item specifics", listing.itemSpecifics.length);
           appendStatus("Replacing item specifics...");
           const specResult = await fillEbayListingSpecifics(listing.itemSpecifics);
