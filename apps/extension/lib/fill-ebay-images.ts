@@ -1,3 +1,28 @@
+import type { ListingPhotoPayload } from "./fill-ebay-images-main.ts";
+
+export const FILL_LISTING_PHOTOS = "SELL_SIMILAR_FILL_LISTING_PHOTOS";
+
+export type FillListingPhotosRequest = {
+  type: typeof FILL_LISTING_PHOTOS;
+  files: ListingPhotoPayload[];
+};
+
+export type FillListingPhotosResponse = {
+  added: number;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+export function isFillListingPhotosRequest(message: unknown): message is FillListingPhotosRequest {
+  return (
+    isRecord(message) &&
+    message.type === FILL_LISTING_PHOTOS &&
+    Array.isArray(message.files)
+  );
+}
+
 const MAX_UPLOAD_IMAGES = 24;
 const MIN_IMAGE_BYTES = 32;
 const MAX_DELETE_ATTEMPTS = 30;
@@ -170,68 +195,28 @@ async function fetchImageFile(url: string, index: number): Promise<File | undefi
   }
 }
 
-function supportedPhotoInput(root: ParentNode): HTMLInputElement | undefined {
-  const inputs = [...root.querySelectorAll("input[type='file']")];
-  return inputs.find((input): input is HTMLInputElement => {
-    if (!(input instanceof HTMLInputElement) || input.disabled) {
-      return false;
-    }
-    const accept = input.accept.trim().toLowerCase();
-    return accept === "" || accept.includes("image");
-  });
+async function filePayload(file: File): Promise<ListingPhotoPayload> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = "";
+  const chunkSize = 0x2000;
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    const chunk = bytes.subarray(index, index + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+  return {
+    name: file.name,
+    type: file.type || "image/jpeg",
+    base64: btoa(binary),
+  };
 }
 
-function supportedDropZone(root: ParentNode): HTMLElement | undefined {
-  if (
-    root instanceof HTMLElement &&
-    root.matches(".uploader, .uploader-dropzone, .dropzone, [class*='drop-zone' i], [class*='dropzone' i]")
-  ) {
-    return root;
-  }
-  const zone = root.querySelector(
-    "[data-testid*='drop' i], .uploader-dropzone, .dropzone, [class*='drop-zone' i], [class*='dropzone' i], .uploader",
-  );
-  return zone instanceof HTMLElement ? zone : undefined;
-}
-
-function filesToTransfer(files: File[]): DataTransfer {
-  const transfer = new DataTransfer();
-  for (const file of files) {
-    transfer.items.add(file);
-  }
-  return transfer;
-}
-
-function submitPhotoFiles(files: File[]): number {
-  const root = photoRoot();
-  if (!root) {
-    return 0;
-  }
-  const transfer = filesToTransfer(files);
-  const input = supportedPhotoInput(root);
-  if (input) {
-    try {
-      input.files = transfer.files;
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-      input.dispatchEvent(new Event("change", { bubbles: true }));
-      return files.length;
-    } catch {
-      // Some editors reject a programmatic file list; try the drop zone next.
-    }
-  }
-
-  const zone = supportedDropZone(root);
-  if (!zone) {
-    return 0;
-  }
-  try {
-    const drop = new DragEvent("drop", { bubbles: true, cancelable: true });
-    Object.defineProperty(drop, "dataTransfer", { value: transfer });
-    zone.dispatchEvent(drop);
-    return files.length;
-  } catch {
-    return 0;
-  }
+async function submitPhotoFiles(files: File[]): Promise<number> {
+  const payloads = await Promise.all(files.map((file) => filePayload(file)));
+  const response = (await browser.runtime.sendMessage({
+    type: FILL_LISTING_PHOTOS,
+    files: payloads,
+  })) as FillListingPhotosResponse | undefined;
+  return response?.added ?? 0;
 }
 
 /**
@@ -260,7 +245,7 @@ export async function fillEbayListingImages(urls: string[]): Promise<number> {
   if (files.length === 0) {
     return 0;
   }
-  return submitPhotoFiles(files);
+  return await submitPhotoFiles(files);
 }
 
 /** Remove target listing photos. Returns how many delete controls were clicked. */

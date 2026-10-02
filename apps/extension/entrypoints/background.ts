@@ -1,4 +1,9 @@
 import { SellSimilarApiClient, SellSimilarApiError } from "@sell-similar/api-client";
+import { applyListingPhotosInPage } from "../lib/fill-ebay-images-main.ts";
+import {
+  isFillListingPhotosRequest,
+  type FillListingPhotosResponse,
+} from "../lib/fill-ebay-images.ts";
 import { addCustomItemSpecificInPage, fillItemYesNoInPage } from "../lib/fill-ebay-specifics-main.ts";
 import { restoreListingPageInPage } from "../lib/restore-listing-page-main.ts";
 import {
@@ -420,6 +425,29 @@ export default defineBackground(() => {
             ok: false,
             reason: error instanceof Error ? error.message : String(error),
           } satisfies FillItemCustomResponse);
+        });
+      return true;
+    }
+
+    if (isFillListingPhotosRequest(message)) {
+      const tabId = sender.tab?.id;
+      if (tabId == null) {
+        sendResponse({ added: 0 } satisfies FillListingPhotosResponse);
+        return;
+      }
+      void browser.scripting
+        .executeScript({
+          target: { tabId },
+          world: "MAIN",
+          func: applyListingPhotosInPage,
+          args: [message.files],
+        })
+        .then((injected) => {
+          const added = injected.reduce((sum, entry) => sum + (entry.result?.added ?? 0), 0);
+          sendResponse({ added } satisfies FillListingPhotosResponse);
+        })
+        .catch(() => {
+          sendResponse({ added: 0 } satisfies FillListingPhotosResponse);
         });
       return true;
     }
