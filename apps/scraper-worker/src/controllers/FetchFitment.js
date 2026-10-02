@@ -94,8 +94,13 @@ async function extractCompatibilityData(page) {
       document.querySelector(".motors-compatibility-table__details-text");
     const detailsText = detailsTextEl?.textContent;
     if (detailsText) {
-      const countMatch = detailsText.match(/\d+/);
-      result.compatibilityCount = countMatch ? Number.parseInt(countMatch[0], 10) : 0;
+      const countMatch =
+        detailsText.match(/compatible with\s+([\d,]+)\s+vehicle/i) ||
+        detailsText.match(/([\d,]+)\s+vehicle\(s\)/i) ||
+        detailsText.match(/of\s+([\d,]+)\s+vehicle/i) ||
+        detailsText.match(/([\d,]+)/);
+      const digits = countMatch ? String(countMatch[1] || "").replace(/,/g, "") : "";
+      result.compatibilityCount = /^\d+$/.test(digits) ? Number.parseInt(digits, 10) : 0;
     }
 
     const rows = motorsTables.flatMap((motorsTable) =>
@@ -156,10 +161,11 @@ async function readFitmentPaginationState(page) {
     const scope = root || document.body;
     const hay = `${scope.textContent || ""} ${document.body?.innerText || ""}`.slice(0, 8000);
     const advertisedMatch =
-      hay.match(/compatible with\s+(\d+)\s+vehicle/i) ||
-      hay.match(/(\d+)\s+vehicle\(s\)/i) ||
-      hay.match(/of\s+(\d+)\s+vehicle/i);
-    const advertisedCount = advertisedMatch ? Number.parseInt(advertisedMatch[1], 10) : 0;
+      hay.match(/compatible with\s+([\d,]+)\s+vehicle/i) ||
+      hay.match(/([\d,]+)\s+vehicle\(s\)/i) ||
+      hay.match(/of\s+([\d,]+)\s+vehicle/i);
+    const advertisedDigits = advertisedMatch ? String(advertisedMatch[1] || "").replace(/,/g, "") : "";
+    const advertisedCount = /^\d+$/.test(advertisedDigits) ? Number.parseInt(advertisedDigits, 10) : 0;
 
     const disabled = (el) =>
       !el ||

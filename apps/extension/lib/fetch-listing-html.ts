@@ -13,20 +13,30 @@ function itemIdFromUrl(listingUrl: string): string {
   return match?.[1] ?? "";
 }
 
+function countFromVehicleText(raw: string): number {
+  const digits = raw.replace(/,/g, "");
+  if (!/^\d+$/.test(digits)) {
+    return 0;
+  }
+  const value = Number(digits);
+  return Number.isFinite(value) ? value : 0;
+}
+
 function compatibilityVehicleCount(html: string): number {
   const patterns = [
-    /compatible with\s+(\d+)\s+vehicle/i,
-    /fits\s+(\d+)\s+vehicle/i,
-    /(\d+)\s+compatible vehicle/i,
-    /(\d+)\s+vehicle\(s\)/i,
-    /of\s+(\d+)\s+vehicle/i,
-    /this part fits\s+(\d+)/i,
-    /see all\s+(\d+)/i,
+    /compatible with\s+([\d,]+)\s+vehicle/i,
+    /fits\s+([\d,]+)\s+vehicle/i,
+    /([\d,]+)\s+compatible vehicle/i,
+    /([\d,]+)\s+vehicle\(s\)/i,
+    /of\s+([\d,]+)\s+vehicle/i,
+    /this part fits\s+([\d,]+)/i,
+    /see all\s+([\d,]+)/i,
   ];
   for (const pattern of patterns) {
     const match = html.match(pattern);
-    if (match?.[1]) {
-      return Number(match[1]);
+    const count = countFromVehicleText(match?.[1] ?? "");
+    if (count > 0) {
+      return count;
     }
   }
   return 0;

@@ -118,10 +118,11 @@ export async function walkFitmentPagesInListing(expectedCount = 0): Promise<Page
     }
     const hay = clean(`${root?.textContent || ""} ${document.body?.innerText || ""}`).slice(0, 8000);
     const advertisedMatch =
-      hay.match(/compatible with\s+(\d+)\s+vehicle/i) ||
-      hay.match(/(\d+)\s+vehicle\(s\)/i) ||
-      hay.match(/of\s+(\d+)\s+vehicle/i);
-    const advertised = advertisedMatch ? Number.parseInt(advertisedMatch[1] ?? "", 10) : 0;
+      hay.match(/compatible with\s+([\d,]+)\s+vehicle/i) ||
+      hay.match(/([\d,]+)\s+vehicle\(s\)/i) ||
+      hay.match(/of\s+([\d,]+)\s+vehicle/i);
+    const advertisedDigits = (advertisedMatch?.[1] ?? "").replace(/,/g, "");
+    const advertised = /^\d+$/.test(advertisedDigits) ? Number.parseInt(advertisedDigits, 10) : 0;
     return { rows, advertised: Number.isFinite(advertised) ? advertised : 0 };
   };
 
@@ -241,7 +242,8 @@ export async function walkFitmentPagesInListing(expectedCount = 0): Promise<Page
       }
     };
 
-    while (currentPage <= 100 && retryCount < 5) {
+    const maxVehicles = 3000;
+    while (currentPage <= 155 && retryCount < 5) {
       const pageData = extractRows();
       advertised = Math.max(advertised, pageData.advertised);
       const beforeCount = all.length;
@@ -253,13 +255,13 @@ export async function walkFitmentPagesInListing(expectedCount = 0): Promise<Page
       report(currentPage, all.length, false);
       console.log("[SellSimilar][fitment-pages] page", currentPage, "vehicles", all.length, "of", advertised || "unknown");
 
-      if (advertised > 0 && all.length >= advertised) {
+      if (all.length >= maxVehicles) {
         break;
       }
 
       let next = nextControl();
       const waitNext = Date.now();
-      while (!next && advertised > all.length && Date.now() - waitNext < 10000) {
+      while (!next && all.length < maxVehicles && Date.now() - waitNext < 10000) {
         compatibilityRoot()?.scrollIntoView({ block: "center" });
         window.scrollBy(0, 600);
         await sleep(400);
@@ -557,8 +559,9 @@ export function readLiveFitmentSnapshot(): LiveFitmentSnapshot {
   });
   const hay = clean(`${root?.textContent || ""}`).slice(0, 2500);
   const advertisedMatch =
-    hay.match(/compatible with\s+(\d+)\s+vehicle/i) || hay.match(/(\d+)\s+vehicle\(s\)/i);
-  const advertised = advertisedMatch ? Number.parseInt(advertisedMatch[1] ?? "", 10) : 0;
+    hay.match(/compatible with\s+([\d,]+)\s+vehicle/i) || hay.match(/([\d,]+)\s+vehicle\(s\)/i);
+  const advertisedDigits = (advertisedMatch?.[1] ?? "").replace(/,/g, "");
+  const advertised = /^\d+$/.test(advertisedDigits) ? Number.parseInt(advertisedDigits, 10) : 0;
   const first = rows[0];
   const last = rows[rows.length - 1];
   return {
@@ -712,14 +715,14 @@ export async function openListingAndCollectFitment(
       const message = `Scraped page ${page} — ${all.length} vehicles found so far`;
       console.log("[SellSimilar][fitment-pages]", message, "next:", snapshot.nextLabel || "none", snapshot.controls.slice(0, 8));
       onProgress?.({ page, vehicles: all.length, message });
-      if (all.length >= maxVehicles || (advertised > 0 && all.length >= advertised)) {
+      if (all.length >= maxVehicles) {
         note = "";
         break;
       }
 
       let nextLabel = snapshot.nextLabel;
       const waitNext = Date.now();
-      while (!nextLabel && advertised > all.length && Date.now() - waitNext < 8000) {
+      while (!nextLabel && all.length < maxVehicles && Date.now() - waitNext < 8000) {
         await sleep(400);
         const again = await readFitmentFrame(tabId);
         if (again && again.snapshot.rows.length > 0) {
@@ -1040,11 +1043,7 @@ export async function collectFitmentPagesInFrame(
     const seen = new Set<string>();
     const maxVehicles = 3000;
     const maxPages = 155;
-    const vehicleTarget = expectedCount > 0 ? Math.min(expectedCount, maxVehicles) : maxVehicles;
-    const pageLimit =
-      expectedCount > 20
-        ? Math.min(maxPages, Math.ceil(vehicleTarget / 20) + 1)
-        : maxPages;
+    const pageLimit = maxPages;
     let advertised = expectedCount > 0 ? Math.min(expectedCount, maxVehicles) : expectedCount;
 
     const addRows = (rows: FrameFitmentRow[]): number => {
@@ -1081,13 +1080,10 @@ export async function collectFitmentPagesInFrame(
       if (all.length >= maxVehicles) {
         break;
       }
-      if (advertised > 0 && all.length >= advertised) {
-        break;
-      }
       const before = frameFirstRow(doc);
       let foundNext = frameNextControl(doc);
       const waitNext = Date.now();
-      while (!foundNext && all.length < advertised && Date.now() - waitNext < 8000) {
+      while (!foundNext && all.length < maxVehicles && Date.now() - waitNext < 8000) {
         frameRoot(doc)?.scrollIntoView({ block: "center" });
         frameWindow.scrollBy(0, 700);
         await frameSleep(400);

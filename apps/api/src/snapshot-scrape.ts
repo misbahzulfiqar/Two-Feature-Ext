@@ -42,6 +42,9 @@ export async function scrapeFromHtml(input: {
   });
   const imageCount = Array.isArray(result.listingData?.images) ? result.listingData.images.length : 0;
   const categoryName = result.listingData?.category?.name ?? "";
-  console.log(`[snapshot-scrape] images=${imageCount} category=${categoryName}`);
+  const fitmentCount = Array.isArray(result.listingData?.compatibility)
+    ? result.listingData.compatibility.length
+    : 0;
+  console.log(`[snapshot-scrape] images=${imageCount} category=${categoryName} fitment=${fitmentCount}`);
   return result;
 }

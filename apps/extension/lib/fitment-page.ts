@@ -114,12 +114,13 @@ function rowsFromTable(table: Element): FitmentPageRow[] {
 function advertisedCount(scope: ParentNode): number {
   const hay = clean(scope instanceof Element ? scope.textContent || "" : document.body?.innerText || "").slice(0, 8000);
   const match =
-    hay.match(/compatible with\s+(\d+)\s+vehicle/i) ||
-    hay.match(/(\d+)\s+compatible vehicle/i) ||
-    hay.match(/(\d+)\s+vehicle\(s\)/i) ||
-    hay.match(/of\s+(\d+)\s+vehicle/i) ||
-    hay.match(/see all\s+(\d+)/i);
-  const value = match ? Number.parseInt(match[1] ?? "", 10) : 0;
+    hay.match(/compatible with\s+([\d,]+)\s+vehicle/i) ||
+    hay.match(/([\d,]+)\s+compatible vehicle/i) ||
+    hay.match(/([\d,]+)\s+vehicle\(s\)/i) ||
+    hay.match(/of\s+([\d,]+)\s+vehicle/i) ||
+    hay.match(/see all\s+([\d,]+)/i);
+  const digits = (match?.[1] ?? "").replace(/,/g, "");
+  const value = /^\d+$/.test(digits) ? Number.parseInt(digits, 10) : 0;
   return Number.isFinite(value) ? value : 0;
 }
 
