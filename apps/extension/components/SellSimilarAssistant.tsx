@@ -32,6 +32,7 @@ const FILL_MODES = [
   { id: "specs-and-fitment", label: "Specs & fitment" },
   { id: "fitment-only", label: "Fitment only" },
   { id: "specs-only", label: "Specs only" },
+  { id: "images", label: "Images" },
 ] as const;
 
 const IMAGE_MODES = [
@@ -250,7 +251,7 @@ export function SellSimilarAssistant() {
     if (isProcessing) {
       return;
     }
-    if (!applyImages) {
+    if (!applyImages && fillMode !== "images") {
       appendStatus("No fields selected to clear.");
       return;
     }
@@ -358,6 +359,30 @@ export function SellSimilarAssistant() {
               ? "No item specifics found."
               : `Filled ${specResult.filled} of ${listing.itemSpecifics.length} item specifics.`,
           );
+          await reportApplyResult({
+            jobId: listing.jobId,
+            fitmentCount: 0,
+            imageCount: filledImages,
+            warningCount: 0,
+            warnings: [],
+          });
+          setIsComplete(true);
+          break;
+        }
+        case "images": {
+          console.log("[SellSimilar] images clicked");
+          appendStatus("Reading photos...");
+          setProgress(progressForStage("source_load"));
+          const listing = await withLiveScrapeStatus(() =>
+            scrapeSourceListing(source, "full-scrape", { fitmentPages: false }),
+          );
+          setProgress(progressForStage("listing_extract"));
+          setProgress(progressForStage("target_prepare"));
+          appendStatus("Adding photos...");
+          const filledImages = await fillEbayListingImages(listing.images);
+          await restoreListingPage();
+          setProgress(progressForStage("complete"));
+          appendStatus(imageStatus(listing.images.length, filledImages));
           await reportApplyResult({
             jobId: listing.jobId,
             fitmentCount: 0,
