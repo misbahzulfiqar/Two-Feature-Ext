@@ -1,4 +1,9 @@
 import { SellSimilarApiClient, SellSimilarApiError } from "@sell-similar/api-client";
+import { fillItemCategoryInPage } from "../lib/fill-ebay-category-main.ts";
+import {
+  isFillItemCategoryRequest,
+  type FillItemCategoryResult,
+} from "../lib/fill-ebay-category.ts";
 import { applyListingPhotosInPage } from "../lib/fill-ebay-images-main.ts";
 import {
   isFillListingPhotosRequest,
@@ -425,6 +430,43 @@ export default defineBackground(() => {
             ok: false,
             reason: error instanceof Error ? error.message : String(error),
           } satisfies FillItemCustomResponse);
+        });
+      return true;
+    }
+
+    if (isFillItemCategoryRequest(message)) {
+      const tabId = sender.tab?.id;
+      if (tabId == null) {
+        sendResponse({
+          ok: false,
+          itemCategory: false,
+          reason: "No tab",
+        } satisfies FillItemCategoryResult);
+        return;
+      }
+      void browser.scripting
+        .executeScript({
+          target: { tabId },
+          world: "MAIN",
+          func: fillItemCategoryInPage,
+          args: [message.category],
+        })
+        .then((injected) => {
+          const result = injected.find((entry) => entry.result)?.result;
+          sendResponse(
+            result ?? {
+              ok: false,
+              itemCategory: false,
+              reason: "Category script did not run",
+            },
+          );
+        })
+        .catch((error: unknown) => {
+          sendResponse({
+            ok: false,
+            itemCategory: false,
+            reason: error instanceof Error ? error.message : String(error),
+          } satisfies FillItemCategoryResult);
         });
       return true;
     }

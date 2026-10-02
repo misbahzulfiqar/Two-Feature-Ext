@@ -41,6 +41,7 @@ export async function scrapeFromHtml(input: {
     scrapeMode: input.scrapeMode,
   });
   const imageCount = Array.isArray(result.listingData?.images) ? result.listingData.images.length : 0;
-  console.log(`[snapshot-scrape] images=${imageCount}`);
+  const categoryName = result.listingData?.category?.name ?? "";
+  console.log(`[snapshot-scrape] images=${imageCount} category=${categoryName}`);
   return result;
 }

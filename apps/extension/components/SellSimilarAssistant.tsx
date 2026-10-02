@@ -1,10 +1,11 @@
 import { useEffect, useId, useRef, useState, type ChangeEvent, type FormEvent } from "react";
-import type { ScrapeProgressStage, VehicleCompatibility } from "@sell-similar/contracts";
+import type { ListingCategory, ScrapeProgressStage, VehicleCompatibility } from "@sell-similar/contracts";
 import {
   captureFitmentTargetEditor,
   fillEbayListingFitment,
   type FillFitmentResult,
 } from "../lib/fill-ebay-fitment.ts";
+import { fillEbayListingCategories } from "../lib/fill-ebay-category.ts";
 import { clearEbayListingImages, fillEbayListingImages } from "../lib/fill-ebay-images.ts";
 import { fillEbayListingSpecifics } from "../lib/fill-ebay-specifics.ts";
 import { fitmentLog } from "../lib/fitment-debug.ts";
@@ -29,19 +30,33 @@ import "./SellSimilarAssistant.css";
 const SAMPLE_SOURCE_URL = "https://www.ebay.com/itm/453712381834";
 
 const FILL_MODES = [
-  { id: "specs-and-fitment", label: "Specs & fitment" },
+  { id: "specs-and-fitment", label: "Full scrape" },
   { id: "fitment-only", label: "Fitment only" },
   { id: "specs-only", label: "Specs only" },
   { id: "images", label: "Images" },
 ] as const;
 
-const IMAGE_MODES = [
-  { id: "add", label: "Add images" },
-  { id: "skip", label: "Skip images" },
+const FILL_FIELDS = [
+  { id: "title", label: "Title" },
+  { id: "photos", label: "Photos" },
+  { id: "category", label: "Item category" },
+  { id: "specifics", label: "Item specifics" },
+  { id: "fitment", label: "Vehicle compatibility" },
 ] as const;
 
 type FillMode = (typeof FILL_MODES)[number]["id"];
-type ImageMode = (typeof IMAGE_MODES)[number]["id"];
+type FillFieldId = (typeof FILL_FIELDS)[number]["id"];
+type FillFieldSelection = Record<FillFieldId, boolean>;
+
+function allFillFields(selected: boolean): FillFieldSelection {
+  return {
+    title: selected,
+    photos: selected,
+    category: selected,
+    specifics: selected,
+    fitment: selected,
+  };
+}
 
 function imageStatus(sourceCount: number, filled: number): string {
   if (sourceCount === 0) {
@@ -56,11 +71,10 @@ function imageStatus(sourceCount: number, filled: number): string {
 export function SellSimilarAssistant() {
   const [fillMode, setFillMode] = useState<FillMode>("specs-and-fitment");
   const [fillMenuOpen, setFillMenuOpen] = useState(false);
-  const [imageMode, setImageMode] = useState<ImageMode>("add");
-  const [imageMenuOpen, setImageMenuOpen] = useState(false);
+  const [fields, setFields] = useState<FillFieldSelection>(allFillFields(true));
+  const [fieldsMenuOpen, setFieldsMenuOpen] = useState(false);
   const fillMenuId = useId();
-  const imageMenuId = useId();
-  const applyImages = imageMode === "add";
+  const fieldsMenuId = useId();
   const [source, setSource] = useState("");
   const [progress, setProgress] = useState(0);
   const [statusMessage, setStatusMessage] = useState("");
@@ -144,9 +158,8 @@ export function SellSimilarAssistant() {
     setFillMenuOpen(false);
   }
 
-  function selectImageMode(mode: ImageMode): void {
-    setImageMode(mode);
-    setImageMenuOpen(false);
+  function toggleFillField(id: FillFieldId, selected: boolean): void {
+    setFields((current) => ({ ...current, [id]: selected }));
   }
 
   function handleSourceChange(event: ChangeEvent<HTMLInputElement>): void {
@@ -237,8 +250,27 @@ export function SellSimilarAssistant() {
     setProgress((current) => (next >= current ? next : current));
   }
 
+  async function applySelectedCategory(category: ListingCategory): Promise<void> {
+    if (!fields.category) {
+      appendStatus("Item category skipped");
+      return;
+    }
+    const label = category.path.filter((part) => part.trim()).join(" > ") || category.name.trim();
+    if (!category.name.trim() && !category.id.trim()) {
+      appendStatus("No item category found");
+      return;
+    }
+    appendStatus("Updating item category...");
+    const result = await fillEbayListingCategories(category);
+    appendStatus(
+      result.itemCategory
+        ? `Updated item category: ${label || category.id}`
+        : "Could not update item category",
+    );
+  }
+
   async function applySelectedImages(urls: string[]): Promise<number> {
-    if (!applyImages) {
+    if (!fields.photos) {
       return 0;
     }
     appendStatus("Adding photos...");
@@ -251,7 +283,7 @@ export function SellSimilarAssistant() {
     if (isProcessing) {
       return;
     }
-    if (!applyImages && fillMode !== "images") {
+    if (!fields.photos && fillMode !== "images") {
       appendStatus("No fields selected to clear.");
       return;
     }
@@ -308,34 +340,41 @@ export function SellSimilarAssistant() {
           });
           setProgress(progressForStage("listing_extract"));
           setProgress(progressForStage("target_prepare"));
-          appendStatus("Adding photos...");
-          const filledImages = await fillEbayListingImages(listing.images);
-          appendStatus(imageStatus(listing.images.length, filledImages));
-          console.log("[SellSimilar] filling item specifics", listing.itemSpecifics.length);
-          appendStatus("Replacing item specifics...");
-          const specResult = await fillEbayListingSpecifics(listing.itemSpecifics);
+          const filledImages = await applySelectedImages(listing.images);
+          await applySelectedCategory(listing.category);
+          let specFilled = 0;
+          if (fields.specifics) {
+            console.log("[SellSimilar] filling item specifics", listing.itemSpecifics.length);
+            appendStatus("Replacing item specifics...");
+            const specResult = await fillEbayListingSpecifics(listing.itemSpecifics);
+            specFilled = specResult.filled;
+          }
           setProgress(progressForStage("apply_core"));
 
-          const fitmentResult = await applyNormalizedFitment(listing.compatibility);
-          if (fitmentResult.filled > 0) {
+          const fitmentResult = fields.fitment
+            ? await applyNormalizedFitment(listing.compatibility)
+            : undefined;
+          if (fitmentResult && fitmentResult.filled > 0) {
             setShowFitmentReload(true);
           }
 
           await restoreListingPage();
           setProgress(progressForStage("complete"));
-          const specificsText =
-            listing.itemSpecifics.length === 0
+          const specificsText = !fields.specifics
+            ? ""
+            : listing.itemSpecifics.length === 0
               ? "No item specifics found"
-              : `Filled ${specResult.filled} of ${listing.itemSpecifics.length} item specifics`;
-          appendStatus(
-            `${fitmentSummary(fitmentResult, listing.compatibility.length)} ${specificsText}.`,
-          );
+              : `Filled ${specFilled} of ${listing.itemSpecifics.length} item specifics`;
+          const fitmentText = fitmentResult
+            ? fitmentSummary(fitmentResult, listing.compatibility.length)
+            : "";
+          appendStatus(`${fitmentText} ${specificsText}`.trim());
           await reportApplyResult({
             jobId: listing.jobId,
-            fitmentCount: fitmentResult.filled,
+            fitmentCount: fitmentResult?.filled ?? 0,
             imageCount: filledImages,
-            warningCount: fitmentResult.warnings.length,
-            warnings: fitmentResult.warnings,
+            warningCount: fitmentResult?.warnings.length ?? 0,
+            warnings: fitmentResult?.warnings ?? [],
           });
           setIsComplete(true);
           break;
@@ -350,19 +389,23 @@ export function SellSimilarAssistant() {
           setProgress(progressForStage("listing_extract"));
 
           setProgress(progressForStage("target_prepare"));
-          appendStatus("Adding photos...");
-          const filledImages = await fillEbayListingImages(listing.images);
-          appendStatus(imageStatus(listing.images.length, filledImages));
-          console.log("[SellSimilar] filling item specifics", listing.itemSpecifics.length);
-          appendStatus("Replacing item specifics...");
-          const specResult = await fillEbayListingSpecifics(listing.itemSpecifics);
+          const filledImages = await applySelectedImages(listing.images);
+          let specFilled = 0;
+          if (fields.specifics) {
+            console.log("[SellSimilar] filling item specifics", listing.itemSpecifics.length);
+            appendStatus("Replacing item specifics...");
+            const specResult = await fillEbayListingSpecifics(listing.itemSpecifics);
+            specFilled = specResult.filled;
+          }
           await restoreListingPage();
           setProgress(progressForStage("complete"));
-          appendStatus(
-            listing.itemSpecifics.length === 0
-              ? "No item specifics found."
-              : `Filled ${specResult.filled} of ${listing.itemSpecifics.length} item specifics.`,
-          );
+          if (fields.specifics) {
+            appendStatus(
+              listing.itemSpecifics.length === 0
+                ? "No item specifics found."
+                : `Filled ${specFilled} of ${listing.itemSpecifics.length} item specifics.`,
+            );
+          }
           await reportApplyResult({
             jobId: listing.jobId,
             fitmentCount: 0,
@@ -382,11 +425,9 @@ export function SellSimilarAssistant() {
           );
           setProgress(progressForStage("listing_extract"));
           setProgress(progressForStage("target_prepare"));
-          appendStatus("Adding photos...");
-          const filledImages = await fillEbayListingImages(listing.images);
+          const filledImages = await applySelectedImages(listing.images);
           await restoreListingPage();
           setProgress(progressForStage("complete"));
-          appendStatus(imageStatus(listing.images.length, filledImages));
           await reportApplyResult({
             jobId: listing.jobId,
             fitmentCount: 0,
@@ -401,25 +442,29 @@ export function SellSimilarAssistant() {
           console.log("[SellSimilar] fitment only clicked");
           setProgress(progressForStage("source_load"));
           const listing = await withLiveScrapeStatus(() =>
-            scrapeSourceListing(source, applyImages ? "full-scrape" : "only-fitment", {
+            scrapeSourceListing(source, fields.photos ? "full-scrape" : "only-fitment", {
               fitmentPages: true,
             }),
           );
           setProgress(progressForStage("fitment_extract"));
           const filledImages = await applySelectedImages(listing.images);
-          const fitmentResult = await applyNormalizedFitment(listing.compatibility);
+          const fitmentResult = fields.fitment
+            ? await applyNormalizedFitment(listing.compatibility)
+            : undefined;
           await restoreListingPage();
           setProgress(progressForStage("complete"));
-          appendStatus(fitmentSummary(fitmentResult, listing.compatibility.length));
-          if (fitmentResult.filled > 0) {
-            setShowFitmentReload(true);
+          if (fitmentResult) {
+            appendStatus(fitmentSummary(fitmentResult, listing.compatibility.length));
+            if (fitmentResult.filled > 0) {
+              setShowFitmentReload(true);
+            }
           }
           await reportApplyResult({
             jobId: listing.jobId,
-            fitmentCount: fitmentResult.filled,
+            fitmentCount: fitmentResult?.filled ?? 0,
             imageCount: filledImages,
-            warningCount: fitmentResult.warnings.length,
-            warnings: fitmentResult.warnings,
+            warningCount: fitmentResult?.warnings.length ?? 0,
+            warnings: fitmentResult?.warnings ?? [],
           });
           setIsComplete(true);
           break;
@@ -463,7 +508,7 @@ export function SellSimilarAssistant() {
               aria-controls={fillMenuId}
               onClick={() => {
                 setFillMenuOpen((open) => !open);
-                setImageMenuOpen(false);
+                setFieldsMenuOpen(false);
               }}
             >
               <span className="mode-dropdown-value">
@@ -503,58 +548,6 @@ export function SellSimilarAssistant() {
           </div>
         </FieldRow>
 
-        <FieldRow label="Images" htmlFor="image-mode">
-          <div className={imageMenuOpen ? "mode-dropdown is-open" : "mode-dropdown"}>
-            <button
-              type="button"
-              id="image-mode"
-              className="mode-dropdown-trigger"
-              disabled={isProcessing}
-              aria-haspopup="listbox"
-              aria-expanded={imageMenuOpen}
-              aria-controls={imageMenuId}
-              onClick={() => {
-                setImageMenuOpen((open) => !open);
-                setFillMenuOpen(false);
-              }}
-            >
-              <span className="mode-dropdown-value">
-                {IMAGE_MODES.find((mode) => mode.id === imageMode)?.label}
-              </span>
-              <span className="chevron" aria-hidden="true">
-                <ChevronIcon />
-              </span>
-            </button>
-            {imageMenuOpen ? (
-              <>
-                <div
-                  className="options-backdrop"
-                  onClick={() => setImageMenuOpen(false)}
-                  aria-hidden="true"
-                />
-                <div className="mode-dropdown-menu" id={imageMenuId} role="listbox" aria-label="Images">
-                  {IMAGE_MODES.map((mode) => (
-                    <button
-                      key={mode.id}
-                      type="button"
-                      role="option"
-                      className={
-                        mode.id === imageMode
-                          ? "mode-dropdown-option is-selected"
-                          : "mode-dropdown-option"
-                      }
-                      aria-selected={mode.id === imageMode}
-                      onClick={() => selectImageMode(mode.id)}
-                    >
-                      {mode.label}
-                    </button>
-                  ))}
-                </div>
-              </>
-            ) : null}
-          </div>
-        </FieldRow>
-
         <FieldRow label="Source URL / ID" htmlFor="source-url">
           <ControlField>
             <input
@@ -568,6 +561,61 @@ export function SellSimilarAssistant() {
               spellCheck={false}
             />
           </ControlField>
+        </FieldRow>
+
+        <FieldRow label="Fields" htmlFor="fill-fields">
+          <div className={fieldsMenuOpen ? "options-menu is-open" : "options-menu"}>
+            <button
+              type="button"
+              id="fill-fields"
+              className="mode-dropdown-trigger"
+              disabled={isProcessing}
+              aria-haspopup="dialog"
+              aria-expanded={fieldsMenuOpen}
+              aria-controls={fieldsMenuId}
+              onClick={() => {
+                setFieldsMenuOpen((open) => !open);
+                setFillMenuOpen(false);
+              }}
+            >
+              <span className="mode-dropdown-value">Fill these fields</span>
+              <span className="chevron" aria-hidden="true">
+                <ChevronIcon />
+              </span>
+            </button>
+            {fieldsMenuOpen ? (
+              <>
+                <div
+                  className="options-backdrop"
+                  onClick={() => setFieldsMenuOpen(false)}
+                  aria-hidden="true"
+                />
+                <div className="options-popover" id={fieldsMenuId} role="dialog" aria-label="Fill these fields">
+                  <div className="options-popover-head">
+                    <span>Fill these fields</span>
+                    <div className="options-popover-actions">
+                      <button type="button" onClick={() => setFields(allFillFields(true))}>
+                        All
+                      </button>
+                      <button type="button" onClick={() => setFields(allFillFields(false))}>
+                        None
+                      </button>
+                    </div>
+                  </div>
+                  {FILL_FIELDS.map((field) => (
+                    <label key={field.id} className="options-item">
+                      <input
+                        type="checkbox"
+                        checked={fields[field.id]}
+                        onChange={(event) => toggleFillField(field.id, event.target.checked)}
+                      />
+                      <span className="options-item-label">{field.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </>
+            ) : null}
+          </div>
         </FieldRow>
 
         <div className="form-actions">

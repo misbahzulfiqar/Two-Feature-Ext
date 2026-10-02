@@ -593,6 +593,355 @@ export async function prepareListingPage(page, listingUrl, options = {}) {
   await wait(300);
 }
 
+/**
+ * Listing category and seller Store categories. Self-contained for page.evaluate.
+ * Only `category` is applied to the target listing.
+ */
+export function extractListingCategoriesInPage() {
+  const clean = (value) =>
+    String(value || "")
+      .replace(/\u00a0/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const genericNames = new Set([
+    "ebay",
+    "home",
+    "back",
+    "back to search results",
+    "back to home page",
+    "see more",
+    "see all",
+    "see all categories",
+    "shop by category",
+    "all categories",
+    "categories",
+    "browse",
+    "browse categories",
+    "marketplace",
+  ]);
+
+  const title = clean(
+    document.querySelector(
+      "h1[data-testid='x-item-title-label'], h1.x-item-title__mainTitle, h1[itemprop='name'], h1",
+    )?.textContent,
+  );
+
+  const isGeneric = (name) => {
+    const value = clean(name);
+    if (!value) return true;
+    const lower = value.toLowerCase();
+    return genericNames.has(lower) || /^see more\b/i.test(value) || value === "..." || value === "…";
+  };
+
+  const looksLikeTitle = (name) => {
+    const value = clean(name);
+    if (!title || value.length < 20) return false;
+    const crumb = value.toLowerCase();
+    const heading = title.toLowerCase();
+    return crumb === heading || heading.startsWith(crumb);
+  };
+
+  const isItemLink = (href) => /\/itm(?:\/|$|\?)/i.test(String(href || ""));
+
+  const isStoreLink = (href) => /\/str\/|store_cat|store_name|_ssn=|\/stores\//i.test(String(href || ""));
+
+  const categoryIdFromUrl = (href) => {
+    const raw = String(href || "").trim();
+    if (!raw) return "";
+    let url;
+    try {
+      url = new URL(raw, document.baseURI || "https://www.ebay.com/");
+    } catch {
+      return "";
+    }
+    const keys = ["_sacat", "sacat", "categoryId", "category_id", "categoryid", "catId", "catid", "_catid"];
+    for (const key of keys) {
+      const value = url.searchParams.get(key);
+      if (value && /^\d{2,}$/.test(value) && value !== "0") return value;
+    }
+    const browse = url.pathname.match(/\/b\/[^/]+\/(\d+)(?:\/|$)/i);
+    if (browse?.[1] && browse[1] !== "0") return browse[1];
+    const search = url.pathname.match(/\/sch\/(\d+)(?:\/|$)/i);
+    if (search?.[1] && search[1] !== "0") return search[1];
+    const inline = raw.match(/(?:_sacat|categoryId|category_id|catId)(?:=|%3D|\/)(\d+)/i);
+    if (inline?.[1] && inline[1] !== "0") return inline[1];
+    return "";
+  };
+
+  const splitTrail = (name) =>
+    clean(name)
+      .split(/\s*(?:\||>|\/|\u203a)\s*/)
+      .map(clean)
+      .filter(Boolean);
+
+  const acceptName = (name) => {
+    const value = clean(name);
+    if (!value || isGeneric(value) || looksLikeTitle(value)) return [];
+    return splitTrail(value).filter((part) => part && !isGeneric(part) && !looksLikeTitle(part));
+  };
+
+  const storeCategories = [];
+  const addStore = (name, id, path) => {
+    const parts = acceptName(name);
+    const storeName = parts.length > 0 ? parts[parts.length - 1] : clean(name);
+    if (!storeName || isGeneric(storeName)) return;
+    if (storeCategories.some((item) => item.name.toLowerCase() === storeName.toLowerCase())) return;
+    const entry = { name: storeName };
+    if (id && /^\d+$/.test(String(id)) && String(id) !== "0") entry.id = String(id);
+    if (Array.isArray(path) && path.length > 0) {
+      const storePath = path.flatMap((part) => acceptName(part));
+      if (storePath.length > 0) entry.path = storePath;
+    }
+    storeCategories.push(entry);
+  };
+
+  const selectorGroups = [
+    ["nav[aria-label='breadcrumb']", "nav[aria-label='Breadcrumb']"],
+    ["nav.breadcrumbs", ".breadcrumbs", ".seo-breadcrumbs", ".seo-breadcrumbs-container"],
+    ["[data-testid='ux-breadcrumbs']", ".ux-breadcrumbs", ".x-breadcrumb"],
+    ["#vi-VR-brumb-lnkLst", "ul.breadcrumb", "ol.breadcrumb"],
+  ];
+
+  const crumbsFrom = (root) => {
+    const links = [];
+    const items = root.querySelectorAll("li");
+    const nodes = items.length > 0 ? items : root.querySelectorAll("a");
+    nodes.forEach((node) => {
+      const anchor = node.matches("a") ? node : node.querySelector("a");
+      const href = anchor ? anchor.getAttribute("href") || "" : "";
+      const name = clean(anchor ? anchor.textContent : node.textContent);
+      if (!name) return;
+      if (href && isItemLink(href)) return;
+      if (href && isStoreLink(href)) {
+        addStore(name, categoryIdFromUrl(href));
+        return;
+      }
+      if (/see more/i.test(name)) return;
+      for (const part of acceptName(name)) {
+        links.push({ name: part, href });
+      }
+    });
+    return links;
+  };
+
+  let chosen = [];
+  for (const group of selectorGroups) {
+    const roots = [];
+    for (const selector of group) {
+      document.querySelectorAll(selector).forEach((node) => roots.push(node));
+    }
+    const links = roots.flatMap((root) => crumbsFrom(root));
+    if (links.length > 0) {
+      chosen = links;
+      break;
+    }
+  }
+
+  const pathFromLinks = (links) => {
+    const path = [];
+    for (const link of links) {
+      if (path.some((part) => part.toLowerCase() === link.name.toLowerCase())) continue;
+      path.push(link.name);
+    }
+    let id = "";
+    for (let index = links.length - 1; index >= 0; index -= 1) {
+      const found = categoryIdFromUrl(links[index].href);
+      if (found) {
+        id = found;
+        break;
+      }
+    }
+    return { path, id };
+  };
+
+  let draft = pathFromLinks(chosen);
+
+  if (!draft.id || draft.path.length < 2) {
+    const roots = [];
+    document
+      .querySelectorAll(
+        "nav[aria-label='breadcrumb'], nav[aria-label='Breadcrumb'], nav.breadcrumbs, .breadcrumbs, [data-testid='ux-breadcrumbs'], .ux-breadcrumbs, #vi-VR-brumb-lnkLst",
+      )
+      .forEach((node) => roots.push(node));
+    const scopes = roots.length > 0 ? roots : [document];
+    const browseLinks = [];
+    for (const root of scopes) {
+      root.querySelectorAll("a[href*='/b/']").forEach((anchor) => {
+        const href = anchor.getAttribute("href") || "";
+        if (isItemLink(href) || isStoreLink(href)) return;
+        for (const part of acceptName(anchor.textContent)) {
+          browseLinks.push({ name: part, href });
+        }
+      });
+    }
+    const fromBrowse = pathFromLinks(browseLinks);
+    if (fromBrowse.path.length > draft.path.length) draft = { path: fromBrowse.path, id: draft.id || fromBrowse.id };
+    if (!draft.id && fromBrowse.id) draft.id = fromBrowse.id;
+  }
+
+  let jsonPath = [];
+  let jsonName = "";
+  let primaryId = "";
+  let jsonId = "";
+
+  const notePath = (value) => {
+    const parts = Array.isArray(value) ? value.flatMap((part) => acceptName(part)) : acceptName(value);
+    if (parts.length > jsonPath.length) jsonPath = parts;
+  };
+
+  const noteId = (value, primary) => {
+    const id = String(value ?? "").trim();
+    if (!/^\d{2,}$/.test(id) || id === "0") return;
+    if (primary) {
+      if (!primaryId) primaryId = id;
+      return;
+    }
+    if (!jsonId) jsonId = id;
+  };
+
+  const isStoreKey = (key) => /store/i.test(key) && /cat/i.test(key);
+
+  const readBreadcrumbList = (node) => {
+    const items = Array.isArray(node.itemListElement) ? node.itemListElement : [];
+    const links = [];
+    for (const item of items) {
+      if (!item || typeof item !== "object") continue;
+      const itemValue = item.item;
+      const href =
+        typeof itemValue === "string"
+          ? itemValue
+          : clean(itemValue?.["@id"] || itemValue?.url || itemValue?.id || "");
+      const name = clean(item.name || itemValue?.name);
+      if (!name || isItemLink(href)) continue;
+      if (isStoreLink(href)) {
+        addStore(name, categoryIdFromUrl(href));
+        continue;
+      }
+      for (const part of acceptName(name)) {
+        links.push({ name: part, href });
+      }
+    }
+    const parsed = pathFromLinks(links);
+    if (parsed.path.length > jsonPath.length) jsonPath = parsed.path;
+    if (parsed.id) noteId(parsed.id, false);
+  };
+
+  const typeIncludes = (type, expected) => {
+    if (typeof type === "string") return type.toLowerCase() === expected.toLowerCase();
+    if (Array.isArray(type)) return type.some((entry) => typeIncludes(entry, expected));
+    return false;
+  };
+
+  const walk = (node, depth, keyHint) => {
+    if (depth > 8 || node == null) return;
+    if (typeof node === "string") {
+      if (keyHint === "categoryPath" || keyHint === "categoryName" || keyHint === "primaryCategoryName") {
+        if (keyHint === "categoryPath") notePath(node);
+        else if (!jsonName) jsonName = clean(node);
+      }
+      return;
+    }
+    if (typeof node === "number" && (keyHint === "categoryId" || keyHint === "primaryCategoryId")) {
+      noteId(node, keyHint === "primaryCategoryId");
+      return;
+    }
+    if (Array.isArray(node)) {
+      if (keyHint === "categoryPath" || keyHint === "primaryCategoryIdPath") {
+        if (keyHint === "categoryPath") notePath(node);
+        const last = node.length > 0 ? node[node.length - 1] : "";
+        if (/^\d+$/.test(String(last))) noteId(last, keyHint === "primaryCategoryIdPath");
+      }
+      for (const entry of node) walk(entry, depth + 1, keyHint);
+      return;
+    }
+    if (typeof node !== "object") return;
+    if (typeIncludes(node["@type"], "BreadcrumbList")) readBreadcrumbList(node);
+    for (const [key, value] of Object.entries(node)) {
+      if (isStoreKey(key)) {
+        if (typeof value === "string") addStore(value);
+        else if (Array.isArray(value)) {
+          for (const entry of value) {
+            if (typeof entry === "string") addStore(entry);
+            else if (entry && typeof entry === "object") addStore(entry.name, entry.id || entry.categoryId, entry.path);
+          }
+        } else if (value && typeof value === "object") {
+          addStore(value.name, value.id || value.categoryId, value.path);
+        }
+        continue;
+      }
+      if (key === "categoryId") noteId(value, false);
+      if (key === "primaryCategoryId") noteId(value, true);
+      if (key === "categoryName" && typeof value === "string" && !jsonName) jsonName = clean(value);
+      if (key === "primaryCategoryName" && typeof value === "string" && !jsonName) jsonName = clean(value);
+      if (key === "categoryPath") notePath(value);
+      walk(value, depth + 1, key);
+    }
+  };
+
+  const readScript = (text) => {
+    const source = String(text || "").trim();
+    if (!source) return;
+    try {
+      walk(JSON.parse(source), 0, "");
+      return;
+    } catch {
+      // Large eBay scripts are not pure JSON. Read the known category fields from them.
+    }
+    if (!/primaryCategoryId|categoryPath|BreadcrumbList|categoryName/i.test(source)) return;
+    const primary = source.match(/"primaryCategoryId"\s*:\s*"?(\d+)"?/);
+    if (primary?.[1]) noteId(primary[1], true);
+    const category = source.match(/"categoryId"\s*:\s*"?(\d+)"?/);
+    if (category?.[1]) noteId(category[1], false);
+    const path = source.match(/"categoryPath"\s*:\s*"([^"]+)"/);
+    if (path?.[1]) notePath(path[1]);
+    const primaryName = source.match(/"primaryCategoryName"\s*:\s*"([^"]+)"/);
+    if (primaryName?.[1]) jsonName = clean(primaryName[1]);
+    const name = source.match(/"categoryName"\s*:\s*"([^"]+)"/);
+    if (name?.[1] && !jsonName) jsonName = clean(name[1]);
+  };
+
+  document.querySelectorAll("script[type='application/ld+json'], script[type='application/json']").forEach((script) => {
+    readScript(script.textContent);
+  });
+  let extraScripts = 0;
+  document.querySelectorAll("script:not([type]), script[type='text/javascript']").forEach((script) => {
+    if (extraScripts >= 30) return;
+    const text = script.textContent || "";
+    if (text.length > 2000000 || !/primaryCategoryId|categoryPath|BreadcrumbList/i.test(text)) return;
+    extraScripts += 1;
+    readScript(text);
+  });
+
+  if (jsonPath.length > draft.path.length) draft.path = jsonPath;
+  if (!draft.id) draft.id = primaryId || jsonId;
+  if (draft.path.length === 0 && jsonName) draft.path = acceptName(jsonName);
+
+  const path = [];
+  for (const part of draft.path) {
+    const value = clean(part);
+    if (!value || isGeneric(value) || looksLikeTitle(value)) continue;
+    if (path.some((item) => item.toLowerCase() === value.toLowerCase())) continue;
+    path.push(value);
+  }
+  let name = path.length > 0 ? path[path.length - 1] : "";
+  if (!name && jsonName && !isGeneric(jsonName) && !looksLikeTitle(jsonName)) {
+    name = clean(jsonName);
+    path.push(name);
+  }
+  if (name && path.length === 0) path.push(name);
+  if (path.length > 0) name = path[path.length - 1];
+
+  return {
+    category: {
+      id: /^\d{2,}$/.test(draft.id) ? draft.id : "",
+      name: name || "",
+      path,
+    },
+    storeCategories,
+  };
+}
+
 export async function fetchEbayListing(page, listingUrl, options = {}) {
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const evaluate = async (fn, ...args) => {
@@ -613,6 +962,18 @@ export async function fetchEbayListing(page, listingUrl, options = {}) {
   await prepareListingPage(page, listingUrl, options);
   const itemSpecifics = await evaluate(extractListingSpecificsInPage);
   const images = await evaluate(extractListingImagesInPage);
+  const categories = await evaluate(extractListingCategoriesInPage);
+  const category =
+    categories?.category && typeof categories.category === "object"
+      ? {
+          id: String(categories.category.id ?? ""),
+          name: String(categories.category.name ?? ""),
+          path: Array.isArray(categories.category.path)
+            ? categories.category.path.map((part) => String(part ?? "")).filter(Boolean)
+            : [],
+        }
+      : { id: "", name: "", path: [] };
+  if (category.name && category.path.length === 0) category.path = [category.name];
 
   return {
     title: "",
@@ -623,8 +984,8 @@ export async function fetchEbayListing(page, listingUrl, options = {}) {
     condition: "",
     conditionDescription: "",
     description: "",
-    category: { id: "", name: "", path: [] },
-    storeCategories: [],
+    category,
+    storeCategories: Array.isArray(categories?.storeCategories) ? categories.storeCategories : [],
     shipping: { service: "", cost: "", handlingTime: "", location: "", details: "" },
     weight: { value: "", unit: "" },
     dimensions: { length: "", width: "", height: "", unit: "", raw: "" },

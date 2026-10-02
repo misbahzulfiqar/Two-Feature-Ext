@@ -53,6 +53,21 @@ function rejectedFitment(listingData, fitmentResult) {
 function applyFetchedListing(listingData, fetched) {
   listingData.itemSpecifics = fetched.itemSpecifics || [];
   listingData.images = Array.isArray(fetched.images) ? fetched.images : [];
+  const category = fetched?.category;
+  listingData.category =
+    category && typeof category === "object"
+      ? {
+          id: String(category.id ?? ""),
+          name: String(category.name ?? ""),
+          path: Array.isArray(category.path) ? category.path.map((part) => String(part ?? "")) : [],
+        }
+      : { id: "", name: "", path: [] };
+  if (listingData.category.name && listingData.category.path.length === 0) {
+    listingData.category.path = [listingData.category.name];
+  }
+  if (Array.isArray(fetched?.storeCategories)) {
+    listingData.storeCategories = fetched.storeCategories;
+  }
   return listingData;
 }
 

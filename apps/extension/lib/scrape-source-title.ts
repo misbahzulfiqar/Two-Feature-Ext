@@ -1,6 +1,7 @@
 import {
   ebayItemIdFromListingUrl,
   type ItemSpecific,
+  type ListingCategory,
   type ScrapedListingData,
   type ScrapeMode,
   type VehicleCompatibility,
@@ -21,6 +22,7 @@ const ITEM_ID_PATTERN = /^\d{6,}$/;
 export type ScrapedListing = {
   itemSpecifics: ItemSpecific[];
   images: string[];
+  category: ListingCategory;
   fitment: VehicleCompatibility[];
   compatibility: VehicleCompatibility[];
   compatibilityCount: number;
@@ -85,6 +87,21 @@ function toCompatibility(rows: VehicleCompatibility[] | undefined): VehicleCompa
   }));
 }
 
+function toCategory(category: ListingCategory | undefined): ListingCategory {
+  if (!category || typeof category !== "object") {
+    return { id: "", name: "", path: [] };
+  }
+  const name = String(category.name ?? "").trim();
+  const path = Array.isArray(category.path)
+    ? category.path.map((part) => String(part ?? "").trim()).filter(Boolean)
+    : [];
+  return {
+    id: String(category.id ?? "").trim(),
+    name,
+    path: path.length > 0 ? path : name ? [name] : [],
+  };
+}
+
 function toScrapedListing(data: ScrapedListingData): ScrapedListing {
   console.log('[SellSimilar] 📊 data.compatibility:', data.compatibility);
   console.log('[SellSimilar] 📊 data.compatibility length:', data.compatibility?.length);
@@ -104,6 +121,7 @@ function toScrapedListing(data: ScrapedListingData): ScrapedListing {
   return {
     itemSpecifics: Array.isArray(data.itemSpecifics) ? data.itemSpecifics : [],
     images: Array.isArray(data.images) ? data.images : [],
+    category: toCategory(data.category),
     fitment: compatibility,
     compatibility,
     compatibilityCount: data.compatibilityCount ?? compatibility.length,
