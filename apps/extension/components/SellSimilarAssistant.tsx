@@ -69,11 +69,9 @@ function imageStatus(sourceCount: number, filled: number): string {
 }
 
 export function SellSimilarAssistant() {
-  const [fillMode, setFillMode] = useState<FillMode>("specs-and-fitment");
-  const [fillMenuOpen, setFillMenuOpen] = useState(false);
+  const [fillMode] = useState<FillMode>("specs-and-fitment");
   const [fields, setFields] = useState<FillFieldSelection>(allFillFields(true));
   const [fieldsMenuOpen, setFieldsMenuOpen] = useState(false);
-  const fillMenuId = useId();
   const fieldsMenuId = useId();
   const [source, setSource] = useState("");
   const [progress, setProgress] = useState(0);
@@ -152,11 +150,6 @@ export function SellSimilarAssistant() {
 
   const rootRef = useRef<HTMLElement | null>(null);
   const isBusy = isProcessing;
-
-  function selectFillMode(mode: FillMode): void {
-    setFillMode(mode);
-    setFillMenuOpen(false);
-  }
 
   function toggleFillField(id: FillFieldId, selected: boolean): void {
     setFields((current) => ({ ...current, [id]: selected }));
@@ -496,74 +489,7 @@ export function SellSimilarAssistant() {
       aria-label="Sell Similar Assistant"
     >
       <form className="assistant-form" onSubmit={handleSubmit}>
-        <FieldRow label="Fill" htmlFor="fill-mode">
-          <div className={fillMenuOpen ? "mode-dropdown is-open" : "mode-dropdown"}>
-            <button
-              type="button"
-              id="fill-mode"
-              className="mode-dropdown-trigger"
-              disabled={isProcessing}
-              aria-haspopup="listbox"
-              aria-expanded={fillMenuOpen}
-              aria-controls={fillMenuId}
-              onClick={() => {
-                setFillMenuOpen((open) => !open);
-                setFieldsMenuOpen(false);
-              }}
-            >
-              <span className="mode-dropdown-value">
-                {FILL_MODES.find((mode) => mode.id === fillMode)?.label}
-              </span>
-              <span className="chevron" aria-hidden="true">
-                <ChevronIcon />
-              </span>
-            </button>
-            {fillMenuOpen ? (
-              <>
-                <div
-                  className="options-backdrop"
-                  onClick={() => setFillMenuOpen(false)}
-                  aria-hidden="true"
-                />
-                <div className="mode-dropdown-menu" id={fillMenuId} role="listbox" aria-label="Fill">
-                  {FILL_MODES.map((mode) => (
-                    <button
-                      key={mode.id}
-                      type="button"
-                      role="option"
-                      className={
-                        mode.id === fillMode
-                          ? "mode-dropdown-option is-selected"
-                          : "mode-dropdown-option"
-                      }
-                      aria-selected={mode.id === fillMode}
-                      onClick={() => selectFillMode(mode.id)}
-                    >
-                      {mode.label}
-                    </button>
-                  ))}
-                </div>
-              </>
-            ) : null}
-          </div>
-        </FieldRow>
-
-        <FieldRow label="Source URL / ID" htmlFor="source-url">
-          <ControlField>
-            <input
-              id="source-url"
-              name="source"
-              type="text"
-              value={source}
-              placeholder={SAMPLE_SOURCE_URL}
-              onChange={handleSourceChange}
-              autoComplete="off"
-              spellCheck={false}
-            />
-          </ControlField>
-        </FieldRow>
-
-        <FieldRow label="Fields" htmlFor="fill-fields">
+        <FieldRow label="Full scrape" htmlFor="fill-fields">
           <div className={fieldsMenuOpen ? "options-menu is-open" : "options-menu"}>
             <button
               type="button"
@@ -575,7 +501,6 @@ export function SellSimilarAssistant() {
               aria-controls={fieldsMenuId}
               onClick={() => {
                 setFieldsMenuOpen((open) => !open);
-                setFillMenuOpen(false);
               }}
             >
               <span className="mode-dropdown-value">Fill these fields</span>
@@ -616,6 +541,21 @@ export function SellSimilarAssistant() {
               </>
             ) : null}
           </div>
+        </FieldRow>
+
+        <FieldRow label="Source URL / ID" htmlFor="source-url">
+          <ControlField>
+            <input
+              id="source-url"
+              name="source"
+              type="text"
+              value={source}
+              placeholder={SAMPLE_SOURCE_URL}
+              onChange={handleSourceChange}
+              autoComplete="off"
+              spellCheck={false}
+            />
+          </ControlField>
         </FieldRow>
 
         <div className="form-actions">
