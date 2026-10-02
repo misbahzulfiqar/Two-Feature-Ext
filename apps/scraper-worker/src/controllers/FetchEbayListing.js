@@ -594,7 +594,8 @@ export async function prepareListingPage(page, listingUrl, options = {}) {
 }
 
 /**
- * Listing category and seller Store categories. Self-contained for page.evaluate.
+ * Listing category & 
+ *  seller Store categories. Self-contained for page.evaluate.
  * Only `category` is applied to the target listing.
  */
 export function extractListingCategoriesInPage() {
