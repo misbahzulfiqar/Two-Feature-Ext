@@ -20,7 +20,7 @@ import {
 import { createScrapeJobsHandlers } from "./controllers/ScrapeJobsController.js";
 import { correlationMiddleware } from "./correlation.js";
 import { corsMiddleware } from "./cors.js";
-import { apiEnvSchema } from "./env.js";
+import { apiEnvSchema, type ApiEnv } from "./env.js";
 import { configureScrapeCache } from "./scrape-cache.js";
 
 loadRootEnv();
@@ -43,7 +43,7 @@ app.get("/health", (req, res) => {
   res.json(body);
 });
 
-let env;
+let env: ApiEnv | undefined;
 try {
   env = loadEnv(apiEnvSchema);
 } catch (error) {
@@ -58,8 +58,18 @@ const liveScrape = process.env.VERCEL
         html?: string;
         scrapeMode?: "full-scrape" | "only-fitment";
       }) => {
-        const { scrapeFromHtml } = await import("./snapshot-scrape.js");
-        return scrapeFromHtml(input);
+        try {
+          const { scrapeFromHtml } = await import("./snapshot-scrape.js");
+          return await scrapeFromHtml(input);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Scrape failed";
+          logger.error({ err: message }, "in-process scrape failed");
+          return {
+            status: "failed" as const,
+            code: "500",
+            message,
+          };
+        }
       },
       readProgress: () => ({
         active: false,
@@ -74,57 +84,15 @@ const liveScrape = process.env.VERCEL
     }
   : {};
 
-let accessAuth: AccessAuth | undefined;
-if (env?.MONGO_URL) {
-  try {
-    accessAuth = await createAccess(env);
-  } catch (error) {
-    logger.error(
-      { err: error instanceof Error ? error.message : "access failed" },
-      "account sign-in failed to start",
-    );
-  }
+function rejectAccounts(_req: express.Request, res: express.Response): void {
+  res.status(503).json({
+    ok: false,
+    error: { code: "AUTH_UNAVAILABLE", message: "Set MONGO_URL to enable accounts." },
+  });
 }
 
 if (env) {
-  if (accessAuth) {
-    app.all(`${ACCESS_PATH}/{*path}`, toNodeHandler(accessAuth));
-  } else {
-    app.all(`${ACCESS_PATH}/{*path}`, (_req, res) => {
-      res.status(503).json({
-        ok: false,
-        error: { code: "AUTH_UNAVAILABLE", message: "Set MONGO_URL to enable accounts." },
-      });
-    });
-  }
   app.use(express.json({ limit: "20mb" }));
-  if (accessAuth && env.MONGO_URL) {
-    const auth = accessAuth;
-    const mongoUrl = env.MONGO_URL;
-    await ensureAdminDataStores(mongoUrl).catch((error: unknown) => {
-      logger.warn(
-        { err: error instanceof Error ? error.message : "store setup failed" },
-        "mongo stores",
-      );
-    });
-    await ensureAdminAccount({
-      auth,
-      mongoUrl,
-      email: env.ADMIN_BOOTSTRAP_EMAIL,
-      password: env.ADMIN_BOOTSTRAP_PASSWORD,
-      logger,
-    }).catch((error: unknown) => {
-      logger.warn(
-        { err: error instanceof Error ? error.message : "admin setup failed" },
-        "admin account",
-      );
-    });
-    app.use(
-      "/api/v1/admin",
-      requireAdmin(auth),
-      createAdminOverviewRouter({ mongoUrl, auth, adminAppUrl: env.ADMIN_APP_URL }),
-    );
-  }
   const extensionRelease = createExtensionReleaseHandlers();
   app.get("/extension/release", extensionRelease.releaseInfo);
   app.get("/extension/download", extensionRelease.download);
@@ -138,9 +106,6 @@ if (env) {
   const scrapeJobs = createScrapeJobsHandlers(env);
   app.post("/listings/scrape-jobs", scrapeJobs.createScrapeJob);
   app.get("/listings/scrape-jobs/:jobId", scrapeJobs.getScrapeJob);
-}
-
-if (env) {
   app.post("/listings", createListing);
   app.post("/listings/sell-similar", sellSimilar);
   app.get(
@@ -148,6 +113,48 @@ if (env) {
     createScrapeProgressHandler(env.SCRAPER_WORKER_URL, liveScrape),
   );
   app.post("/listings/scrape-cache/clear", clearScrapeCacheHandler);
+  void bootAccounts(env);
+}
+
+async function bootAccounts(current: ApiEnv): Promise<void> {
+  if (!current.MONGO_URL) {
+    app.all(`${ACCESS_PATH}/{*path}`, rejectAccounts);
+    return;
+  }
+  try {
+    const auth: AccessAuth = await createAccess(current);
+    app.all(`${ACCESS_PATH}/{*path}`, toNodeHandler(auth));
+    const mongoUrl = current.MONGO_URL;
+    await ensureAdminDataStores(mongoUrl).catch((error: unknown) => {
+      logger.warn(
+        { err: error instanceof Error ? error.message : "store setup failed" },
+        "mongo stores",
+      );
+    });
+    await ensureAdminAccount({
+      auth,
+      mongoUrl,
+      email: current.ADMIN_BOOTSTRAP_EMAIL,
+      password: current.ADMIN_BOOTSTRAP_PASSWORD,
+      logger,
+    }).catch((error: unknown) => {
+      logger.warn(
+        { err: error instanceof Error ? error.message : "admin setup failed" },
+        "admin account",
+      );
+    });
+    app.use(
+      "/api/v1/admin",
+      requireAdmin(auth),
+      createAdminOverviewRouter({ mongoUrl, auth, adminAppUrl: current.ADMIN_APP_URL }),
+    );
+  } catch (error) {
+    logger.error(
+      { err: error instanceof Error ? error.message : "access failed" },
+      "account sign-in failed to start",
+    );
+    app.all(`${ACCESS_PATH}/{*path}`, rejectAccounts);
+  }
 }
 
 const cacheBackend = env ? await configureScrapeCache(env.REDIS_URL) : "memory";

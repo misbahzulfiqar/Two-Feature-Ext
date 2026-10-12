@@ -59,20 +59,45 @@ function shadowOf(el: Element): ShadowRoot | null {
   }
 }
 
+const TABLE_SELECTOR = [
+  "table",
+  "[role='table']",
+  ".motors-compatibility-table",
+  "[data-testid='d-motors-compatibility-table']",
+  "[data-testid='d-item-compatibility']",
+  ".motors-compatibility-table-wrapper",
+  ".comp-fitment-selector",
+  ".x-compatibility-table",
+  "[class*='compatibility-table']",
+].join(", ");
+
 function allRoots(): ParentNode[] {
   const roots: ParentNode[] = [document];
   const seen = new Set<ParentNode>([document]);
-  const visit = (node: ParentNode): void => {
+  const queue: ParentNode[] = [document];
+  while (queue.length > 0 && roots.length < 30) {
+    const node = queue.shift();
+    if (!node) {
+      break;
+    }
+    const hosts = Array.from(node.querySelectorAll(TABLE_SELECTOR)).slice(0, 40);
     for (const el of Array.from(node.querySelectorAll("*"))) {
+      if (hosts.length >= 80) {
+        break;
+      }
+      if (el.tagName.includes("-") || el.shadowRoot) {
+        hosts.push(el);
+      }
+    }
+    for (const el of hosts) {
       const shadow = shadowOf(el);
       if (shadow && !seen.has(shadow)) {
         seen.add(shadow);
         roots.push(shadow);
-        visit(shadow);
+        queue.push(shadow);
       }
     }
-  };
-  visit(document);
+  }
   return roots;
 }
 
@@ -87,20 +112,21 @@ function rowsFromTable(table: Element): FitmentPageRow[] {
   const rowNodes = Array.from(table.querySelectorAll("tbody tr, [role='row']"));
   for (const row of rowNodes) {
     const cells = cellsOf(row);
-    if (cells.length < 3 || !cells[0] || !cells[1] || !cells[2]) {
-      continue;
-    }
-    if (!/\b(?:19|20)\d{2}\b/.test(cells[0])) {
+    const yearAt = cells.findIndex((cell) => /\b(?:19|20)\d{2}\b/.test(cell));
+    if (yearAt < 0 || yearAt > 1 || cells.length < yearAt + 3) {
       continue;
     }
     const entry = {
-      year: cells[0],
-      make: cells[1],
-      model: cells[2],
-      trim: cells[3] || "",
-      engine: cells[4] || "",
-      notes: cells[5] || "",
+      year: cells[yearAt] ?? "",
+      make: cells[yearAt + 1] ?? "",
+      model: cells[yearAt + 2] ?? "",
+      trim: cells[yearAt + 3] ?? "",
+      engine: cells[yearAt + 4] ?? "",
+      notes: cells[yearAt + 5] ?? "",
     };
+    if (!entry.year || !entry.make || !entry.model) {
+      continue;
+    }
     const key = `${entry.year}|${entry.make}|${entry.model}|${entry.trim}|${entry.engine}`;
     if (seen.has(key)) {
       continue;
@@ -170,23 +196,28 @@ function describe(controls: HTMLElement[]): string[] {
   });
 }
 
-function bestTable(): { table: Element; rows: FitmentPageRow[]; scope: ParentNode } | null {
+function tablesIn(scope: ParentNode): { table: Element; rows: FitmentPageRow[]; scope: ParentNode } | null {
   let best: { table: Element; rows: FitmentPageRow[]; scope: ParentNode } | null = null;
-  for (const scope of allRoots()) {
-    const tables = Array.from(
-      scope.querySelectorAll(
-        "table, [role='table'], .motors-compatibility-table, [data-testid='d-motors-compatibility-table'], [data-testid='d-item-compatibility'], .motors-compatibility-table-wrapper, .comp-fitment-selector",
-      ),
-    );
-    for (const table of tables) {
-      const rows = rowsFromTable(table);
-      if (!best || rows.length > best.rows.length) {
-        best = { table, rows, scope };
-      }
+  for (const table of Array.from(scope.querySelectorAll(TABLE_SELECTOR))) {
+    const rows = rowsFromTable(table);
+    if (!best || rows.length > best.rows.length) {
+      best = { table, rows, scope };
     }
   }
-  if (!best || best.rows.length === 0) {
-    return null;
+  return best && best.rows.length > 0 ? best : null;
+}
+
+function bestTable(): { table: Element; rows: FitmentPageRow[]; scope: ParentNode } | null {
+  const light = tablesIn(document);
+  if (light && light.rows.length >= 5) {
+    return light;
+  }
+  let best = light;
+  for (const scope of allRoots()) {
+    const found = tablesIn(scope);
+    if (found && (!best || found.rows.length > best.rows.length)) {
+      best = found;
+    }
   }
   return best;
 }
@@ -197,11 +228,7 @@ function pageControls(scope: ParentNode | null): HTMLElement[] {
   if (next) {
     return local;
   }
-  const everywhere: HTMLElement[] = [];
-  for (const root of allRoots()) {
-    everywhere.push(...controlElements(root));
-  }
-  return everywhere;
+  return controlElements(document.body ?? document);
 }
 
 /** Reads the compatibility table, including one inside a closed shadow root. */

@@ -5,7 +5,7 @@ export default defineContentScript({
   matches: ["*://*.ebay.com/*", "*://ebay.com/*"],
   excludeMatches: ["*://*.ebaystatic.com/*", "*://ir.ebaystatic.com/*", "*://rover.ebay.com/*"],
   allFrames: true,
-  runAt: "document_idle",
+  runAt: "document_start",
   main() {
     browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       if (!message || typeof message !== "object" || !("type" in message)) {

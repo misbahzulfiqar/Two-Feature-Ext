@@ -635,6 +635,26 @@ function embedLiveRows(rows: LiveFitmentRow[]): string {
   return `<div class="motors-compatibility-table"><table class="motors-compatibility-table"><thead><tr><th>Year</th><th>Make</th><th>Model</th><th>Trim</th><th>Engine</th><th>Notes</th></tr></thead><tbody>${body}</tbody></table></div><script type="application/json" id="sell-similar-fitment-page">${json}</script>`;
 }
 
+async function readAnyFitment(tabId: number): Promise<{
+  frameId: number;
+  source: "frame" | "page";
+  snapshot: FitmentPageSnapshot;
+} | null> {
+  const frame = await readFitmentFrame(tabId);
+  if (frame && frame.snapshot.rows.length > 0) {
+    return { frameId: frame.frameId, source: "frame", snapshot: frame.snapshot };
+  }
+  const live = await readLiveSnapshot(tabId);
+  if (live && live.rows.length > 0) {
+    return {
+      frameId: 0,
+      source: "page",
+      snapshot: { ...live, href: "" },
+    };
+  }
+  return frame ? { frameId: frame.frameId, source: "frame", snapshot: frame.snapshot } : null;
+}
+
 async function readLiveSnapshot(tabId: number): Promise<LiveFitmentSnapshot | null> {
   try {
     const injected = await browser.scripting.executeScript({
@@ -680,11 +700,24 @@ export async function openListingAndCollectFitment(
     let note = "";
     let frameId = 0;
     const readyAt = Date.now();
-    let read = await readFitmentFrame(tabId);
+    let read = await readAnyFitment(tabId);
     while ((!read || read.snapshot.rows.length === 0) && Date.now() - readyAt < 25000) {
       await messageFitmentFrames(tabId, EXPAND_FITMENT);
+      await browser.scripting
+        .executeScript({
+          target: { tabId },
+          world: "MAIN",
+          func: () => {
+            const heading = Array.from(document.querySelectorAll("h1, h2, h3, a, button")).find((el) =>
+              /compatible vehicle|compatibility/i.test(el.textContent || ""),
+            );
+            heading?.scrollIntoView({ block: "center" });
+            window.scrollBy(0, heading ? 0 : 900);
+          },
+        })
+        .catch(() => undefined);
       await sleep(600);
-      read = await readFitmentFrame(tabId);
+      read = await readAnyFitment(tabId);
     }
     if (!read || read.snapshot.rows.length === 0) {
       const tab = await browser.tabs.get(tabId).catch(() => null);
@@ -724,8 +757,9 @@ export async function openListingAndCollectFitment(
       const waitNext = Date.now();
       while (!nextLabel && all.length < maxVehicles && Date.now() - waitNext < 8000) {
         await sleep(400);
-        const again = await readFitmentFrame(tabId);
+        const again = await readAnyFitment(tabId);
         if (again && again.snapshot.rows.length > 0) {
+          read = again;
           frameId = again.frameId;
           snapshot = again.snapshot;
         }
@@ -739,8 +773,18 @@ export async function openListingAndCollectFitment(
       }
 
       const before = snapshot.signature;
-      const clicked = await messageFitmentFrame(tabId, frameId, CLICK_FITMENT_NEXT);
-      if (!clicked || clicked.clicked !== true) {
+      const clicked =
+        read.source === "page"
+          ? await browser.scripting
+              .executeScript({
+                target: { tabId },
+                world: "MAIN",
+                func: clickLiveFitmentNext,
+              })
+              .then((injected) => injected[0]?.result === true)
+              .catch(() => false)
+          : (await messageFitmentFrame(tabId, frameId, CLICK_FITMENT_NEXT))?.clicked === true;
+      if (!clicked) {
         note = `Next control could not be clicked on page ${page}.`;
         break;
       }
@@ -748,8 +792,9 @@ export async function openListingAndCollectFitment(
       let moved = false;
       while (Date.now() - changedAt < 20000) {
         await sleep(350);
-        const next = await readFitmentFrame(tabId);
+        const next = await readAnyFitment(tabId);
         if (next?.snapshot.signature && next.snapshot.signature !== before) {
+          read = next;
           frameId = next.frameId;
           snapshot = next.snapshot;
           moved = true;

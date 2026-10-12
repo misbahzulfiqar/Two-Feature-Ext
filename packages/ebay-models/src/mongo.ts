@@ -20,7 +20,10 @@ export async function getMongoClient(mongoUrl: string): Promise<MongoClient> {
     await client.close();
     client = undefined;
   }
-  client = new MongoClient(mongoUrl);
+  client = new MongoClient(mongoUrl, {
+    serverSelectionTimeoutMS: 8000,
+    connectTimeoutMS: 8000,
+  });
   await client.connect();
   connectedUrl = mongoUrl;
   return client;
